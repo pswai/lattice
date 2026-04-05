@@ -369,6 +369,9 @@ describe('Tasks API', () => {
       const task = await getRes.json();
       expect(task.priority).toBe('P0');
       expect(task.assignedTo).toBe('alice');
+      // Auto-claim should go to the assignee, not the creator — otherwise
+      // the assignee cannot complete the task they were handed.
+      expect(task.claimedBy).toBe('alice');
     });
 
     it('should order P0 tasks before P2 in list_tasks', async () => {

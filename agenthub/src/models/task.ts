@@ -220,10 +220,12 @@ export function createTask(
   input: CreateTaskInput,
 ): CreateTaskResponse {
   const status = input.status ?? 'claimed';
-  const claimedBy = status === 'claimed' ? agentId : null;
-  const claimedAt = status === 'claimed' ? new Date().toISOString() : null;
   const priority = input.priority ?? 'P2';
   const assignedTo = input.assigned_to ?? null;
+  // When the task is auto-claimed at creation, prefer the assigned agent —
+  // otherwise the creator holds the claim and the assignee can't complete it.
+  const claimedBy = status === 'claimed' ? (assignedTo ?? agentId) : null;
+  const claimedAt = status === 'claimed' ? new Date().toISOString() : null;
 
   const result = db.prepare(`
     INSERT INTO tasks (team_id, description, status, created_by, claimed_by, claimed_at, priority, assigned_to)
