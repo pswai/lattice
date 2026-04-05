@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+
+# TypeScript build output
+dist/
+*.tsbuildinfo
+
+# Runtime databases (SQLite)
+agenthub/data/*.db
+agenthub/data/*.db-shm
+agenthub/data/*.db-wal
+
+# Env files
+.env
+.env.local
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Claude local settings
+.claude/settings.local.json
