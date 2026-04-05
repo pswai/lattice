@@ -1,0 +1,11 @@
+node_modules
+.git
+.env
+*.log
+dist
+data
+tests
+coverage
+README.md
+tsconfig.tsbuildinfo
+.DS_Store
