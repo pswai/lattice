@@ -98,6 +98,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     emailResendApiKey: '',
     emailFromAddress: 'noreply@agenthub.local',
     appBaseUrl: 'http://localhost:3000',
+    corsOrigins: [],
     ...overrides,
   };
 }

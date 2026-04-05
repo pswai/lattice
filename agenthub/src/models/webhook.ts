@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomBytes, createHmac } from 'crypto';
 import { NotFoundError, ValidationError } from '../errors.js';
+import { assertPublicUrl } from '../services/ssrf-guard.js';
 
 export interface Webhook {
   id: string;
@@ -114,8 +115,18 @@ export function createWebhook(
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new ValidationError('url must be http(s)');
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
     throw new ValidationError('Invalid url');
+  }
+
+  try {
+    assertPublicUrl(input.url);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      throw new ValidationError(err.message);
+    }
+    throw err;
   }
 
   const eventTypes = input.event_types ?? ['*'];

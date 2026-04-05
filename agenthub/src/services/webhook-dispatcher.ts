@@ -9,6 +9,7 @@ import {
   markDeliveryFailure,
   signPayload,
 } from '../models/webhook.js';
+import { assertPublicUrl } from './ssrf-guard.js';
 
 interface EventRow {
   id: number;
@@ -114,6 +115,22 @@ async function deliverOne(
   const body = JSON.stringify(envelope);
   const timestamp = Math.floor(Date.now() / 1000);
   const signature = signPayload(delivery.secret, timestamp, body);
+
+  // Defense in depth — re-check at dispatch time in case policy changed
+  // or the URL was inserted before the guard existed.
+  try {
+    assertPublicUrl(delivery.url);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    getLogger().warn('webhook_url_blocked', {
+      component: 'webhook-dispatcher',
+      delivery_id: delivery.id,
+      webhook_id: delivery.webhookId,
+      reason: msg,
+    });
+    markDeliveryFailure(db, delivery.id, delivery.webhookId, null, msg, false);
+    return;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

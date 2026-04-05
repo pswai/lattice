@@ -24,6 +24,7 @@ export interface AppConfig {
   emailResendApiKey: string;
   emailFromAddress: string;
   appBaseUrl: string;
+  corsOrigins: string[] | '*';
 }
 
 export function loadConfig(): AppConfig {
@@ -58,5 +59,16 @@ export function loadConfig(): AppConfig {
     emailResendApiKey: process.env.RESEND_API_KEY || '',
     emailFromAddress: process.env.EMAIL_FROM || 'noreply@agenthub.local',
     appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+    corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
   };
+}
+
+function parseCorsOrigins(raw: string | undefined): string[] | '*' {
+  if (!raw) return [];
+  const trimmed = raw.trim();
+  if (trimmed === '*') return '*';
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }

@@ -22,6 +22,13 @@ import {
   acceptInvitation,
 } from '../../models/invitation.js';
 import { requireSession } from '../middleware/require-session.js';
+import {
+  queryAuditLog,
+  encodeAuditCursor,
+  decodeAuditCursor,
+  DEFAULT_AUDIT_LIMIT,
+  MAX_AUDIT_LIMIT,
+} from '../../models/audit-query.js';
 import type { EmailSender } from '../../services/email.js';
 import { getLogger } from '../../logger.js';
 
@@ -327,6 +334,75 @@ export function createWorkspaceRoutes(
     }
     removeMembership(db, targetUserId, teamId);
     return c.body(null, 204);
+  });
+
+  // --- Audit log query (any member can read) ---
+
+  router.get('/:id/audit', requireSession, (c) => {
+    const session = c.get('session')!;
+    const teamId = c.req.param('id');
+    const membership = getMembership(db, session.userId, teamId);
+    if (!membership) {
+      return c.json({ error: 'FORBIDDEN', message: 'Not a member of this workspace' }, 403);
+    }
+
+    const q = c.req.query();
+    let limit = DEFAULT_AUDIT_LIMIT;
+    if (q.limit) {
+      const n = parseInt(q.limit, 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new ValidationError('limit must be a positive integer');
+      }
+      limit = Math.min(n, MAX_AUDIT_LIMIT);
+    }
+    let beforeId: number | undefined;
+    if (q.cursor) {
+      const decoded = decodeAuditCursor(q.cursor);
+      if (decoded === null) {
+        throw new ValidationError('invalid cursor');
+      }
+      beforeId = decoded;
+    }
+
+    const rows = queryAuditLog(db, teamId, {
+      actor: q.actor,
+      action: q.action,
+      resource: q.resource,
+      since: q.since,
+      until: q.until,
+      limit,
+      beforeId,
+    });
+
+    const entries = rows.map((r) => {
+      let metadata: unknown = {};
+      try {
+        metadata = JSON.parse(r.metadata);
+      } catch {
+        metadata = {};
+      }
+      // Compose resource string from (resource_type, resource_id) so callers
+      // can filter/correlate without seeing the underlying columns.
+      const resource = r.resource_type
+        ? (r.resource_id ? `${r.resource_type}:${r.resource_id}` : r.resource_type)
+        : null;
+      return {
+        id: r.id,
+        actor: r.actor,
+        action: r.action,
+        resource,
+        metadata,
+        ip: r.ip,
+        request_id: r.request_id,
+        created_at: r.created_at,
+      };
+    });
+
+    const nextCursor = rows.length === limit && rows.length > 0
+      ? encodeAuditCursor(rows[rows.length - 1].id)
+      : null;
+
+    return c.json({ entries, next_cursor: nextCursor });
   });
 
   return router;

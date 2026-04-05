@@ -9,6 +9,7 @@ import { createAuditMiddleware } from './middleware/audit.js';
 import { createRateLimitMiddleware } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
+import { createCorsMiddleware } from './middleware/cors.js';
 import { createContextRoutes } from './routes/context.js';
 import { createEventRoutes } from './routes/events.js';
 import { createTaskRoutes } from './routes/tasks.js';
@@ -57,6 +58,15 @@ export function createApp(
 
   // Security response headers (cheap, always-on)
   app.use('*', createSecurityHeadersMiddleware({ hstsEnabled: !!config?.hstsEnabled }));
+
+  // CORS — mounted only when origins are configured. Fully inert by default.
+  if (config) {
+    const origins = config.corsOrigins;
+    const isEnabled = origins === '*' || (Array.isArray(origins) && origins.length > 0);
+    if (isEnabled) {
+      app.use('*', createCorsMiddleware({ origins, credentials: false }));
+    }
+  }
 
   // Body size limit (Content-Length based; 0 = disabled)
   if (config && config.maxBodyBytes > 0) {
