@@ -89,6 +89,8 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     rateLimitPerMinute: 0,
     maxBodyBytes: 0,
     hstsEnabled: false,
+    cookieSecure: false,
+    emailVerificationReturnTokens: true,
     ...overrides,
   };
 }

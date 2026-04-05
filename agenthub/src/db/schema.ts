@@ -3,6 +3,8 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS teams (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    owner_user_id TEXT,
+    slug TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -270,6 +272,62 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_team_time ON audit_log(team_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_team_actor ON audit_log(team_id, actor, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_team_action ON audit_log(team_id, action, created_at DESC);
+
+-- Users — human end-users for SaaS self-serve (separate from API-key teams).
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    name TEXT,
+    email_verified_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
+
+-- Sessions — opaque-token-backed browser sessions. PK is sha256(raw_token).
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+-- Email verification tokens. Hashed at rest; one-shot via used_at.
+CREATE TABLE IF NOT EXISTS email_verifications (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
+
+-- Password reset tokens. Hashed at rest; one-shot via used_at.
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+
+-- Team memberships — join users to teams with a role.
+CREATE TABLE IF NOT EXISTS team_memberships (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'viewer')),
+    invited_by TEXT,
+    joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, team_id)
+);
+CREATE INDEX IF NOT EXISTS idx_team_memberships_team ON team_memberships(team_id);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the
@@ -283,6 +341,17 @@ export const TASK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'assigned_to',
     sql: 'ALTER TABLE tasks ADD COLUMN assigned_to TEXT',
+  },
+];
+
+export const TEAMS_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'owner_user_id',
+    sql: 'ALTER TABLE teams ADD COLUMN owner_user_id TEXT',
+  },
+  {
+    name: 'slug',
+    sql: 'ALTER TABLE teams ADD COLUMN slug TEXT',
   },
 ];
 

@@ -15,6 +15,8 @@ export interface AppConfig {
   rateLimitPerMinute: number;
   maxBodyBytes: number;
   hstsEnabled: boolean;
+  cookieSecure: boolean;
+  emailVerificationReturnTokens: boolean;
 }
 
 export function loadConfig(): AppConfig {
@@ -35,5 +37,11 @@ export function loadConfig(): AppConfig {
     rateLimitPerMinute: parseInt(process.env.RATE_LIMIT_PER_MIN || '300', 10),
     maxBodyBytes: parseInt(process.env.MAX_BODY_BYTES || '1048576', 10),
     hstsEnabled: (process.env.HSTS_ENABLED || 'false').toLowerCase() === 'true',
+    cookieSecure:
+      (process.env.COOKIE_SECURE || (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
+        .toLowerCase() === 'true',
+    emailVerificationReturnTokens:
+      (process.env.EMAIL_VERIFICATION_RETURN_TOKENS ||
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() === 'true',
   };
 }

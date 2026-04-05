@@ -1,7 +1,12 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { SCHEMA_SQL, TASK_COLUMN_MIGRATIONS, API_KEY_COLUMN_MIGRATIONS } from './schema.js';
+import {
+  SCHEMA_SQL,
+  TASK_COLUMN_MIGRATIONS,
+  API_KEY_COLUMN_MIGRATIONS,
+  TEAMS_COLUMN_MIGRATIONS,
+} from './schema.js';
 
 export function initDatabase(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -22,6 +27,16 @@ export function initDatabase(dbPath: string): Database.Database {
   );
   for (const migration of TASK_COLUMN_MIGRATIONS) {
     if (!existingCols.has(migration.name)) {
+      db.exec(migration.sql);
+    }
+  }
+
+  // Additive column migrations for teams (owner_user_id, slug for SaaS).
+  const existingTeamCols = new Set(
+    (db.pragma('table_info(teams)') as Array<{ name: string }>).map((c) => c.name),
+  );
+  for (const migration of TEAMS_COLUMN_MIGRATIONS) {
+    if (!existingTeamCols.has(migration.name)) {
       db.exec(migration.sql);
     }
   }

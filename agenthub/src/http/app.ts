@@ -29,6 +29,9 @@ import { createExportRoutes } from './routes/export.js';
 import { createSseRoutes } from './routes/sse.js';
 import { createAnalyticsRoutes } from './routes/analytics.js';
 import { createAdminRoutes } from './routes/admin.js';
+import { createAuthRoutes } from './routes/auth.js';
+import { createWorkspaceRoutes } from './routes/workspaces.js';
+import { createSessionMiddleware } from './middleware/session.js';
 import { createAdminKeyRoutes } from './routes/admin-keys.js';
 import { createOpsRoutes } from './routes/ops.js';
 import { createAuditRoutes } from './routes/audit.js';
@@ -108,6 +111,19 @@ export function createApp(db: Database.Database, createMcpServer: () => McpServe
       return transport.handleRequest(c.req.raw);
     });
   });
+
+  // Session middleware — attaches c.var.session if ah_session cookie is valid.
+  // Mounted globally so /auth/me and /workspaces can see the session.
+  app.use('*', createSessionMiddleware(db));
+
+  // Public SaaS auth routes — signup/login/logout/me/verify-email.
+  // Must come before the /api/v1 API-key auth middleware.
+  if (config) {
+    app.route('/auth', createAuthRoutes(db, config));
+  }
+
+  // Self-serve workspace management (session-gated per route).
+  app.route('/workspaces', createWorkspaceRoutes(db));
 
   // Public inbound webhook receiver — mounted BEFORE auth middleware.
   // The endpoint_key in the URL IS the auth for these receivers.
