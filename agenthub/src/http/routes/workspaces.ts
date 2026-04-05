@@ -22,6 +22,8 @@ import {
   acceptInvitation,
 } from '../../models/invitation.js';
 import { requireSession } from '../middleware/require-session.js';
+import type { EmailSender } from '../../services/email.js';
+import { getLogger } from '../../logger.js';
 
 const CreateWorkspaceSchema = z.object({
   id: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'id must be lowercase alphanumeric, hyphens, or underscores'),
@@ -74,7 +76,11 @@ function assertRole(
   return role;
 }
 
-export function createWorkspaceRoutes(db: Database.Database, config?: AppConfig): Hono {
+export function createWorkspaceRoutes(
+  db: Database.Database,
+  config?: AppConfig,
+  emailSender: EmailSender | null = null,
+): Hono {
   const router = new Hono();
 
   // IMPORTANT: must come before `/:id` routes so `/invites/accept` isn't
@@ -191,6 +197,21 @@ export function createWorkspaceRoutes(db: Database.Database, config?: AppConfig)
       role: parsed.data.role,
       invitedBy: session.userId,
     });
+
+    if (emailSender && config) {
+      const acceptUrl = `${config.appBaseUrl}/workspaces/invites/accept?token=${raw}`;
+      const emailBody = `You've been invited to join workspace "${teamId}" on AgentHub as ${parsed.data.role}.\n\nAccept the invitation by clicking the link below:\n\n${acceptUrl}\n\nThis invite expires on ${expiresAt}.`;
+      emailSender
+        .send(parsed.data.email, `You're invited to ${teamId} on AgentHub`, emailBody)
+        .catch((err: unknown) => {
+          getLogger().error('email_send_failed', {
+            to: parsed.data.email,
+            kind: 'invite',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
+
     const resBody: Record<string, unknown> = {
       invitation_id: invitationId,
       expires_at: expiresAt,

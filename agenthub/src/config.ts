@@ -17,6 +17,13 @@ export interface AppConfig {
   hstsEnabled: boolean;
   cookieSecure: boolean;
   emailVerificationReturnTokens: boolean;
+  githubOAuthClientId: string;
+  githubOAuthClientSecret: string;
+  githubOAuthRedirectUri: string;
+  emailProvider: 'stub' | 'resend';
+  emailResendApiKey: string;
+  emailFromAddress: string;
+  appBaseUrl: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -43,5 +50,13 @@ export function loadConfig(): AppConfig {
     emailVerificationReturnTokens:
       (process.env.EMAIL_VERIFICATION_RETURN_TOKENS ||
         (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() === 'true',
+    githubOAuthClientId: process.env.GITHUB_OAUTH_CLIENT_ID || '',
+    githubOAuthClientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET || '',
+    githubOAuthRedirectUri: process.env.GITHUB_OAUTH_REDIRECT_URI || '',
+    emailProvider:
+      (process.env.EMAIL_PROVIDER || 'stub').toLowerCase() === 'resend' ? 'resend' : 'stub',
+    emailResendApiKey: process.env.RESEND_API_KEY || '',
+    emailFromAddress: process.env.EMAIL_FROM || 'noreply@agenthub.local',
+    appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
   };
 }

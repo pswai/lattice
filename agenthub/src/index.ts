@@ -7,6 +7,7 @@ import { startEventCleanup } from './services/event-cleanup.js';
 import { startWebhookDispatcher } from './services/webhook-dispatcher.js';
 import { startScheduler } from './services/scheduler.js';
 import { startAuditCleanup } from './services/audit-cleanup.js';
+import { createEmailSender } from './services/email.js';
 import { loadConfig } from './config.js';
 import { createLogger, setRootLogger, getLogger } from './logger.js';
 
@@ -25,7 +26,8 @@ setRootLogger(
 );
 
 const db = initDatabase(config.dbPath);
-const app = createApp(db, () => createMcpServer(db), config);
+const emailSender = createEmailSender(config);
+const app = createApp(db, () => createMcpServer(db), config, emailSender);
 
 startTaskReaper(db, config);
 startEventCleanup(db, config);

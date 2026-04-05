@@ -31,6 +31,8 @@ import { createAnalyticsRoutes } from './routes/analytics.js';
 import { createAdminRoutes } from './routes/admin.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
+import { createOAuthRoutes } from './routes/oauth.js';
+import type { EmailSender } from '../services/email.js';
 import { createSessionMiddleware } from './middleware/session.js';
 import { createAdminKeyRoutes } from './routes/admin-keys.js';
 import { createOpsRoutes } from './routes/ops.js';
@@ -41,7 +43,12 @@ import type { AppConfig } from '../config.js';
 import { DASHBOARD_HTML } from '../dashboard.js';
 import { getLogger } from '../logger.js';
 
-export function createApp(db: Database.Database, createMcpServer: () => McpServer, config?: AppConfig): Hono {
+export function createApp(
+  db: Database.Database,
+  createMcpServer: () => McpServer,
+  config?: AppConfig,
+  emailSender: EmailSender | null = null,
+): Hono {
   const app = new Hono();
 
   // Request context (X-Request-ID + per-request logger + access log)
@@ -119,11 +126,12 @@ export function createApp(db: Database.Database, createMcpServer: () => McpServe
   // Public SaaS auth routes — signup/login/logout/me/verify-email.
   // Must come before the /api/v1 API-key auth middleware.
   if (config) {
-    app.route('/auth', createAuthRoutes(db, config));
+    app.route('/auth', createAuthRoutes(db, config, emailSender));
+    app.route('/auth/oauth', createOAuthRoutes(db, config));
   }
 
   // Self-serve workspace management (session-gated per route).
-  app.route('/workspaces', createWorkspaceRoutes(db, config));
+  app.route('/workspaces', createWorkspaceRoutes(db, config, emailSender));
 
   // Public inbound webhook receiver — mounted BEFORE auth middleware.
   // The endpoint_key in the URL IS the auth for these receivers.

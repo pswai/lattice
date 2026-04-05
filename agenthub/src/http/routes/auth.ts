@@ -20,6 +20,8 @@ import {
 import { listUserMemberships } from '../../models/membership.js';
 import { requireSession } from '../middleware/require-session.js';
 import { SESSION_COOKIE_NAME } from '../middleware/session.js';
+import type { EmailSender } from '../../services/email.js';
+import { getLogger } from '../../logger.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SIGNUP_TTL_DAYS = 30;
@@ -76,7 +78,11 @@ function requestMeta(c: {
   return { ip, userAgent };
 }
 
-export function createAuthRoutes(db: Database.Database, config: AppConfig): Hono {
+export function createAuthRoutes(
+  db: Database.Database,
+  config: AppConfig,
+  emailSender: EmailSender | null = null,
+): Hono {
   const router = new Hono();
 
   router.post('/signup', async (c) => {
@@ -99,6 +105,21 @@ export function createAuthRoutes(db: Database.Database, config: AppConfig): Hono
     ).run(verifyHash, user.id, verifyExpiresAt);
 
     c.header('Set-Cookie', sessionCookieHeader(session, config.cookieSecure));
+
+    if (emailSender) {
+      const verifyUrl = `${config.appBaseUrl}/auth/verify-email?token=${verifyRaw}`;
+      const emailBody = `Welcome to AgentHub!\n\nPlease verify your email by clicking the link below:\n\n${verifyUrl}\n\nThis link expires in 7 days.`;
+      emailSender
+        .send(user.email, 'Verify your AgentHub email', emailBody)
+        .catch((err: unknown) => {
+          getLogger().error('email_send_failed', {
+            to: user.email,
+            kind: 'verify',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
+
     const resBody: Record<string, unknown> = {
       user: { id: user.id, email: user.email, name: user.name },
     };

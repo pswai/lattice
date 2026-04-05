@@ -91,6 +91,13 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     hstsEnabled: false,
     cookieSecure: false,
     emailVerificationReturnTokens: true,
+    githubOAuthClientId: '',
+    githubOAuthClientSecret: '',
+    githubOAuthRedirectUri: '',
+    emailProvider: 'stub',
+    emailResendApiKey: '',
+    emailFromAddress: 'noreply@agenthub.local',
+    appBaseUrl: 'http://localhost:3000',
     ...overrides,
   };
 }

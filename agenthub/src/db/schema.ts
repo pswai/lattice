@@ -345,6 +345,17 @@ CREATE TABLE IF NOT EXISTS team_invitations (
 );
 CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
 CREATE INDEX IF NOT EXISTS idx_team_invitations_email_lower ON team_invitations(LOWER(email));
+
+-- OAuth identities — links external provider accounts (e.g., GitHub) to users.
+CREATE TABLE IF NOT EXISTS oauth_identities (
+    provider TEXT NOT NULL,
+    provider_uid TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (provider, provider_uid)
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the
