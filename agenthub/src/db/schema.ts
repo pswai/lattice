@@ -1,0 +1,273 @@
+export const SCHEMA_SQL = `
+-- Teams table
+CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- API keys for team authentication
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (team_id) REFERENCES teams(id)
+);
+
+-- Context entries — append-only shared knowledge base
+CREATE TABLE IF NOT EXISTS context_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(team_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_team ON context_entries(team_id);
+CREATE INDEX IF NOT EXISTS idx_context_created ON context_entries(created_at);
+
+-- FTS5 virtual table for full-text search on context entries.
+-- Uses trigram tokenizer so short queries and middle-of-word fragments match.
+CREATE VIRTUAL TABLE IF NOT EXISTS context_entries_fts USING fts5(
+    key,
+    value,
+    tags,
+    content='context_entries',
+    content_rowid='id',
+    tokenize='trigram'
+);
+
+-- Triggers to keep FTS index in sync
+CREATE TRIGGER IF NOT EXISTS context_entries_ai AFTER INSERT ON context_entries BEGIN
+    INSERT INTO context_entries_fts(rowid, key, value, tags)
+    VALUES (new.id, new.key, new.value, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS context_entries_ad AFTER DELETE ON context_entries BEGIN
+    INSERT INTO context_entries_fts(context_entries_fts, rowid, key, value, tags)
+    VALUES ('delete', old.id, old.key, old.value, old.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS context_entries_au AFTER UPDATE ON context_entries BEGIN
+    INSERT INTO context_entries_fts(context_entries_fts, rowid, key, value, tags)
+    VALUES ('delete', old.id, old.key, old.value, old.tags);
+    INSERT INTO context_entries_fts(rowid, key, value, tags)
+    VALUES (new.id, new.key, new.value, new.tags);
+END;
+
+-- Events — messaging bus
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE')),
+    message TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_team_time ON events(team_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_team_id ON events(team_id, id);
+
+-- Tasks — task coordination with claim/reap
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'claimed', 'completed', 'escalated', 'abandoned')),
+    result TEXT,
+    created_by TEXT NOT NULL,
+    claimed_by TEXT,
+    claimed_at TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    priority TEXT NOT NULL DEFAULT 'P2' CHECK(priority IN ('P0', 'P1', 'P2', 'P3')),
+    assigned_to TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(team_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_reap ON tasks(status, claimed_at);
+
+-- Task dependencies — lightweight DAG for task ordering
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    task_id INTEGER NOT NULL,
+    depends_on INTEGER NOT NULL,
+    PRIMARY KEY (task_id, depends_on),
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    FOREIGN KEY (depends_on) REFERENCES tasks(id)
+);
+
+-- Agent registry — capability discovery and presence tracking
+CREATE TABLE IF NOT EXISTS agents (
+    id TEXT NOT NULL,
+    team_id TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'online' CHECK(status IN ('online', 'offline', 'busy')),
+    metadata TEXT NOT NULL DEFAULT '{}',
+    last_heartbeat TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (team_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(team_id, last_heartbeat);
+
+-- Messages — agent-to-agent direct messaging
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL,
+    message TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(team_id, to_agent, id);
+
+-- Playbooks — reusable task template bundles
+CREATE TABLE IF NOT EXISTS playbooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    tasks_json TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(team_id, name)
+);
+
+-- Artifacts — typed file storage (HTML, JSON, code, reports) separate from context
+CREATE TABLE IF NOT EXISTS artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    size INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(team_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(team_id, content_type);
+
+-- Agent profiles — reusable role definitions (system prompts, default capabilities/tags)
+CREATE TABLE IF NOT EXISTS agent_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    system_prompt TEXT NOT NULL,
+    default_capabilities TEXT NOT NULL DEFAULT '[]',
+    default_tags TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(team_id, name)
+);
+
+-- Workflow runs — track playbook executions as first-class entities
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    playbook_name TEXT NOT NULL,
+    started_by TEXT NOT NULL,
+    task_ids TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running', 'completed', 'failed')),
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_team ON workflow_runs(team_id, started_at);
+
+-- Webhooks — outbound HTTP delivery of team events
+CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    event_types TEXT NOT NULL DEFAULT '["*"]',
+    active INTEGER NOT NULL DEFAULT 1,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_webhooks_team_active ON webhooks(team_id, active);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'success', 'failed', 'dead')),
+    response_code INTEGER,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deliveries_retry ON webhook_deliveries(status, next_retry_at);
+
+-- Schedules — recurring playbook executions (cron-like)
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    playbook_name TEXT NOT NULL,
+    cron_expression TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_workflow_run_id INTEGER,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(team_id, playbook_name, cron_expression)
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run_at);
+
+-- Inbound endpoints — public receiver URLs that let external systems trigger AgentHub actions
+CREATE TABLE IF NOT EXISTS inbound_endpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    endpoint_key TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK(action_type IN ('create_task', 'broadcast_event', 'save_context', 'run_playbook')),
+    action_config TEXT NOT NULL DEFAULT '{}',
+    hmac_secret TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_team ON inbound_endpoints(team_id);
+`;
+
+// Additive column migrations. These ALTER TABLE statements fail if the
+// column already exists, so callers detect existing columns via PRAGMA
+// table_info before running.
+export const TASK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'priority',
+    sql: "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'",
+  },
+  {
+    name: 'assigned_to',
+    sql: 'ALTER TABLE tasks ADD COLUMN assigned_to TEXT',
+  },
+];
+
+export const API_KEY_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'scope',
+    sql: "ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin'))",
+  },
+];
