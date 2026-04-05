@@ -4,6 +4,7 @@ import { TaskConflictError, InvalidTransitionError, NotFoundError, ForbiddenErro
 import { broadcastInternal } from './event.js';
 import { saveContext } from './context.js';
 import { checkWorkflowCompletion } from './workflow.js';
+import { incrementUsage } from './usage.js';
 
 interface TaskRow {
   id: number;
@@ -250,6 +251,9 @@ export function createTask(
     `Task #${taskId} created: "${input.description}" (status: ${status})`,
     ['task-update'], agentId,
   );
+
+  // Billing: count task creation as one execution.
+  incrementUsage(db, teamId, { exec: 1 });
 
   return {
     task_id: taskId,

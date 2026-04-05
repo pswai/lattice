@@ -356,6 +356,44 @@ CREATE TABLE IF NOT EXISTS oauth_identities (
     PRIMARY KEY (provider, provider_uid)
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+
+-- Subscription plans — catalog of billing plans with quota limits.
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price_cents INTEGER NOT NULL,
+    exec_quota INTEGER NOT NULL,
+    api_call_quota INTEGER NOT NULL,
+    storage_bytes_quota INTEGER NOT NULL,
+    seat_quota INTEGER NOT NULL,
+    retention_days INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Team subscriptions — per-team plan assignment + Stripe linkage.
+CREATE TABLE IF NOT EXISTS team_subscriptions (
+    team_id TEXT PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
+    plan_id TEXT NOT NULL REFERENCES subscription_plans(id),
+    stripe_customer_id TEXT,
+    stripe_subscription_id TEXT,
+    current_period_start TEXT,
+    current_period_end TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('trialing','active','past_due','canceled')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Usage counters — per-team, per-period (YYYY-MM) usage tallies.
+CREATE TABLE IF NOT EXISTS usage_counters (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    period_ym TEXT NOT NULL,
+    exec_count INTEGER NOT NULL DEFAULT 0,
+    api_call_count INTEGER NOT NULL DEFAULT 0,
+    storage_bytes INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (team_id, period_ym)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_counters_team ON usage_counters(team_id);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the

@@ -14,6 +14,7 @@ import {
   countOwners,
   type MembershipRole,
 } from '../../models/membership.js';
+import { getCurrentUsageWithLimits } from '../../models/usage.js';
 import {
   createInvitation,
   listTeamInvitations,
@@ -403,6 +404,33 @@ export function createWorkspaceRoutes(
       : null;
 
     return c.json({ entries, next_cursor: nextCursor });
+  });
+
+  // ─── Usage ────────────────────────────────────────────────────────
+  router.get('/:id/usage', requireSession, (c) => {
+    const session = c.get('session')!;
+    const teamId = c.req.param('id');
+    assertMembership(db, session.userId, teamId);
+
+    const result = getCurrentUsageWithLimits(db, teamId);
+    return c.json({
+      period: result.period,
+      usage: {
+        exec_count: result.usage.execCount,
+        api_call_count: result.usage.apiCallCount,
+        storage_bytes: result.usage.storageBytes,
+      },
+      limits: {
+        plan_id: result.limits.id,
+        plan_name: result.limits.name,
+        exec_quota: result.limits.execQuota,
+        api_call_quota: result.limits.apiCallQuota,
+        storage_bytes_quota: result.limits.storageBytesQuota,
+        seat_quota: result.limits.seatQuota,
+      },
+      soft_warning: result.soft,
+      hard_exceeded: result.hard,
+    });
   });
 
   return router;

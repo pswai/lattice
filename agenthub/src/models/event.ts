@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { Event, EventType, BroadcastInput, GetUpdatesInput, BroadcastResponse, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
 import { eventBus } from '../services/event-emitter.js';
+import { incrementUsage } from './usage.js';
 
 const RECOMMENDED_CONTEXT_LIMIT = 3;
 const RECOMMENDED_ACTIVITY_LOOKBACK = 10;
@@ -114,6 +115,7 @@ export function broadcastEvent(
 
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { teamId, eventId });
+  incrementUsage(db, teamId, { exec: 1 });
   return { eventId };
 }
 

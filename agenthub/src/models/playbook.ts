@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { ValidationError, NotFoundError } from '../errors.js';
 import { createTask } from './task.js';
 import { createWorkflowRun, setWorkflowRunTaskIds } from './workflow.js';
+import { incrementUsage } from './usage.js';
 
 export interface PlaybookTaskTemplate {
   description: string;
@@ -173,6 +174,10 @@ export function runPlaybook(
   }
 
   setWorkflowRunTaskIds(db, workflowRunId, createdIds);
+
+  // Billing: count 1 for the run itself (individual tasks are already counted
+  // by createTask). Spec asks for: tasks spawned + 1 for the run.
+  incrementUsage(db, teamId, { exec: 1 });
 
   return { workflow_run_id: workflowRunId, created_task_ids: createdIds };
 }

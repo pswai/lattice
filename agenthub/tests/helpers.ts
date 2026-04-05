@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { SCHEMA_SQL } from '../src/db/schema.js';
+import { seedDefaultPlans } from '../src/models/plan.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import type { AppConfig } from '../src/config.js';
@@ -24,6 +25,7 @@ export function createTestDb(): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  seedDefaultPlans(db);
   return db;
 }
 
@@ -99,6 +101,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     emailFromAddress: 'noreply@agenthub.local',
     appBaseUrl: 'http://localhost:3000',
     corsOrigins: [],
+    quotaEnforcement: false,
     ...overrides,
   };
 }

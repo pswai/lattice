@@ -25,6 +25,7 @@ export interface AppConfig {
   emailFromAddress: string;
   appBaseUrl: string;
   corsOrigins: string[] | '*';
+  quotaEnforcement: boolean;
 }
 
 export function loadConfig(): AppConfig {
@@ -60,6 +61,7 @@ export function loadConfig(): AppConfig {
     emailFromAddress: process.env.EMAIL_FROM || 'noreply@agenthub.local',
     appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
+    quotaEnforcement: (process.env.QUOTA_ENFORCEMENT || 'false').toLowerCase() === 'true',
   };
 }
 

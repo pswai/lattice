@@ -8,6 +8,7 @@ import { createMetricsMiddleware } from './middleware/metrics.js';
 import { createAuditMiddleware } from './middleware/audit.js';
 import { createRateLimitMiddleware } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
+import { createQuotaMiddleware } from './middleware/quota.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
 import { createCorsMiddleware } from './middleware/cors.js';
 import { createContextRoutes } from './routes/context.js';
@@ -168,6 +169,11 @@ export function createApp(
   // Append-only audit log on mutating requests (after auth so actor is known).
   if (config?.auditEnabled ?? true) {
     api.use('*', createAuditMiddleware(db));
+  }
+
+  // Quota enforcement (opt-in via config). After auth + rate-limit, before routes.
+  if (config?.quotaEnforcement) {
+    api.use('*', createQuotaMiddleware(db, { quotaEnforcement: true }));
   }
   api.route('/context', createContextRoutes(db));
   api.route('/events', createEventRoutes(db));

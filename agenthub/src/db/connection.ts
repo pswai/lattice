@@ -7,6 +7,7 @@ import {
   API_KEY_COLUMN_MIGRATIONS,
   TEAMS_COLUMN_MIGRATIONS,
 } from './schema.js';
+import { seedDefaultPlans } from '../models/plan.js';
 
 export function initDatabase(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -59,6 +60,9 @@ export function initDatabase(dbPath: string): Database.Database {
   // inbound_endpoints CHECK constraint migration: older DBs may be missing
   // the 'run_playbook' action type in the CHECK constraint.
   migrateInboundActionTypes(db);
+
+  // Seed default subscription plans (free/pro/business). Idempotent.
+  seedDefaultPlans(db);
 
   return db;
 }
