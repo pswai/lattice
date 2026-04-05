@@ -6,9 +6,24 @@ import { startTaskReaper } from './services/task-reaper.js';
 import { startEventCleanup } from './services/event-cleanup.js';
 import { startWebhookDispatcher } from './services/webhook-dispatcher.js';
 import { startScheduler } from './services/scheduler.js';
+import { startAuditCleanup } from './services/audit-cleanup.js';
 import { loadConfig } from './config.js';
+import { createLogger, setRootLogger, getLogger } from './logger.js';
 
 const config = loadConfig();
+
+// Initialize structured logger before anything else so the whole boot
+// sequence and background services log through it.
+setRootLogger(
+  createLogger({
+    level: config.logLevel as 'silent' | 'error' | 'warn' | 'info' | 'debug',
+    format:
+      config.logFormat === 'json' || config.logFormat === 'pretty'
+        ? config.logFormat
+        : undefined,
+  }),
+);
+
 const db = initDatabase(config.dbPath);
 const app = createApp(db, () => createMcpServer(db), config);
 
@@ -16,9 +31,12 @@ startTaskReaper(db, config);
 startEventCleanup(db, config);
 startWebhookDispatcher(db);
 startScheduler(db);
+startAuditCleanup(db, config);
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`AgentHub listening on http://localhost:${info.port}`);
-  console.log(`MCP endpoint: http://localhost:${info.port}/mcp`);
-  console.log(`REST API: http://localhost:${info.port}/api/v1`);
+  getLogger().info('agenthub_started', {
+    port: info.port,
+    mcp: `http://localhost:${info.port}/mcp`,
+    rest: `http://localhost:${info.port}/api/v1`,
+  });
 });

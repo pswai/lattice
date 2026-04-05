@@ -1,0 +1,80 @@
+import { createMiddleware } from 'hono/factory';
+import { createHash } from 'crypto';
+
+/**
+ * In-memory sliding-window rate limiter keyed by API key hash.
+ * Not suitable for multi-instance deployments; fine for single-node.
+ */
+
+interface Bucket {
+  /** Request timestamps (ms) within the current window. */
+  hits: number[];
+}
+
+const buckets = new Map<string, Bucket>();
+
+/** Test helper — clears in-memory rate-limit state. */
+export function __resetRateLimit(): void {
+  buckets.clear();
+}
+
+function pruneOld(bucket: Bucket, windowStart: number): void {
+  // Hits are pushed in order, so drop from the front while stale.
+  let drop = 0;
+  for (const t of bucket.hits) {
+    if (t < windowStart) drop++;
+    else break;
+  }
+  if (drop > 0) bucket.hits.splice(0, drop);
+}
+
+export interface RateLimitOptions {
+  perMinute: number;
+  windowMs?: number;
+}
+
+export function createRateLimitMiddleware({ perMinute, windowMs = 60_000 }: RateLimitOptions) {
+  return createMiddleware(async (c, next) => {
+    if (perMinute <= 0) {
+      await next();
+      return;
+    }
+
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) {
+      // Let auth middleware reject this request.
+      await next();
+      return;
+    }
+
+    const keyId = createHash('sha256').update(authHeader).digest('hex');
+    const now = Date.now();
+    const windowStart = now - windowMs;
+    let bucket = buckets.get(keyId);
+    if (!bucket) {
+      bucket = { hits: [] };
+      buckets.set(keyId, bucket);
+    }
+    pruneOld(bucket, windowStart);
+
+    if (bucket.hits.length >= perMinute) {
+      const oldest = bucket.hits[0];
+      const resetMs = oldest + windowMs;
+      const retryAfterSec = Math.max(1, Math.ceil((resetMs - now) / 1000));
+      c.header('Retry-After', String(retryAfterSec));
+      c.header('X-RateLimit-Limit', String(perMinute));
+      c.header('X-RateLimit-Remaining', '0');
+      c.header('X-RateLimit-Reset', String(Math.ceil(resetMs / 1000)));
+      return c.json(
+        { error: 'RATE_LIMITED', message: 'Too many requests' },
+        429,
+      );
+    }
+
+    bucket.hits.push(now);
+    const remaining = Math.max(0, perMinute - bucket.hits.length);
+    c.header('X-RateLimit-Limit', String(perMinute));
+    c.header('X-RateLimit-Remaining', String(remaining));
+    await next();
+  });
+}

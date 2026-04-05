@@ -3,6 +3,35 @@ import { createHash } from 'crypto';
 import type Database from 'better-sqlite3';
 import type { Context } from 'hono';
 import type { AuthContext, ApiKeyScope } from '../../models/types.js';
+import { getLogger } from '../../logger.js';
+
+// In-memory throttle for last_used_at updates. Key: key_hash, value: last
+// update timestamp (ms). We only issue an UPDATE once per minute per key
+// to keep this off the hot path of every authenticated request.
+const LAST_USED_THROTTLE_MS = 60_000;
+const lastUsedThrottle = new Map<string, number>();
+
+function touchLastUsed(db: Database.Database, keyHash: string): void {
+  const now = Date.now();
+  const prev = lastUsedThrottle.get(keyHash);
+  if (prev !== undefined && now - prev < LAST_USED_THROTTLE_MS) return;
+  lastUsedThrottle.set(keyHash, now);
+  try {
+    db.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?').run(
+      new Date(now).toISOString(),
+      keyHash,
+    );
+  } catch (err) {
+    getLogger().error('last_used_update_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/** Test helper — clears the in-memory throttle so tests can force an update. */
+export function __resetAuthThrottle(): void {
+  lastUsedThrottle.clear();
+}
 
 // Extend Hono's context variables to include auth
 declare module 'hono' {
@@ -46,9 +75,25 @@ function lookupKey(
 ): { teamId: string; scope: ApiKeyScope } | null {
   const keyHash = hashKey(apiKey);
   const row = db
-    .prepare('SELECT team_id, scope FROM api_keys WHERE key_hash = ?')
-    .get(keyHash) as { team_id: string; scope: ApiKeyScope } | undefined;
+    .prepare(
+      'SELECT team_id, scope, expires_at, revoked_at FROM api_keys WHERE key_hash = ?',
+    )
+    .get(keyHash) as
+    | {
+        team_id: string;
+        scope: ApiKeyScope;
+        expires_at: string | null;
+        revoked_at: string | null;
+      }
+    | undefined;
   if (!row) return null;
+  if (row.revoked_at) return null;
+  if (row.expires_at) {
+    const nowIso = new Date().toISOString();
+    if (row.expires_at <= nowIso) return null;
+  }
+  // Fire-and-forget throttled update of last_used_at.
+  touchLastUsed(db, keyHash);
   return { teamId: row.team_id, scope: row.scope };
 }
 

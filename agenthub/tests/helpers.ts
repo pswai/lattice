@@ -82,6 +82,13 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     agentHeartbeatTimeoutMinutes: 10,
     adminKey: TEST_ADMIN_KEY,
     logLevel: 'error',
+    logFormat: '',
+    auditEnabled: true,
+    auditRetentionDays: 365,
+    metricsEnabled: true,
+    rateLimitPerMinute: 0,
+    maxBodyBytes: 0,
+    hstsEnabled: false,
     ...overrides,
   };
 }

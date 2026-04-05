@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS api_keys (
     label TEXT NOT NULL DEFAULT '',
     scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin')),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    expires_at TEXT,
+    last_used_at TEXT,
+    revoked_at TEXT,
     FOREIGN KEY (team_id) REFERENCES teams(id)
 );
 
@@ -249,6 +252,24 @@ CREATE TABLE IF NOT EXISTS inbound_endpoints (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_team ON inbound_endpoints(team_id);
+
+-- Audit log — append-only record of mutating API actions.
+-- No UPDATE/DELETE API; background retention prunes by age.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    ip TEXT,
+    request_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_team_time ON audit_log(team_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_team_actor ON audit_log(team_id, actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_team_action ON audit_log(team_id, action, created_at DESC);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the
@@ -269,5 +290,17 @@ export const API_KEY_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'scope',
     sql: "ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin'))",
+  },
+  {
+    name: 'expires_at',
+    sql: 'ALTER TABLE api_keys ADD COLUMN expires_at TEXT',
+  },
+  {
+    name: 'last_used_at',
+    sql: 'ALTER TABLE api_keys ADD COLUMN last_used_at TEXT',
+  },
+  {
+    name: 'revoked_at',
+    sql: 'ALTER TABLE api_keys ADD COLUMN revoked_at TEXT',
   },
 ];

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { eventBus } from './event-emitter.js';
+import { getLogger } from '../logger.js';
 import {
   listActiveWebhooksForEvent,
   createDelivery,
@@ -48,7 +49,10 @@ export function startWebhookDispatcher(
       // Kick the worker immediately for low latency.
       void processOnce();
     } catch (err) {
-      console.error('webhook-dispatcher: enqueue failed', err);
+      getLogger().error('webhook_enqueue_failed', {
+        component: 'webhook-dispatcher',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   };
   eventBus.on('event', onEvent);

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { AppConfig } from '../config.js';
 import { markStaleAgents } from '../models/agent.js';
+import { getLogger } from '../logger.js';
 
 export function startEventCleanup(db: Database.Database, config: AppConfig): NodeJS.Timeout {
   // Run cleanup every hour
@@ -20,6 +21,10 @@ function cleanupOldEvents(db: Database.Database, retentionDays: number): void {
   `).run(cutoff);
 
   if (result.changes > 0) {
-    console.log(`Event cleanup: removed ${result.changes} events older than ${retentionDays} days`);
+    getLogger().info('event_cleanup', {
+      component: 'event-cleanup',
+      removed: result.changes,
+      retention_days: retentionDays,
+    });
   }
 }

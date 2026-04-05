@@ -1,6 +1,6 @@
 # AgentHub
 
-![Tests](https://img.shields.io/badge/tests-391_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-482_passing-brightgreen)
 ![MCP Tools](https://img.shields.io/badge/MCP_tools-35-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
@@ -309,7 +309,30 @@ All via environment variables:
 | `TASK_REAP_TIMEOUT_MINUTES` | `30` | Minutes before abandoned task recovery |
 | `EVENT_RETENTION_DAYS` | `30` | Event retention (0 = keep forever) |
 | `AGENT_HEARTBEAT_TIMEOUT_MINUTES` | `10` | Minutes before agent marked offline |
-| `LOG_LEVEL` | `info` | debug, info, warn, error |
+| `LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info`, `debug` |
+| `LOG_FORMAT` | auto | `json` (default non-TTY) or `pretty` (default TTY) |
+| `METRICS_ENABLED` | `true` | Expose `/metrics` Prometheus endpoint |
+| `AUDIT_ENABLED` | `true` | Record mutating requests to `audit_log` |
+| `AUDIT_RETENTION_DAYS` | `365` | Audit retention (0 = keep forever) |
+| `RATE_LIMIT_PER_MIN` | `300` | Per-key rate limit (0 = disabled) |
+| `MAX_BODY_BYTES` | `1048576` | Max request body (0 = disabled) |
+| `HSTS_ENABLED` | `false` | Send `Strict-Transport-Security` header |
+
+## Enterprise-ready
+
+- **Structured JSON logs** with auto-redaction of API keys, bearer tokens, JWTs,
+  cloud credentials, and private keys — safe to forward anywhere.
+- **X-Request-ID** on every request, echoed in responses, in every log line,
+  and in the audit trail.
+- **Prometheus metrics** at `/metrics` (counters, histograms, gauges) — no auth,
+  scrape it with anything.
+- **Liveness & readiness probes** at `/healthz` and `/readyz` for containers.
+- **Append-only audit log** of every mutating request with admin query API.
+- **API key lifecycle**: scopes (read/write/admin), expiry, rotation, revocation,
+  `last_used_at` tracking, keys stored as SHA-256 hashes.
+- **Rate limiting**, **body-size limits**, and **security response headers** on by default.
+
+See [OBSERVABILITY.md](./OBSERVABILITY.md) and [SECURITY.md](./SECURITY.md) for details.
 
 ## Dog-Food Proof
 
