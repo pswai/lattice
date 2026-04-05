@@ -23,6 +23,18 @@ import { scanForSecrets } from '../services/secret-scanner.js';
 import { AppError, SecretDetectedError } from '../errors.js';
 import { getMcpAuth } from './auth-context.js';
 
+/**
+ * Wrap an array schema so that MCP clients which stringify array arguments
+ * (a known JSON-RPC transport quirk) still pass validation. Empty string
+ * coerces to [], and JSON strings are parsed before validation runs.
+ */
+function arrayParam<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(
+    (v) => (typeof v === 'string' ? (v === '' ? [] : JSON.parse(v)) : v),
+    schema,
+  );
+}
+
 function errorResult(err: AppError) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(err.toJSON()) }],
@@ -44,7 +56,7 @@ export function createMcpServer(db: Database.Database): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity (e.g. "researcher", "backend-eng")'),
       key: z.string().min(1).max(255).describe('Unique identifier for this context entry'),
       value: z.string().min(1).max(100_000).describe('The context content to save'),
-      tags: z.array(z.string().max(50)).max(20).describe('Tags for categorization and filtering'),
+      tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for categorization and filtering'),
     },
     (params) => {
       const { teamId, agentId: headerAgentId } = getMcpAuth();
@@ -76,7 +88,7 @@ export function createMcpServer(db: Database.Database): McpServer {
     'Search the shared team knowledge base using full-text search and optional tag filtering.',
     {
       query: z.string().describe('Full-text search query'),
-      tags: z.array(z.string()).optional().describe('Optional tag filter (OR matching)'),
+      tags: arrayParam(z.array(z.string())).optional().default([]).describe('Optional tag filter (OR matching)'),
       limit: z.number().optional().describe('Max results (default 20, max 100)'),
     },
     (params) => {
@@ -101,7 +113,7 @@ export function createMcpServer(db: Database.Database): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity (e.g. "researcher", "backend-eng")'),
       event_type: z.enum(['LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE']).describe('Type of event'),
       message: z.string().min(1).max(10_000).describe('Event message content'),
-      tags: z.array(z.string().max(50)).max(20).describe('Tags for topic-based filtering'),
+      tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for topic-based filtering'),
     },
     (params) => {
       const { teamId, agentId: headerAgentId } = getMcpAuth();
@@ -130,7 +142,7 @@ export function createMcpServer(db: Database.Database): McpServer {
     {
       since_id: z.number().optional().describe('Return events after this ID'),
       since_timestamp: z.string().optional().describe('Fallback: ISO 8601 timestamp'),
-      topics: z.array(z.string()).optional().describe('Optional topic filter'),
+      topics: arrayParam(z.array(z.string())).optional().default([]).describe('Optional topic filter'),
       limit: z.number().optional().describe('Max events to return (default 50, max 200)'),
       include_context: z.boolean().optional().describe('Include recommended_context (default true)'),
     },
@@ -153,7 +165,7 @@ export function createMcpServer(db: Database.Database): McpServer {
     'Long-poll: block until a matching event arrives after since_id, or until timeout. Returns immediately if matching events already exist.',
     {
       since_id: z.number().int().nonnegative().describe('Wait for events with id > since_id'),
-      topics: z.array(z.string()).optional().describe('Optional topic/tag filter (OR matching)'),
+      topics: arrayParam(z.array(z.string())).optional().default([]).describe('Optional topic/tag filter (OR matching)'),
       event_type: z.enum(['LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE']).optional().describe('Optional event type filter'),
       timeout_sec: z.number().int().nonnegative().max(60).optional().describe('Max seconds to wait (default 30, max 60)'),
     },
@@ -178,7 +190,7 @@ export function createMcpServer(db: Database.Database): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity (e.g. "researcher", "backend-eng")'),
       description: z.string().min(1).max(10_000).describe('What needs to be done'),
       status: z.enum(['open', 'claimed']).optional().describe('Initial status (default: claimed)'),
-      depends_on: z.array(z.number()).optional().describe('Task IDs that must complete before this task can be claimed'),
+      depends_on: arrayParam(z.array(z.number())).optional().default([]).describe('Task IDs that must complete before this task can be claimed'),
       priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Priority: P0 (highest) through P3 (lowest). Default P2.'),
       assigned_to: z.string().max(100).optional().describe('Agent ID this task is assigned to'),
     },
@@ -296,7 +308,7 @@ export function createMcpServer(db: Database.Database): McpServer {
     'Register this agent in the team registry with its capabilities. Enables other agents to discover what you can do.',
     {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
-      capabilities: z.array(z.string().max(100)).max(50).describe('List of capabilities (e.g. "python", "code-review", "data-analysis")'),
+      capabilities: arrayParam(z.array(z.string().max(100)).max(50)).optional().default([]).describe('List of capabilities (e.g. "python", "code-review", "data-analysis")'),
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Agent status (default: online)'),
       metadata: z.record(z.unknown()).optional().describe('Optional metadata about this agent'),
     },
@@ -365,7 +377,7 @@ export function createMcpServer(db: Database.Database): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity (the sender)'),
       to: z.string().min(1).max(100).describe('Recipient agent ID'),
       message: z.string().min(1).max(10_000).describe('Message text'),
-      tags: z.array(z.string().max(50)).max(20).describe('Tags for categorization'),
+      tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for categorization'),
     },
     (params) => {
       const { teamId, agentId: headerAgentId } = getMcpAuth();
@@ -420,11 +432,11 @@ export function createMcpServer(db: Database.Database): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
       name: z.string().min(1).max(100).describe('Playbook name (unique per team)'),
       description: z.string().min(1).max(10_000).describe('What this playbook accomplishes'),
-      tasks: z.array(z.object({
+      tasks: arrayParam(z.array(z.object({
         description: z.string().min(1).max(10_000),
         role: z.string().max(100).optional(),
-        depends_on_index: z.array(z.number().int().nonnegative()).optional(),
-      })).describe('Ordered task templates. depends_on_index references earlier templates by position.'),
+        depends_on_index: arrayParam(z.array(z.number().int().nonnegative())).optional().default([]),
+      }))).describe('Ordered task templates. depends_on_index references earlier templates by position.'),
     },
     (params) => {
       const { teamId, agentId: headerAgentId } = getMcpAuth();
@@ -494,7 +506,7 @@ export function createMcpServer(db: Database.Database): McpServer {
     {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
       playbook_name: z.string().min(1).max(100).describe('Name of an existing playbook'),
-      cron_expression: z.string().min(1).max(100).describe('Cron expression (supported subset)'),
+      cron_expression: z.string().min(1).max(100).describe('Cron expression (supported subset, UTC): "*/N * * * *" every N min (e.g. "*/15 * * * *"), "0 */N * * *" every N hours (e.g. "0 */6 * * *"), "0 N * * *" daily at N:00 UTC (e.g. "0 9 * * *"), "0 H * * D" weekly on day D at H:00 UTC (Sun=0, e.g. "0 14 * * 1" Mon 14:00).'),
       enabled: z.boolean().optional().describe('Whether the schedule is active (default true)'),
     },
     (params) => {
@@ -713,8 +725,8 @@ export function createMcpServer(db: Database.Database): McpServer {
       name: z.string().min(1).max(100).describe('Profile name (unique per team)'),
       description: z.string().min(1).max(10_000).describe('Short description of this role'),
       system_prompt: z.string().min(1).max(100_000).describe('The system prompt defining this role'),
-      default_capabilities: z.array(z.string().max(100)).max(50).optional().describe('Default capability tags for agents adopting this profile'),
-      default_tags: z.array(z.string().max(50)).max(20).optional().describe('Default tags for events/messages from this role'),
+      default_capabilities: arrayParam(z.array(z.string().max(100)).max(50)).optional().default([]).describe('Default capability tags for agents adopting this profile'),
+      default_tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Default tags for events/messages from this role'),
     },
     (params) => {
       const { teamId, agentId: headerAgentId } = getMcpAuth();

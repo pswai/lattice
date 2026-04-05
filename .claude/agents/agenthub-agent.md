@@ -58,3 +58,16 @@ Note: Auto-registration happens on first MCP call. You don't need to call regist
 - **Read AND write**: Don't just save, also call `get_updates`/`get_context` to benefit from teammates.
 - **Escalate, don't stall**: Stuck? Set task `status: "escalated"` with clear reason.
 - **Artifacts vs Context**: Learnings → `save_context` (short insights). Files/outputs → `save_artifact` (structured, typed, sized).
+
+## Gotchas
+
+1. **Auto-registration is silent.** Your first MCP call registers you automatically — you do not need to call `register_agent` unless you want to publish specific capabilities or metadata.
+2. **Blocked tasks stay blocked.** Tasks with open `depends_on` dependencies are not claimable until every blocker reaches `completed`. Don't claim blocked tasks; complete (or reassign) the blockers first.
+3. **Optimistic locking on `update_task`.** You must pass the current `version`. On a version mismatch you'll get a conflict — re-fetch via `get_task` to read the latest version and retry.
+4. **Secret scanner blocks writes.** `save_context`, `broadcast`, and `send_message` reject content matching API-key / token / DB-URL patterns. Sanitize or redact before saving.
+5. **`define_schedule` supports only 4 cron patterns (UTC):**
+   - `"*/N * * * *"` — every N minutes (1 ≤ N ≤ 59)
+   - `"0 */N * * *"` — every N hours at minute 0 (1 ≤ N ≤ 23)
+   - `"0 N * * *"` — daily at hour N (0 ≤ N ≤ 23)
+   - `"0 H * * D"` — weekly on day D at hour H (Sun=0 … Sat=6)
+6. **`agent_id` is always required in the schema.** Pass it explicitly on every call that takes it — don't rely on header-only identity; the schema will reject the request otherwise.

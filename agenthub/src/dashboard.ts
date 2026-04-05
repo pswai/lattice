@@ -56,6 +56,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     <form id="setup-form" class="space-y-3">
       <input id="key-input" type="password" placeholder="ahk_..." autocomplete="off"
         class="w-full px-3 py-2 bg-black border border-gray-700 rounded text-sm focus:outline-none focus:border-blue-500" />
+      <p class="text-xs text-gray-500">Need a key? Run <code class="px-1 py-0.5 bg-black rounded text-gray-400">npx agenthub init</code> locally, or POST <code class="px-1 py-0.5 bg-black rounded text-gray-400">/admin/teams/:id/keys</code> with <code class="px-1 py-0.5 bg-black rounded text-gray-400">ADMIN_KEY</code> set.</p>
       <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded text-sm font-medium">Connect</button>
     </form>
   </div>

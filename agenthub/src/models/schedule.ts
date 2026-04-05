@@ -46,8 +46,15 @@ function rowToSchedule(row: ScheduleRow): Schedule {
   };
 }
 
-const UNSUPPORTED_CRON =
-  'Unsupported cron pattern — use */N * * * *, 0 */N * * *, 0 N * * *, or 0 H * * D';
+function unsupportedCron(input: string): string {
+  return (
+    `Unsupported cron pattern: '${input}'. ` +
+    `Supported: '*/N * * * *' (every N min), ` +
+    `'0 */N * * *' (every N hours), ` +
+    `'0 N * * *' (daily at N:00 UTC), ` +
+    `'0 H * * D' (weekly day D at H:00 UTC).`
+  );
+}
 
 /**
  * Compute the next firing Date strictly after `from` for the supported cron subset.
@@ -71,7 +78,7 @@ export function computeNextRun(expr: string, from: Date): Date {
   if ((m = trimmed.match(/^\*\/(\d+) \* \* \* \*$/))) {
     const n = parseInt(m[1], 10);
     if (!Number.isInteger(n) || n < 1 || n > 59) {
-      throw new ValidationError(UNSUPPORTED_CRON);
+      throw new ValidationError(unsupportedCron(trimmed));
     }
     while (next.getUTCMinutes() % n !== 0) {
       next.setUTCMinutes(next.getUTCMinutes() + 1);
@@ -83,7 +90,7 @@ export function computeNextRun(expr: string, from: Date): Date {
   if ((m = trimmed.match(/^0 \*\/(\d+) \* \* \*$/))) {
     const n = parseInt(m[1], 10);
     if (!Number.isInteger(n) || n < 1 || n > 23) {
-      throw new ValidationError(UNSUPPORTED_CRON);
+      throw new ValidationError(unsupportedCron(trimmed));
     }
     while (next.getUTCMinutes() !== 0 || next.getUTCHours() % n !== 0) {
       next.setUTCMinutes(next.getUTCMinutes() + 1);
@@ -95,7 +102,7 @@ export function computeNextRun(expr: string, from: Date): Date {
   if ((m = trimmed.match(/^0 (\d+) \* \* \*$/))) {
     const h = parseInt(m[1], 10);
     if (!Number.isInteger(h) || h < 0 || h > 23) {
-      throw new ValidationError(UNSUPPORTED_CRON);
+      throw new ValidationError(unsupportedCron(trimmed));
     }
     while (next.getUTCMinutes() !== 0 || next.getUTCHours() !== h) {
       next.setUTCMinutes(next.getUTCMinutes() + 1);
@@ -108,10 +115,10 @@ export function computeNextRun(expr: string, from: Date): Date {
     const h = parseInt(m[1], 10);
     const day = parseInt(m[2], 10);
     if (!Number.isInteger(h) || h < 0 || h > 23) {
-      throw new ValidationError(UNSUPPORTED_CRON);
+      throw new ValidationError(unsupportedCron(trimmed));
     }
     if (!Number.isInteger(day) || day < 0 || day > 6) {
-      throw new ValidationError(UNSUPPORTED_CRON);
+      throw new ValidationError(unsupportedCron(trimmed));
     }
     while (
       next.getUTCMinutes() !== 0 ||
@@ -123,7 +130,7 @@ export function computeNextRun(expr: string, from: Date): Date {
     return next;
   }
 
-  throw new ValidationError(UNSUPPORTED_CRON);
+  throw new ValidationError(unsupportedCron(trimmed));
 }
 
 export interface DefineScheduleInput {

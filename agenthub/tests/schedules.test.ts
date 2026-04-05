@@ -62,6 +62,23 @@ describe('computeNextRun — cron parser', () => {
     expect(() => computeNextRun('invalid', new Date())).toThrow(/Unsupported cron pattern/);
   });
 
+  it('error message names the offending input AND the supported patterns', () => {
+    const bad = '0 0 1 * *';
+    let caught: unknown;
+    try {
+      computeNextRun(bad, new Date());
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const msg = (caught as Error).message;
+    expect(msg).toContain(`'${bad}'`);
+    expect(msg).toContain('*/N * * * *');
+    expect(msg).toContain('0 */N * * *');
+    expect(msg).toContain('0 N * * *');
+    expect(msg).toContain('0 H * * D');
+  });
+
   it('throws on out-of-range values', () => {
     expect(() => computeNextRun('*/0 * * * *', new Date())).toThrow(/Unsupported cron pattern/);
     expect(() => computeNextRun('*/60 * * * *', new Date())).toThrow(/Unsupported cron pattern/);
