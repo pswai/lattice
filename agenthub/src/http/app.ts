@@ -123,7 +123,7 @@ export function createApp(db: Database.Database, createMcpServer: () => McpServe
   }
 
   // Self-serve workspace management (session-gated per route).
-  app.route('/workspaces', createWorkspaceRoutes(db));
+  app.route('/workspaces', createWorkspaceRoutes(db, config));
 
   // Public inbound webhook receiver — mounted BEFORE auth middleware.
   // The endpoint_key in the URL IS the auth for these receivers.

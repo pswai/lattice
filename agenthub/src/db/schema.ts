@@ -328,6 +328,23 @@ CREATE TABLE IF NOT EXISTS team_memberships (
     PRIMARY KEY (user_id, team_id)
 );
 CREATE INDEX IF NOT EXISTS idx_team_memberships_team ON team_memberships(team_id);
+
+-- Team invitations — pending invites to join a team.
+-- token_hash = sha256(raw); raw is surfaced only once at creation time.
+CREATE TABLE IF NOT EXISTS team_invitations (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'member', 'viewer')),
+    token_hash TEXT NOT NULL UNIQUE,
+    invited_by TEXT,
+    expires_at TEXT NOT NULL,
+    accepted_at TEXT,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_email_lower ON team_invitations(LOWER(email));
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the

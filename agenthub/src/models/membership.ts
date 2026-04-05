@@ -102,6 +102,36 @@ export function listTeamMembers(db: Database.Database, teamId: string): TeamMemb
   }));
 }
 
+export function changeRole(
+  db: Database.Database,
+  userId: string,
+  teamId: string,
+  role: MembershipRole,
+): void {
+  db.prepare(
+    'UPDATE team_memberships SET role = ? WHERE user_id = ? AND team_id = ?',
+  ).run(role, userId, teamId);
+}
+
+export function removeMembership(
+  db: Database.Database,
+  userId: string,
+  teamId: string,
+): void {
+  db.prepare(
+    'DELETE FROM team_memberships WHERE user_id = ? AND team_id = ?',
+  ).run(userId, teamId);
+}
+
+export function countOwners(db: Database.Database, teamId: string): number {
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS c FROM team_memberships WHERE team_id = ? AND role = 'owner'",
+    )
+    .get(teamId) as { c: number };
+  return row.c;
+}
+
 export function getMembership(
   db: Database.Database,
   userId: string,

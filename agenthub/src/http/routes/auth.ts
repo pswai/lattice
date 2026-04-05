@@ -13,6 +13,8 @@ import {
 import {
   createSession,
   revokeSession,
+  listUserSessions,
+  revokeUserSessionsExcept,
   type CreateSessionResult,
 } from '../../models/session.js';
 import { listUserMemberships } from '../../models/membership.js';
@@ -147,6 +149,41 @@ export function createAuthRoutes(db: Database.Database, config: AppConfig): Hono
         joined_at: m.joinedAt,
       })),
     });
+  });
+
+  router.get('/sessions', requireSession, (c) => {
+    const session = c.get('session')!;
+    const sessions = listUserSessions(db, session.userId);
+    return c.json(
+      sessions.map((s) => ({
+        id: s.id,
+        created_at: s.createdAt,
+        expires_at: s.expiresAt,
+        ip: s.ip,
+        user_agent: s.userAgent,
+        current: s.id === session.sessionId,
+      })),
+    );
+  });
+
+  router.delete('/sessions/:id', requireSession, (c) => {
+    const session = c.get('session')!;
+    const targetId = c.req.param('id');
+    // Verify the target session belongs to the current user (don't leak existence).
+    const row = db
+      .prepare('SELECT user_id FROM sessions WHERE id = ?')
+      .get(targetId) as { user_id: string } | undefined;
+    if (!row || row.user_id !== session.userId) {
+      return c.json({ error: 'NOT_FOUND', message: 'Session not found' }, 404);
+    }
+    revokeSession(db, targetId);
+    return c.body(null, 204);
+  });
+
+  router.delete('/sessions', requireSession, (c) => {
+    const session = c.get('session')!;
+    const result = revokeUserSessionsExcept(db, session.userId, session.sessionId);
+    return c.json({ revoked: result.revoked });
   });
 
   router.post('/verify-email', async (c) => {

@@ -93,6 +93,58 @@ export function revokeSession(db: Database.Database, sessionId: string): void {
   ).run(sessionId);
 }
 
+export interface UserSessionView {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  ip: string | null;
+  userAgent: string | null;
+  revokedAt: string | null;
+}
+
+/** List a user's active sessions (excluding revoked and expired), newest first. */
+export function listUserSessions(db: Database.Database, userId: string): UserSessionView[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, expires_at, ip, user_agent, revoked_at
+       FROM sessions
+       WHERE user_id = ?
+         AND revoked_at IS NULL
+         AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       ORDER BY created_at DESC`,
+    )
+    .all(userId) as Array<{
+    id: string;
+    created_at: string;
+    expires_at: string;
+    ip: string | null;
+    user_agent: string | null;
+    revoked_at: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    ip: r.ip,
+    userAgent: r.user_agent,
+    revokedAt: r.revoked_at,
+  }));
+}
+
+/** Revoke all active sessions for a user EXCEPT the one with keepSessionId. */
+export function revokeUserSessionsExcept(
+  db: Database.Database,
+  userId: string,
+  keepSessionId: string,
+): { revoked: number } {
+  const result = db
+    .prepare(
+      "UPDATE sessions SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
+    )
+    .run(userId, keepSessionId);
+  return { revoked: result.changes };
+}
+
 /** Delete expired and revoked sessions. Returns rows removed. */
 export function pruneExpiredSessions(db: Database.Database): number {
   const result = db
