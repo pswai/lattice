@@ -1,0 +1,248 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createTestContext, authHeaders, request, setupTeam, type TestContext } from './helpers.js';
+import { exportTeamData, EVENT_EXPORT_LIMIT, REDACTED } from '../src/models/export.js';
+import { saveContext } from '../src/models/context.js';
+import { broadcastInternal } from '../src/models/event.js';
+import { createTask, updateTask } from '../src/models/task.js';
+import { registerAgent } from '../src/models/agent.js';
+import { sendMessage } from '../src/models/message.js';
+import { saveArtifact } from '../src/models/artifact.js';
+import { definePlaybook, runPlaybook } from '../src/models/playbook.js';
+import { defineProfile } from '../src/models/profile.js';
+import { defineSchedule } from '../src/models/schedule.js';
+import { defineInboundEndpoint } from '../src/models/inbound.js';
+import { createWebhook } from '../src/models/webhook.js';
+
+describe('Team data export', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  function populateTeam(): void {
+    const { db, teamId } = ctx;
+    const agent = 'alice';
+
+    // context
+    saveContext(db, teamId, agent, { key: 'k1', value: 'v1', tags: ['a'] });
+    saveContext(db, teamId, agent, { key: 'k2', value: 'v2', tags: ['b'] });
+
+    // events (via broadcastInternal)
+    broadcastInternal(db, teamId, 'BROADCAST', 'hello', ['x'], agent);
+
+    // tasks with dependency
+    const t1 = createTask(db, teamId, agent, { description: 'first', status: 'open' });
+    const t2 = createTask(db, teamId, agent, {
+      description: 'second',
+      status: 'open',
+      depends_on: [t1.task_id],
+    });
+    expect(t2.task_id).toBeGreaterThan(0);
+
+    // agents
+    registerAgent(db, teamId, { agent_id: 'bob', capabilities: ['research'] });
+
+    // messages
+    sendMessage(db, teamId, agent, { to: 'bob', message: 'hey', tags: ['intro'] });
+
+    // artifacts
+    saveArtifact(db, teamId, agent, {
+      key: 'report.md',
+      content_type: 'text/markdown',
+      content: '# hello\n\nworld',
+      metadata: { author: 'alice' },
+    });
+
+    // playbooks + workflow runs
+    definePlaybook(db, teamId, agent, {
+      name: 'pb1',
+      description: 'd',
+      tasks: [{ description: 'x' }, { description: 'y' }],
+    });
+    runPlaybook(db, teamId, agent, 'pb1');
+
+    // profiles
+    defineProfile(db, teamId, agent, {
+      name: 'researcher',
+      description: 'r',
+      system_prompt: 'you are',
+    });
+
+    // schedules
+    defineSchedule(db, teamId, agent, {
+      playbook_name: 'pb1',
+      cron_expression: '*/5 * * * *',
+    });
+
+    // inbound endpoints (with and without hmac_secret)
+    defineInboundEndpoint(db, teamId, agent, {
+      name: 'gh-hook',
+      action_type: 'create_task',
+      action_config: { description_template: 'Issue: {{title}}' },
+      hmac_secret: 'supersecret123',
+    });
+    defineInboundEndpoint(db, teamId, agent, {
+      name: 'no-hmac',
+      action_type: 'broadcast_event',
+      action_config: {},
+    });
+
+    // webhooks
+    createWebhook(db, teamId, agent, { url: 'https://example.com/hook' });
+  }
+
+  it('exports all sections with data when team has data in every table', () => {
+    populateTeam();
+    const snap = exportTeamData(ctx.db, ctx.teamId);
+
+    expect(snap.version).toBe('1');
+    expect(snap.team_id).toBe(ctx.teamId);
+    expect(typeof snap.exported_at).toBe('string');
+    expect(new Date(snap.exported_at).toString()).not.toBe('Invalid Date');
+
+    expect(snap.context_entries.length).toBe(2);
+    expect(snap.events.length).toBeGreaterThan(0);
+    expect(snap.tasks.length).toBe(4); // 2 direct + 2 from playbook
+    expect(snap.task_dependencies.length).toBe(1);
+    expect(snap.agents.length).toBeGreaterThan(0);
+    expect(snap.messages.length).toBe(1);
+    expect(snap.artifacts.length).toBe(1);
+    expect(snap.playbooks.length).toBe(1);
+    expect(snap.workflow_runs.length).toBe(1);
+    expect(snap.agent_profiles.length).toBe(1);
+    expect(snap.schedules.length).toBe(1);
+    expect(snap.inbound_endpoints.length).toBe(2);
+    expect(snap.webhooks.length).toBe(1);
+
+    // counts match arrays
+    expect(snap.counts.context_entries).toBe(snap.context_entries.length);
+    expect(snap.counts.events).toBe(snap.events.length);
+    expect(snap.counts.tasks).toBe(snap.tasks.length);
+    expect(snap.counts.task_dependencies).toBe(snap.task_dependencies.length);
+    expect(snap.counts.agents).toBe(snap.agents.length);
+    expect(snap.counts.messages).toBe(snap.messages.length);
+    expect(snap.counts.artifacts).toBe(snap.artifacts.length);
+    expect(snap.counts.playbooks).toBe(snap.playbooks.length);
+    expect(snap.counts.workflow_runs).toBe(snap.workflow_runs.length);
+    expect(snap.counts.agent_profiles).toBe(snap.agent_profiles.length);
+    expect(snap.counts.schedules).toBe(snap.schedules.length);
+    expect(snap.counts.inbound_endpoints).toBe(snap.inbound_endpoints.length);
+    expect(snap.counts.webhooks).toBe(snap.webhooks.length);
+  });
+
+  it('returns empty arrays and zero counts for an empty team', () => {
+    const snap = exportTeamData(ctx.db, ctx.teamId);
+
+    expect(snap.context_entries).toEqual([]);
+    expect(snap.events).toEqual([]);
+    expect(snap.tasks).toEqual([]);
+    expect(snap.task_dependencies).toEqual([]);
+    expect(snap.agents).toEqual([]);
+    expect(snap.messages).toEqual([]);
+    expect(snap.artifacts).toEqual([]);
+    expect(snap.playbooks).toEqual([]);
+    expect(snap.workflow_runs).toEqual([]);
+    expect(snap.agent_profiles).toEqual([]);
+    expect(snap.schedules).toEqual([]);
+    expect(snap.inbound_endpoints).toEqual([]);
+    expect(snap.webhooks).toEqual([]);
+
+    for (const v of Object.values(snap.counts)) {
+      expect(v).toBe(0);
+    }
+  });
+
+  it('redacts webhook secrets and inbound endpoint keys/hmac', () => {
+    populateTeam();
+    const snap = exportTeamData(ctx.db, ctx.teamId);
+
+    for (const w of snap.webhooks) {
+      expect(w.secret).toBe(REDACTED);
+    }
+    for (const e of snap.inbound_endpoints) {
+      expect(e.endpoint_key).toBe(REDACTED);
+    }
+    const ghHook = snap.inbound_endpoints.find((e) => e.name === 'gh-hook');
+    expect(ghHook?.hmac_secret).toBe(REDACTED);
+    const noHmac = snap.inbound_endpoints.find((e) => e.name === 'no-hmac');
+    expect(noHmac?.hmac_secret).toBeNull();
+  });
+
+  it('artifacts include metadata but not content field', () => {
+    populateTeam();
+    const snap = exportTeamData(ctx.db, ctx.teamId);
+    expect(snap.artifacts).toHaveLength(1);
+    const a = snap.artifacts[0];
+    expect(a.key).toBe('report.md');
+    expect(a.content_type).toBe('text/markdown');
+    expect(a.size).toBeGreaterThan(0);
+    expect(a.created_by).toBeDefined();
+    expect(a.created_at).toBeDefined();
+    expect((a as Record<string, unknown>).content).toBeUndefined();
+  });
+
+  it('limits events to the last 1000', () => {
+    const { db, teamId } = ctx;
+    const total = EVENT_EXPORT_LIMIT + 50;
+    for (let i = 0; i < total; i++) {
+      broadcastInternal(db, teamId, 'BROADCAST', `msg ${i}`, [], 'bot');
+    }
+    const snap = exportTeamData(db, teamId);
+    expect(snap.events.length).toBe(EVENT_EXPORT_LIMIT);
+    // should be the most recent ones, in ascending id order
+    const ids = snap.events.map((e) => e.id);
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i]).toBeGreaterThan(ids[i - 1]);
+    }
+    // And the last id should be the most recent (highest) event id
+    const maxRow = db
+      .prepare('SELECT MAX(id) as m FROM events WHERE team_id = ?')
+      .get(teamId) as { m: number };
+    expect(ids[ids.length - 1]).toBe(maxRow.m);
+  });
+
+  it('only includes data for the requesting team', () => {
+    populateTeam();
+    // Create a second team with its own data
+    setupTeam(ctx.db, 'other-team', 'ahk_other_key_12345678901234567890');
+    saveContext(ctx.db, 'other-team', 'eve', { key: 'secret', value: 'v', tags: [] });
+
+    const snap = exportTeamData(ctx.db, ctx.teamId);
+    for (const e of snap.context_entries) {
+      expect(e.teamId).toBe(ctx.teamId);
+    }
+    expect(snap.context_entries.find((e) => e.key === 'secret')).toBeUndefined();
+  });
+
+  describe('REST: GET /api/v1/export', () => {
+    it('returns the snapshot as JSON', async () => {
+      populateTeam();
+      const res = await request(ctx.app, 'GET', '/api/v1/export', {
+        headers: authHeaders(ctx.apiKey),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.version).toBe('1');
+      expect(body.team_id).toBe(ctx.teamId);
+      expect(body.counts).toBeDefined();
+      expect(Array.isArray(body.tasks)).toBe(true);
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(ctx.app, 'GET', '/api/v1/export', {});
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    it('is team-scoped: tasks/context only belong to caller team', async () => {
+      populateTeam();
+      const res = await request(ctx.app, 'GET', '/api/v1/export', {
+        headers: authHeaders(ctx.apiKey),
+      });
+      const body = await res.json();
+      for (const t of body.tasks) {
+        expect(t.teamId).toBe(ctx.teamId);
+      }
+    });
+  });
+});
