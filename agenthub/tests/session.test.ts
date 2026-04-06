@@ -29,11 +29,12 @@ describe('Session model', () => {
     expect(resolved!.ip).toBe('1.2.3.4');
   });
 
-  it('resolves by hash too', async () => {
+  it('rejects hash-based lookup (only raw tokens accepted)', async () => {
     const s = await createSession(db, userId);
+    // Passing the session hash directly should NOT authenticate —
+    // only raw tokens are accepted (H5 fix: prevents DB-leaked hashes from authenticating)
     const r = await getSession(db, s.sessionId);
-    expect(r).not.toBeNull();
-    expect(r!.userId).toBe(userId);
+    expect(r).toBeNull();
   });
 
   it('returns null after revoke', async () => {

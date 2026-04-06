@@ -155,7 +155,7 @@ export async function consumePasswordReset(
   db: DbAdapter,
   rawToken: string,
   newPasswordHash: string,
-): Promise<boolean> {
+): Promise<string | false> {
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const row = await db.get<{ user_id: string; expires_at: string; used_at: string | null }>(
     'SELECT user_id, expires_at, used_at FROM password_resets WHERE token_hash = ?',
@@ -170,7 +170,7 @@ export async function consumePasswordReset(
     new Date().toISOString(), tokenHash,
   );
   await updateUserPassword(db, row.user_id, newPasswordHash);
-  return true;
+  return row.user_id;
 }
 
 /** Delete a user account and return the number of rows removed. */

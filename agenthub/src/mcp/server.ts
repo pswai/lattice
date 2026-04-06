@@ -377,7 +377,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
       capabilities: arrayParam(z.array(z.string().max(100)).max(50)).optional().default([]).describe('List of capabilities (e.g. "python", "code-review", "data-analysis")'),
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Agent status (default: online)'),
-      metadata: z.record(z.unknown()).optional().describe('Optional metadata about this agent'),
+      metadata: z.record(z.unknown()).optional().refine(
+        (v) => v === undefined || JSON.stringify(v).length <= 10_240,
+        { message: 'metadata must be under 10 KB when serialized' },
+      ).describe('Optional metadata about this agent'),
     },
     async (params) => {
       const { workspaceId } = getMcpAuth();

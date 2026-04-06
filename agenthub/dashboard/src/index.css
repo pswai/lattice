@@ -100,9 +100,9 @@ body { background: #0a0a0f; color: #e2e2ea; font-family: var(--font-sans); }
 @keyframes skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* Graph */
-.graph-node { cursor: pointer; transition: transform 0.15s ease; }
-.graph-node:hover { transform: scale(1.1); }
-.graph-node:hover circle { stroke: #6366f1; stroke-width: 2.5; }
+.graph-node { cursor: pointer; }
+.graph-node circle { transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease; }
+.graph-node:hover circle { stroke: #6366f1; stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(99,102,241,0.5)); }
 
 /* Tooltip */
 .tip { position: fixed; z-index: 60; pointer-events: none; background: #12121a; border: 1px solid #2a2a38; border-radius: 8px; padding: 10px 12px; font-size: 12px; max-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }

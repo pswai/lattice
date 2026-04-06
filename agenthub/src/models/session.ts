@@ -69,15 +69,13 @@ export async function createSession(
 }
 
 /**
- * Resolve a session from either the raw token or its hash.
+ * Resolve a session from a raw token.
+ * Always hashes the input before lookup so leaked DB hashes cannot authenticate.
  * Returns null if missing, revoked, or expired.
  */
-export async function getSession(db: DbAdapter, rawOrHash: string): Promise<Session | null> {
-  if (!rawOrHash) return null;
-  // Heuristic: stored sessionId is 64 hex chars. If input matches that shape,
-  // treat it as the hash; otherwise hash it as a raw token.
-  const looksHashed = /^[a-f0-9]{64}$/i.test(rawOrHash);
-  const sessionId = looksHashed ? rawOrHash.toLowerCase() : hashSessionToken(rawOrHash);
+export async function getSession(db: DbAdapter, rawToken: string): Promise<Session | null> {
+  if (!rawToken) return null;
+  const sessionId = hashSessionToken(rawToken);
 
   const row = await db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', sessionId);
   if (!row) return null;
@@ -139,6 +137,18 @@ export async function revokeUserSessionsExcept(
   const result = await db.run(
     "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
     new Date().toISOString(), userId, keepSessionId,
+  );
+  return { revoked: result.changes };
+}
+
+/** Revoke ALL active sessions for a user (e.g. after password reset). */
+export async function revokeAllUserSessions(
+  db: DbAdapter,
+  userId: string,
+): Promise<{ revoked: number }> {
+  const result = await db.run(
+    "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+    new Date().toISOString(), userId,
   );
   return { revoked: result.changes };
 }

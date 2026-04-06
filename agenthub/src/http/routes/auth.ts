@@ -21,6 +21,7 @@ import {
   revokeSession,
   listUserSessions,
   revokeUserSessionsExcept,
+  revokeAllUserSessions,
   type CreateSessionResult,
 } from '../../models/session.js';
 import { listUserMemberships } from '../../models/membership.js';
@@ -303,10 +304,12 @@ export function createAuthRoutes(
     }
 
     const newHash = hashPassword(parsed.data.password);
-    const ok = await consumePasswordReset(db, parsed.data.token, newHash);
-    if (!ok) {
+    const userId = await consumePasswordReset(db, parsed.data.token, newHash);
+    if (!userId) {
       return c.json({ error: 'INVALID_TOKEN', message: 'Token invalid or expired' }, 400);
     }
+    // Invalidate all existing sessions after password change
+    await revokeAllUserSessions(db, userId);
     return c.json({ message: 'Password has been reset.' });
   });
 

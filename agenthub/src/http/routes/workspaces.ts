@@ -100,7 +100,9 @@ export function createWorkspaceRoutes(
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const result = await acceptInvitation(db, parsed.data.token, session.userId);
+    // Look up the user's email to verify it matches the invitation target
+    const userRow = await db.get<{ email: string }>('SELECT email FROM users WHERE id = ?', session.userId);
+    const result = await acceptInvitation(db, parsed.data.token, session.userId, userRow?.email);
     return c.json({ workspace_id: result.workspaceId, role: result.role }, 201);
   });
 

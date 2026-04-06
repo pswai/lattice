@@ -131,10 +131,15 @@ export async function acceptInvitation(
   db: DbAdapter,
   raw: string,
   userId: string,
+  userEmail?: string,
 ): Promise<AcceptInvitationResult> {
   const inv = await getInvitationByToken(db, raw);
   if (!inv) {
     throw new ValidationError('Invitation is invalid, expired, or already used');
+  }
+  // Verify the accepting user's email matches the invitation target
+  if (userEmail && inv.email.toLowerCase() !== userEmail.toLowerCase()) {
+    throw new ValidationError('This invitation was sent to a different email address');
   }
   const existing = await getMembership(db, userId, inv.workspaceId);
   if (existing) {

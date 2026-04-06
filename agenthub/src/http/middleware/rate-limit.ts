@@ -82,6 +82,33 @@ export function createRateLimitMiddleware({ perMinute, windowMs = 60_000 }: Rate
 }
 
 /**
+ * Standalone rate-limit check for use outside middleware (e.g. MCP handler).
+ * Returns { limited: false } or { limited: true, retryAfterSec }.
+ */
+export function checkRateLimit(
+  key: string,
+  perMinute: number,
+  windowMs = 60_000,
+): { limited: false } | { limited: true; retryAfterSec: number } {
+  if (perMinute <= 0) return { limited: false };
+  const now = Date.now();
+  const windowStart = now - windowMs;
+  let bucket = buckets.get(key);
+  if (!bucket) {
+    bucket = { hits: [] };
+    buckets.set(key, bucket);
+  }
+  pruneOld(bucket, windowStart);
+  if (bucket.hits.length >= perMinute) {
+    const oldest = bucket.hits[0];
+    const resetMs = oldest + windowMs;
+    return { limited: true, retryAfterSec: Math.max(1, Math.ceil((resetMs - now) / 1000)) };
+  }
+  bucket.hits.push(now);
+  return { limited: false };
+}
+
+/**
  * Per-workspace rate limiter. Must run AFTER auth middleware so `c.get('auth')`
  * is available. Aggregates all requests for a given workspaceId.
  */

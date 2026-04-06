@@ -61,7 +61,14 @@ export async function findOrCreateOAuthUser(
         email,
       );
       if (userRow) {
-        uid = userRow.id;
+        if (userRow.email_verified_at) {
+          // Only auto-link if the existing account has a verified email,
+          // preventing account takeover via unverified email match.
+          uid = userRow.id;
+        } else {
+          // Existing unverified account — refuse to link or create duplicate
+          throw new Error('OAUTH_EMAIL_CONFLICT: An account with this email exists but is not verified. Please verify the existing account first.');
+        }
       } else {
         uid = await createOAuthUser(tx, email, input.name ?? null);
       }

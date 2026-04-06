@@ -6,7 +6,7 @@ import { createAuthMiddleware, resolveTeamFromRequest } from './middleware/auth.
 import { createRequestContextMiddleware } from './middleware/request-context.js';
 import { createMetricsMiddleware } from './middleware/metrics.js';
 import { createAuditMiddleware } from './middleware/audit.js';
-import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware } from './middleware/rate-limit.js';
+import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware, checkRateLimit } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
 import { createQuotaMiddleware } from './middleware/quota.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
@@ -144,6 +144,16 @@ export function createApp(
     const result = await resolveTeamFromRequest(db, c);
     if (!result.ok) {
       return c.json({ error: result.error, message: result.message }, result.status);
+    }
+
+    // Rate-limit MCP requests using the same per-key bucket as REST
+    if (config && config.rateLimitPerMinute > 0) {
+      const authHeader = c.req.header('Authorization') || '';
+      const keyId = `mcp:${authHeader}`;
+      const rl = checkRateLimit(keyId, config.rateLimitPerMinute);
+      if (rl.limited) {
+        return c.json({ error: 'RATE_LIMITED', message: 'Too many requests' }, 429);
+      }
     }
 
     const agentId = c.req.header('X-Agent-ID') || 'anonymous';

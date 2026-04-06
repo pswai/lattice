@@ -147,9 +147,9 @@ describe('/auth/oauth/github', () => {
   });
 
   it('links identity to existing user with same email (no duplicate user)', async () => {
-    // Seed a user with email alice@example.com.
+    // Seed a user with verified email alice@example.com (verification required for OAuth linking).
     db.prepare(
-      "INSERT INTO users (id, email, password_hash) VALUES ('u_existing', 'alice@example.com', 'x:y')",
+      "INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ('u_existing', 'alice@example.com', 'x:y', '2024-01-01T00:00:00Z')",
     ).run();
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
