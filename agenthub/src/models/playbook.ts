@@ -93,8 +93,7 @@ export async function definePlaybook(
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(workspace_id, name) DO UPDATE SET
       description = excluded.description,
-      tasks_json = excluded.tasks_json,
-      created_by = excluded.created_by
+      tasks_json = excluded.tasks_json
   `, workspaceId, input.name, input.description, tasksJson, agentId);
 
   const row = await db.get<PlaybookRow>(

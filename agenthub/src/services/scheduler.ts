@@ -11,6 +11,8 @@ import { getLogger } from '../logger.js';
 const SCHEDULER_INTERVAL_MS = 30_000;
 const SCHEDULER_AGENT_ID = 'system:scheduler';
 
+let schedulerRunning = false;
+
 export function startScheduler(db: DbAdapter): NodeJS.Timeout {
   return setInterval(() => {
     runDueSchedules(db).catch((err) =>
@@ -23,6 +25,16 @@ export function startScheduler(db: DbAdapter): NodeJS.Timeout {
 
 /** Run one pass of the scheduler. Exported for tests. */
 export async function runDueSchedules(db: DbAdapter): Promise<number> {
+  if (schedulerRunning) return 0;
+  schedulerRunning = true;
+  try {
+    return await runDueSchedulesInner(db);
+  } finally {
+    schedulerRunning = false;
+  }
+}
+
+async function runDueSchedulesInner(db: DbAdapter): Promise<number> {
   const due = await getDueSchedules(db);
   let fired = 0;
   for (const schedule of due) {

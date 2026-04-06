@@ -94,8 +94,10 @@ async function exportContextEntries(db: DbAdapter, workspaceId: string): Promise
     tags: string;
     created_by: string;
     created_at: string;
+    updated_by: string | null;
+    updated_at: string | null;
   }>(
-    'SELECT * FROM context_entries WHERE workspace_id = ? ORDER BY id ASC',
+    'SELECT * FROM context_entries WHERE workspace_id = ? ORDER BY id ASC LIMIT 10000',
     workspaceId,
   );
   return rows.map((row) => ({
@@ -106,6 +108,8 @@ async function exportContextEntries(db: DbAdapter, workspaceId: string): Promise
     tags: JSON.parse(row.tags) as string[],
     createdBy: row.created_by,
     createdAt: row.created_at,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
   }));
 }
 

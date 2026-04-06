@@ -563,6 +563,15 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
+        // Scan var values for secrets before substitution into task descriptions
+        if (params.vars) {
+          for (const val of Object.values(params.vars)) {
+            const scan = scanForSecrets(val);
+            if (!scan.clean) {
+              return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
+            }
+          }
+        }
         const result = await runPlaybook(db, workspaceId, agentId, params.name, params.vars);
         await mcpAudit('run_playbook', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };

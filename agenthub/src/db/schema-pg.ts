@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS context_entries (
     tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_by TEXT,
+    updated_at TEXT,
     UNIQUE(workspace_id, key)
 );
 

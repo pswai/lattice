@@ -6,6 +6,7 @@ import {
   TASK_COLUMN_MIGRATIONS,
   API_KEY_COLUMN_MIGRATIONS,
   WORKSPACES_COLUMN_MIGRATIONS,
+  CONTEXT_COLUMN_MIGRATIONS,
 } from './schema.js';
 import { DEFAULT_PLANS } from '../models/plan.js';
 import { SqliteAdapter, PgAdapter } from './adapter.js';
@@ -59,6 +60,7 @@ export function createSqliteAdapter(dbPath: string): SqliteAdapter {
   runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'workspaces', WORKSPACES_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'context_entries', CONTEXT_COLUMN_MIGRATIONS);
 
   migrateFtsToTrigram(db);
   migrateInboundActionTypes(db);

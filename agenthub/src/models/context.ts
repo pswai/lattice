@@ -16,6 +16,8 @@ interface ContextRow {
   tags: string;
   created_by: string;
   created_at: string;
+  updated_by: string | null;
+  updated_at: string | null;
 }
 
 function rowToEntry(row: ContextRow, truncate = false): ContextEntry {
@@ -31,6 +33,8 @@ function rowToEntry(row: ContextRow, truncate = false): ContextEntry {
     tags: JSON.parse(row.tags) as string[],
     createdBy: row.created_by,
     createdAt: row.created_at,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -82,9 +86,9 @@ export async function saveContext(
   if (existing) {
     // Update in place — preserves the original ID
     await db.run(`
-      UPDATE context_entries SET value = ?, tags = ?
+      UPDATE context_entries SET value = ?, tags = ?, updated_by = ?, updated_at = ?
       WHERE workspace_id = ? AND key = ?
-    `, input.value, JSON.stringify(input.tags), workspaceId, input.key);
+    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), workspaceId, input.key);
     entryId = existing.id;
   } else {
     const result = await db.run(`

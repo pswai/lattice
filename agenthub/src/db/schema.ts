@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS context_entries (
     tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_by TEXT,
+    updated_at TEXT,
     UNIQUE(workspace_id, key)
 );
 
@@ -407,6 +409,17 @@ export const TASK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'assigned_to',
     sql: 'ALTER TABLE tasks ADD COLUMN assigned_to TEXT',
+  },
+];
+
+export const CONTEXT_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'updated_by',
+    sql: 'ALTER TABLE context_entries ADD COLUMN updated_by TEXT',
+  },
+  {
+    name: 'updated_at',
+    sql: 'ALTER TABLE context_entries ADD COLUMN updated_at TEXT',
   },
 ];
 

@@ -8,6 +8,8 @@ export interface ContextEntry {
   tags: string[];
   createdBy: string;
   createdAt: string; // ISO 8601
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 }
 
 export type EventType = 'LEARNING' | 'BROADCAST' | 'ESCALATION' | 'ERROR' | 'TASK_UPDATE';
