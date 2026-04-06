@@ -13,9 +13,18 @@ const DefineProfileSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(1).max(10_000),
   system_prompt: z.string().min(1).max(100_000),
+  // Accept both REST-style (default_capabilities) and MCP-style (capabilities) field names
   default_capabilities: z.array(z.string().max(100)).max(50).optional(),
   default_tags: z.array(z.string().max(50)).max(20).optional(),
-});
+  capabilities: z.array(z.string().max(100)).max(50).optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
+}).transform((data) => ({
+  name: data.name,
+  description: data.description,
+  system_prompt: data.system_prompt,
+  default_capabilities: data.default_capabilities ?? data.capabilities,
+  default_tags: data.default_tags ?? data.tags,
+}));
 
 export function createProfileRoutes(db: DbAdapter): Hono {
   const router = new Hono();
@@ -28,31 +37,31 @@ export function createProfileRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await defineProfile(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await defineProfile(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /profiles — list
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
-    const result = await listProfiles(db, teamId);
+    const { workspaceId } = c.get('auth');
+    const result = await listProfiles(db, workspaceId);
     return c.json(result);
   });
 
   // GET /profiles/:name — get one
   router.get('/:name', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const name = c.req.param('name');
-    const result = await getProfile(db, teamId, name);
+    const result = await getProfile(db, workspaceId, name);
     return c.json(result);
   });
 
   // DELETE /profiles/:name — delete
   router.delete('/:name', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const name = c.req.param('name');
-    const result = await deleteProfile(db, teamId, name);
+    const result = await deleteProfile(db, workspaceId, name);
     return c.json(result);
   });
 

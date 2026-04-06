@@ -7,8 +7,14 @@ import { ValidationError } from '../../errors.js';
 import {
   createUser,
   getUserById,
+  getUserByEmail,
   authenticateUser,
   setEmailVerified,
+  hashPassword,
+  createPasswordReset,
+  consumePasswordReset,
+  deleteUser,
+  deleteWorkspaceData,
 } from '../../models/user.js';
 import {
   createSession,
@@ -21,7 +27,43 @@ import { listUserMemberships } from '../../models/membership.js';
 import { requireSession } from '../middleware/require-session.js';
 import { SESSION_COOKIE_NAME } from '../middleware/session.js';
 import type { EmailSender } from '../../services/email.js';
+import { writeAudit } from '../../models/audit.js';
 import { getLogger } from '../../logger.js';
+
+/**
+ * In-memory sliding-window rate limiter for forgot-password.
+ * Key = lowercased email, value = array of request timestamps.
+ */
+const forgotPasswordBuckets = new Map<string, number[]>();
+const FORGOT_PW_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const FORGOT_PW_MAX = 3;
+
+/** Test helper — clears in-memory forgot-password rate-limit state. */
+export function __resetForgotPasswordRateLimit(): void {
+  forgotPasswordBuckets.clear();
+}
+
+function isForgotPasswordRateLimited(email: string): boolean {
+  const key = email.trim().toLowerCase();
+  const now = Date.now();
+  const windowStart = now - FORGOT_PW_WINDOW_MS;
+  let hits = forgotPasswordBuckets.get(key);
+  if (!hits) {
+    hits = [];
+    forgotPasswordBuckets.set(key, hits);
+  }
+  // Prune old entries
+  let drop = 0;
+  for (const t of hits) {
+    if (t < windowStart) drop++;
+    else break;
+  }
+  if (drop > 0) hits.splice(0, drop);
+
+  if (hits.length >= FORGOT_PW_MAX) return true;
+  hits.push(now);
+  return false;
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SIGNUP_TTL_DAYS = 30;
@@ -39,6 +81,15 @@ const LoginSchema = z.object({
 
 const VerifyEmailSchema = z.object({
   token: z.string().min(1).max(200),
+});
+
+const ForgotPasswordSchema = z.object({
+  email: z.string().max(320),
+});
+
+const ResetPasswordSchema = z.object({
+  token: z.string().min(1).max(200),
+  password: z.string().min(8).max(200),
 });
 
 function sessionCookieHeader(result: CreateSessionResult, secure: boolean): string {
@@ -165,8 +216,8 @@ export function createAuthRoutes(
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, email_verified_at: user.emailVerifiedAt },
       memberships: memberships.map((m) => ({
-        team_id: m.teamId,
-        team_name: m.teamName,
+        workspace_id: m.workspaceId,
+        workspace_name: m.workspaceName,
         role: m.role,
         joined_at: m.joinedAt,
       })),
@@ -207,6 +258,128 @@ export function createAuthRoutes(
     const session = c.get('session')!;
     const result = await revokeUserSessionsExcept(db, session.userId, session.sessionId);
     return c.json({ revoked: result.revoked });
+  });
+
+  router.post('/forgot-password', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = ForgotPasswordSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
+    }
+
+    // Rate limit: 3 requests per hour per email address.
+    if (isForgotPasswordRateLimited(parsed.data.email)) {
+      // Still return the same generic 200 to avoid leaking info.
+      return c.json({ message: 'If that email is registered, a reset link has been sent.' });
+    }
+
+    // Always return 200 to avoid leaking whether the email exists.
+    const user = await getUserByEmail(db, parsed.data.email);
+    if (user) {
+      const rawToken = await createPasswordReset(db, user.id);
+      if (emailSender) {
+        const resetUrl = `${config.appBaseUrl}/auth/reset-password?token=${rawToken}`;
+        const emailBody = `You requested a password reset for your Lattice account.\n\nClick the link below to set a new password:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, you can safely ignore this email.`;
+        emailSender
+          .send(user.email, 'Reset your Lattice password', emailBody)
+          .catch((err: unknown) => {
+            getLogger().error('email_send_failed', {
+              to: user.email,
+              kind: 'password_reset',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+      }
+    }
+
+    return c.json({ message: 'If that email is registered, a reset link has been sent.' });
+  });
+
+  router.post('/reset-password', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = ResetPasswordSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
+    }
+
+    const newHash = hashPassword(parsed.data.password);
+    const ok = await consumePasswordReset(db, parsed.data.token, newHash);
+    if (!ok) {
+      return c.json({ error: 'INVALID_TOKEN', message: 'Token invalid or expired' }, 400);
+    }
+    return c.json({ message: 'Password has been reset.' });
+  });
+
+  router.delete('/account', requireSession, async (c) => {
+    const session = c.get('session')!;
+    const userId = session.userId;
+
+    const user = await getUserById(db, userId);
+
+    // Find workspaces owned by this user.
+    const ownedWorkspaces = await db.all<{ id: string; name: string }>(
+      'SELECT id, name FROM workspaces WHERE owner_user_id = ?',
+      userId,
+    );
+
+    // Find memberships (for summary).
+    const memberships = await listUserMemberships(db, userId);
+
+    // Log the deletion in audit log BEFORE deleting data.
+    // We log to each owned workspace's audit log.
+    for (const ws of ownedWorkspaces) {
+      await writeAudit(db, {
+        workspaceId: ws.id,
+        actor: userId,
+        action: 'account.delete',
+        resourceType: 'user',
+        resourceId: userId,
+        metadata: {
+          email: user?.email,
+          reason: 'GDPR account deletion',
+          owned_workspace_ids: ownedWorkspaces.map((w) => w.id),
+        },
+      });
+    }
+
+    // Also log to any workspace the user is a member of (but doesn't own).
+    for (const m of memberships) {
+      const isOwned = ownedWorkspaces.some((ws) => ws.id === m.workspaceId);
+      if (!isOwned) {
+        await writeAudit(db, {
+          workspaceId: m.workspaceId,
+          actor: userId,
+          action: 'account.delete',
+          resourceType: 'user',
+          resourceId: userId,
+          metadata: {
+            email: user?.email,
+            reason: 'GDPR account deletion — member removed',
+          },
+        });
+      }
+    }
+
+    // Delete owned workspaces and all their data.
+    for (const ws of ownedWorkspaces) {
+      await deleteWorkspaceData(db, ws.id);
+    }
+
+    // Delete the user and user-scoped data.
+    await deleteUser(db, userId);
+
+    c.header('Set-Cookie', clearCookieHeader(config.cookieSecure));
+    return c.json({
+      message: 'Account deleted',
+      summary: {
+        user_id: userId,
+        email: user?.email,
+        workspaces_deleted: ownedWorkspaces.map((ws) => ({ id: ws.id, name: ws.name })),
+        memberships_removed: memberships
+          .filter((m) => !ownedWorkspaces.some((ws) => ws.id === m.workspaceId))
+          .map((m) => ({ workspace_id: m.workspaceId, role: m.role })),
+      },
+    });
   });
 
   router.post('/verify-email', async (c) => {

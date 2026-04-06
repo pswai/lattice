@@ -96,31 +96,33 @@ export function createInboundManagementRoutes(db: DbAdapter): Hono {
         issues: parsed.error.flatten().fieldErrors,
       });
     }
-    const { teamId, agentId } = c.get('auth');
-    const endpoint = await defineInboundEndpoint(db, teamId, agentId, {
+    const { workspaceId, agentId } = c.get('auth');
+    const endpoint = await defineInboundEndpoint(db, workspaceId, agentId, {
       name: parsed.data.name,
       action_type: parsed.data.action_type as InboundActionType,
       action_config: parsed.data.action_config,
       hmac_secret: parsed.data.hmac_secret,
     });
-    return c.json(endpoint, 201);
+    const { hmacSecret: _, ...safe } = endpoint;
+    return c.json({ ...safe, hasHmac: !!endpoint.hmacSecret }, 201);
   });
 
   // GET /inbound — list endpoints
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
-    const result = await listInboundEndpoints(db, teamId);
-    return c.json(result);
+    const { workspaceId } = c.get('auth');
+    const result = await listInboundEndpoints(db, workspaceId);
+    const safe = result.endpoints.map(({ hmacSecret, ...rest }) => ({ ...rest, hasHmac: !!hmacSecret }));
+    return c.json({ endpoints: safe, total: result.total });
   });
 
   // DELETE /inbound/:id — delete endpoint
   router.delete('/:id', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const id = parseInt(c.req.param('id'), 10);
     if (!Number.isFinite(id)) {
       throw new ValidationError('id must be a number');
     }
-    const result = await deleteInboundEndpoint(db, teamId, id);
+    const result = await deleteInboundEndpoint(db, workspaceId, id);
     return c.json(result);
   });
 
