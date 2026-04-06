@@ -83,18 +83,20 @@ export async function saveContext(
 
   let entryId: number;
 
+  const now = new Date().toISOString();
+
   if (existing) {
     // Update in place — preserves the original ID
     await db.run(`
       UPDATE context_entries SET value = ?, tags = ?, updated_by = ?, updated_at = ?
       WHERE workspace_id = ? AND key = ?
-    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), workspaceId, input.key);
+    `, input.value, JSON.stringify(input.tags), agentId, now, workspaceId, input.key);
     entryId = existing.id;
   } else {
     const result = await db.run(`
-      INSERT INTO context_entries (workspace_id, key, value, tags, created_by)
-      VALUES (?, ?, ?, ?, ?)
-    `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId);
+      INSERT INTO context_entries (workspace_id, key, value, tags, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId, now);
     entryId = Number(result.lastInsertRowid);
   }
 

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import type { AuthContext } from '../models/types.js';
+import { AppError } from '../errors.js';
 
 export const mcpAuthStorage = new AsyncLocalStorage<AuthContext>();
 
@@ -13,4 +14,25 @@ export function getMcpAuth(): AuthContext {
     throw new Error('MCP auth context not available — request was not authenticated');
   }
   return auth;
+}
+
+/**
+ * Enforce that the current MCP auth scope permits write operations.
+ * Throws an AppError with 403 status if scope is 'read'.
+ */
+export function requireWriteScope(): void {
+  const auth = getMcpAuth();
+  if (auth.scope === 'read') {
+    throw new InsufficientScopeError(auth.scope);
+  }
+}
+
+export class InsufficientScopeError extends AppError {
+  constructor(scope: string) {
+    super(
+      'INSUFFICIENT_SCOPE',
+      403,
+      `This key has scope '${scope}' but this operation requires 'write'.`,
+    );
+  }
 }

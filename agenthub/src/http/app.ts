@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Hono } from 'hono';
 import type { DbAdapter } from '../db/adapter.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -149,7 +150,7 @@ export function createApp(
     // Rate-limit MCP requests using the same per-key bucket as REST
     if (config && config.rateLimitPerMinute > 0) {
       const authHeader = c.req.header('Authorization') || '';
-      const keyId = `mcp:${authHeader}`;
+      const keyId = createHash('sha256').update(authHeader).digest('hex');
       const rl = checkRateLimit(keyId, config.rateLimitPerMinute);
       if (rl.limited) {
         return c.json({ error: 'RATE_LIMITED', message: 'Too many requests' }, 429);

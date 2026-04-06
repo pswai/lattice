@@ -318,8 +318,8 @@ export async function updateTask(
     const blockers = await db.all<{ id: number; description: string; status: string }>(`
       SELECT t.id, t.description, t.status FROM task_dependencies td
       JOIN tasks t ON t.id = td.depends_on
-      WHERE td.task_id = ? AND t.status != 'completed'
-    `, input.task_id);
+      WHERE td.task_id = ? AND t.workspace_id = ? AND t.status != 'completed'
+    `, input.task_id, workspaceId);
 
     if (blockers.length > 0) {
       const blockerList = blockers.map(b => `#${b.id} (${b.status})`).join(', ');
