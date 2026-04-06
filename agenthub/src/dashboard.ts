@@ -635,6 +635,9 @@ tailwind.config = {
     btn.classList.add('active');
     const name = btn.dataset.tab;
     $('tab-' + name).classList.add('active');
+    // Hide any lingering tooltips on tab switch
+    const tip = document.querySelector('.tip');
+    if (tip) tip.style.display = 'none';
     if (name === 'graph' && !tabLoaded.graph) { tabLoaded.graph = true; loadGraph(); }
     else if (name === 'artifacts' && !tabLoaded.artifacts) { tabLoaded.artifacts = true; loadArtifacts(); }
     else if (name === 'playbooks' && !tabLoaded.playbooks) { tabLoaded.playbooks = true; loadPlaybooks(); }
@@ -1132,6 +1135,7 @@ tailwind.config = {
 
   $('modal-close').onclick = () => $('modal').classList.remove('open');
   $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) $('modal').classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('modal').classList.remove('open'); });
   $('art-refresh').onclick = loadArtifacts;
 
   // ---------- Playbooks ----------
