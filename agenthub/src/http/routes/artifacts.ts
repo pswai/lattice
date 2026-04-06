@@ -10,7 +10,7 @@ const ContentTypeSchema = z.enum(ALLOWED_CONTENT_TYPES as unknown as [ArtifactCo
 const SaveArtifactSchema = z.object({
   key: z.string().min(1).max(255),
   content_type: ContentTypeSchema,
-  content: z.string().min(1),
+  content: z.string().min(1).max(1_048_576),
   metadata: z.record(z.unknown()).optional(),
 });
 

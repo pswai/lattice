@@ -237,8 +237,18 @@ export async function createTask(
 
   const taskId = Number(result.lastInsertRowid);
 
-  // Insert task dependencies if provided
+  // Insert task dependencies if provided — validate that all referenced tasks exist
   if (input.depends_on && input.depends_on.length > 0) {
+    const placeholders = input.depends_on.map(() => '?').join(',');
+    const existingRows = await db.all<{ id: number }>(
+      `SELECT id FROM tasks WHERE workspace_id = ? AND id IN (${placeholders})`,
+      workspaceId, ...input.depends_on,
+    );
+    const existingIds = new Set(existingRows.map((r) => r.id));
+    const missing = input.depends_on.filter((id) => !existingIds.has(id));
+    if (missing.length > 0) {
+      throw new ValidationError(`depends_on references non-existent task IDs: ${missing.join(', ')}`);
+    }
     for (const depId of input.depends_on) {
       await db.run(
         'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on) VALUES (?, ?)',

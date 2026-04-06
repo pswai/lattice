@@ -56,6 +56,9 @@ export async function incrementUsage(
   const exec = input.exec ?? 0;
   const apiCall = input.apiCall ?? 0;
   const storage = input.storageBytes ?? 0;
+  if (exec < 0 || apiCall < 0 || storage < 0) {
+    throw new Error('Usage increments must be non-negative');
+  }
   if (exec === 0 && apiCall === 0 && storage === 0) return;
   const periodYm = currentPeriodYm();
   await db.run(`
@@ -80,6 +83,9 @@ export async function incrementUsageForced(
   const exec = input.exec ?? 0;
   const apiCall = input.apiCall ?? 0;
   const storage = input.storageBytes ?? 0;
+  if (exec < 0 || apiCall < 0 || storage < 0) {
+    throw new Error('Usage increments must be non-negative');
+  }
   if (exec === 0 && apiCall === 0 && storage === 0) return;
   const periodYm = currentPeriodYm();
   await db.run(`

@@ -139,17 +139,32 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
         usage = { exec_count: 0, api_call_count: 0, storage_bytes: 0 };
       }
 
-      // Try to fetch workspace plan for limits
+      // Fetch plan quotas from DB (with fallback to defaults)
       const planId = workspace?.plan_id || 'free';
-      // Provide defaults based on common plan structure
-      limits = {
-        plan_id: planId,
-        plan_name: planId.charAt(0).toUpperCase() + planId.slice(1),
-        exec_quota: planId === 'free' ? 1000 : planId === 'pro' ? 50000 : 999999,
-        api_call_quota: planId === 'free' ? 10000 : planId === 'pro' ? 500000 : 9999999,
-        storage_bytes_quota: planId === 'free' ? 100 * 1024 * 1024 : planId === 'pro' ? 10 * 1024 * 1024 * 1024 : 100 * 1024 * 1024 * 1024,
-        seat_quota: planId === 'free' ? 3 : planId === 'pro' ? 25 : 999,
-      };
+      const planRow = await db.get<{
+        id: string; name: string; exec_quota: number; api_call_quota: number;
+        storage_bytes_quota: number; seat_quota: number;
+      }>('SELECT id, name, exec_quota, api_call_quota, storage_bytes_quota, seat_quota FROM subscription_plans WHERE id = ?', planId);
+      if (planRow) {
+        limits = {
+          plan_id: planRow.id,
+          plan_name: planRow.name,
+          exec_quota: planRow.exec_quota,
+          api_call_quota: planRow.api_call_quota,
+          storage_bytes_quota: planRow.storage_bytes_quota,
+          seat_quota: planRow.seat_quota,
+        };
+      } else {
+        // Fallback for missing plan row
+        limits = {
+          plan_id: planId,
+          plan_name: planId.charAt(0).toUpperCase() + planId.slice(1),
+          exec_quota: 1000,
+          api_call_quota: 10000,
+          storage_bytes_quota: 100 * 1024 * 1024,
+          seat_quota: 100,
+        };
+      }
     } catch {
       // usage tables may not exist
     }

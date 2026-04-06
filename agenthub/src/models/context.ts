@@ -82,10 +82,9 @@ export async function saveContext(
   if (existing) {
     // Update in place — preserves the original ID
     await db.run(`
-      UPDATE context_entries SET value = ?, tags = ?, created_by = ?,
-        created_at = ?
+      UPDATE context_entries SET value = ?, tags = ?
       WHERE workspace_id = ? AND key = ?
-    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), workspaceId, input.key);
+    `, input.value, JSON.stringify(input.tags), workspaceId, input.key);
     entryId = existing.id;
   } else {
     const result = await db.run(`

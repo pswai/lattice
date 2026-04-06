@@ -41,7 +41,7 @@ describe('quota foundation', () => {
       const plan = (await getPlan(db, 'free'))!;
       expect(plan.priceCents).toBe(0);
       expect(plan.execQuota).toBe(1000);
-      expect(plan.seatQuota).toBe(3);
+      expect(plan.seatQuota).toBe(100);
     });
   });
 

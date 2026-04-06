@@ -47,7 +47,7 @@ export const DEFAULT_PLANS: Array<Omit<Plan, 'createdAt'>> = [
     execQuota: 1000,
     apiCallQuota: 10000,
     storageBytesQuota: 100 * 1024 * 1024,
-    seatQuota: 3,
+    seatQuota: 100,
     retentionDays: 7,
   },
   {

@@ -108,10 +108,10 @@ export async function saveArtifact(
   if (existing) {
     await db.run(`
       UPDATE artifacts
-      SET content_type = ?, content = ?, metadata = ?, size = ?, created_by = ?,
+      SET content_type = ?, content = ?, metadata = ?, size = ?,
           updated_at = ?
       WHERE workspace_id = ? AND key = ?
-    `, input.content_type, input.content, metadataJson, size, agentId, new Date().toISOString(), workspaceId, input.key);
+    `, input.content_type, input.content, metadataJson, size, new Date().toISOString(), workspaceId, input.key);
     artifactId = existing.id;
   } else {
     const result = await db.run(`

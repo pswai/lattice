@@ -7,7 +7,7 @@ import { ValidationError } from '../../errors.js';
 const CreateTaskSchema = z.object({
   description: z.string().min(1).max(10_000),
   status: z.enum(['open', 'claimed']).optional(),
-  depends_on: z.array(z.number().int().positive()).optional(),
+  depends_on: z.array(z.number().int().positive()).max(100).optional(),
   priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional(),
   assigned_to: z.string().max(100).optional(),
 });

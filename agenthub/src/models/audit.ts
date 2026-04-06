@@ -113,6 +113,10 @@ export async function queryAudit(
  * Returns number of rows deleted.
  */
 export async function pruneAuditOlderThan(db: DbAdapter, cutoffIso: string): Promise<number> {
+  const cutoff = new Date(cutoffIso);
+  if (isNaN(cutoff.getTime()) || cutoff > new Date()) {
+    throw new Error('cutoff must be a valid ISO date in the past');
+  }
   const result = await db.run('DELETE FROM audit_log WHERE created_at < ?', cutoffIso);
   return result.changes;
 }

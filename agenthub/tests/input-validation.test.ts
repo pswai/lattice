@@ -378,17 +378,17 @@ describe('Input Validation', () => {
       ).get() as any;
       expect(countBefore.cnt).toBeGreaterThanOrEqual(2);
 
-      // Prune with a future date — should delete all records
+      // Prune with a future date — should be rejected
       const futureDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-      const removed = await pruneAuditOlderThan(ctx.db, futureDate);
+      await expect(pruneAuditOlderThan(ctx.db, futureDate)).rejects.toThrow(
+        'cutoff must be a valid ISO date in the past',
+      );
 
-      // Document: future cutoff deletes everything (this is a potential footgun)
-      expect(removed).toBe(countBefore.cnt);
-
+      // Records should still exist (future cutoff was rejected)
       const countAfter = ctx.rawDb.prepare(
         'SELECT COUNT(*) as cnt FROM audit_log',
       ).get() as any;
-      expect(countAfter.cnt).toBe(0);
+      expect(countAfter.cnt).toBe(countBefore.cnt);
     });
 
     it('should not delete records when cutoff is in the past (before any records)', async () => {

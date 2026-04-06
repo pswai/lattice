@@ -33,7 +33,11 @@ import { getLogger } from '../logger.js';
  */
 function arrayParam<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess(
-    (v) => (typeof v === 'string' ? (v === '' ? [] : JSON.parse(v)) : v),
+    (v) => {
+      if (typeof v !== 'string') return v;
+      if (v === '') return [];
+      try { return JSON.parse(v); } catch { return v; /* let zod reject */ }
+    },
     schema,
   );
 }
@@ -251,7 +255,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       agent_id: z.string().min(1).max(100).describe('Your agent identity (e.g. "researcher", "backend-eng")'),
       description: z.string().min(1).max(10_000).describe('What needs to be done'),
       status: z.enum(['open', 'claimed']).optional().describe('Initial status (default: claimed)'),
-      depends_on: arrayParam(z.array(z.number())).optional().default([]).describe('Task IDs that must complete before this task can be claimed'),
+      depends_on: arrayParam(z.array(z.number()).max(100)).optional().default([]).describe('Task IDs that must complete before this task can be claimed'),
       priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Priority: P0 (highest) through P3 (lowest). Default P2.'),
       assigned_to: z.string().max(100).optional().describe('Agent ID this task is assigned to'),
     },
@@ -280,7 +284,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       task_id: z.number().describe('Task ID to update'),
       status: z.enum(['claimed', 'completed', 'escalated', 'abandoned']).describe('New status'),
       result: z.string().optional().describe('Completion result or escalation reason'),
-      version: z.number().describe('Current version for optimistic locking'),
+      version: z.number().int().nonnegative().describe('Current version for optimistic locking'),
       priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Update priority'),
       assigned_to: z.string().max(100).nullable().optional().describe('Reassign to agent, or null to unassign'),
     },

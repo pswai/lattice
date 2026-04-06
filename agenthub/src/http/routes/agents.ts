@@ -8,7 +8,10 @@ const RegisterAgentSchema = z.object({
   agent_id: z.string().min(1).max(100),
   capabilities: z.array(z.string().max(100)).max(50),
   status: z.enum(['online', 'offline', 'busy']).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.unknown()).optional().refine(
+    (v) => v === undefined || JSON.stringify(v).length <= 10_240,
+    { message: 'metadata must be under 10 KB when serialized' },
+  ),
 });
 
 const HeartbeatSchema = z.object({
