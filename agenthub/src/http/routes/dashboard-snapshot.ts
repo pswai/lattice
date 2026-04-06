@@ -130,7 +130,7 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
         api_call_count: number;
         storage_bytes: number;
       }>(
-        'SELECT exec_count, api_call_count, storage_bytes FROM usage_counters WHERE workspace_id = ? AND period = ?',
+        'SELECT exec_count, api_call_count, storage_bytes FROM usage_counters WHERE workspace_id = ? AND period_ym = ?',
         workspaceId, period,
       );
       if (usageRow) {

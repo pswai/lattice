@@ -261,7 +261,7 @@ tailwind.config = {
   <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-1 border border-surface-3">
     <span class="text-gray-500">Task Reaper</span>
     <span id="reaper-status" class="font-medium text-green-400">active</span>
-    <span class="text-gray-600" title="Idle tasks without heartbeat are abandoned after 30m">&#9432;</span>
+    <span class="text-gray-600 info-tip" data-tip="Idle tasks without heartbeat are abandoned after 30m" style="cursor:help">&#9432;</span>
   </div>
   <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-1 border border-surface-3">
     <span class="text-gray-500">Rate Limit</span>
@@ -495,7 +495,7 @@ tailwind.config = {
     <div class="flex items-center justify-between mb-4">
       <div>
         <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">API Keys</h2>
-        <p class="text-[11px] text-gray-600 mt-1">Manage workspace API keys</p>
+        <p class="text-[11px] text-gray-600 mt-1">Manage workspace API keys &middot; Create and revoke keys via the admin API</p>
       </div>
       <span id="keys-count" class="text-[10px] text-gray-600">0 keys</span>
     </div>
@@ -627,22 +627,34 @@ tailwind.config = {
   // ---------- Tabs ----------
   const tabLoaded = { overview: true, graph: false, artifacts: false, playbooks: false, members: false, audit: false, usage: false, keys: false };
 
-  $('tabs').addEventListener('click', (e) => {
-    const btn = e.target.closest('.tab-btn');
-    if (!btn) return;
+  function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    const name = btn.dataset.tab;
-    $('tab-' + name).classList.add('active');
+    const btn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
+    if (btn) btn.classList.add('active');
+    const panel = $('tab-' + name);
+    if (panel) panel.classList.add('active');
     // Hide any lingering tooltips on tab switch
     const tip = document.querySelector('.tip');
     if (tip) tip.style.display = 'none';
     if (name === 'graph' && !tabLoaded.graph) { tabLoaded.graph = true; loadGraph(); }
     else if (name === 'artifacts' && !tabLoaded.artifacts) { tabLoaded.artifacts = true; loadArtifacts(); }
     else if (name === 'playbooks' && !tabLoaded.playbooks) { tabLoaded.playbooks = true; loadPlaybooks(); }
-    // Members, audit, usage, keys are loaded from snapshot data; re-render is handled by refreshAll
+  }
+
+  $('tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    const name = btn.dataset.tab;
+    location.hash = name === 'overview' ? '' : name;
   });
+
+  // Hash routing
+  function onHashChange() {
+    const hash = location.hash.replace('#', '') || 'overview';
+    switchTab(hash);
+  }
+  window.addEventListener('hashchange', onHashChange);
 
   // ---------- State ----------
   let snapshotData = null;
@@ -712,8 +724,7 @@ tailwind.config = {
     const events = a.events || {};
     const agents = a.agents || {};
     const total = tasks.total || 0;
-    const done = tasks.byStatus?.completed || 0;
-    const rate = total > 0 ? Math.round((done / total) * 100) + '%' : '0%';
+    const rate = total > 0 ? Math.round((tasks.completion_rate ?? 0) * 100) + '%' : '0%';
     $('a-tasks').querySelector('.stat-value').textContent = total;
     $('a-events').querySelector('.stat-value').textContent = events.total ?? 0;
     $('a-agents').querySelector('.stat-value').textContent = agents.total ?? 0;
@@ -819,7 +830,7 @@ tailwind.config = {
           '<td><span class="text-xs font-medium" style="color:' + agentColor(e.actor || 'system') + '">' + escapeHtml(e.actor || 'system') + '</span></td>' +
           '<td><span class="text-xs font-mono text-gray-300">' + escapeHtml(e.action) + '</span></td>' +
           '<td class="text-xs text-gray-500">' + escapeHtml(e.resource || '--') + '</td>' +
-          '<td class="text-[11px] text-gray-600">' + escapeHtml(e.ip || '--') + '</td>' +
+          '<td class="text-[11px] text-gray-600">' + escapeHtml(e.ip || 'local') + '</td>' +
         '</tr>';
       }).join('') +
       '</tbody></table>';
@@ -980,14 +991,29 @@ tailwind.config = {
     const byId = new Map(nodes.map(n => [n.id, n]));
     const incoming = new Map(nodes.map(n => [n.id, 0]));
     const children = new Map(nodes.map(n => [n.id, []]));
+    const parents = new Map(nodes.map(n => [n.id, []]));
     for (const e of edges) {
       if (!byId.has(e.from) || !byId.has(e.to)) continue;
       incoming.set(e.to, (incoming.get(e.to) || 0) + 1);
       children.get(e.from).push(e.to);
+      parents.get(e.to).push(e.from);
     }
+
+    // Separate connected (have edges) from isolated nodes
+    const connected = new Set();
+    for (const e of edges) {
+      if (byId.has(e.from)) connected.add(e.from);
+      if (byId.has(e.to)) connected.add(e.to);
+    }
+    const isolatedNodes = nodes.filter(n => !connected.has(n.id));
+    const connectedNodes = nodes.filter(n => connected.has(n.id));
+
+    // BFS layering for connected nodes
     const depth = new Map();
     const queue = [];
-    for (const n of nodes) if ((incoming.get(n.id) || 0) === 0) { depth.set(n.id, 0); queue.push(n.id); }
+    for (const n of connectedNodes) {
+      if ((incoming.get(n.id) || 0) === 0) { depth.set(n.id, 0); queue.push(n.id); }
+    }
     while (queue.length) {
       const id = queue.shift();
       const d = depth.get(id);
@@ -996,17 +1022,21 @@ tailwind.config = {
         if (depth.get(ch) !== nd) { depth.set(ch, nd); queue.push(ch); }
       }
     }
+
+    const dx = 160, dy = 100, pad = 60;
+    const pos = new Map();
+
+    // Layout connected nodes in layers
     const levels = new Map();
-    for (const n of nodes) {
+    for (const n of connectedNodes) {
       const d = depth.get(n.id) ?? 0;
       if (!levels.has(d)) levels.set(d, []);
       levels.get(d).push(n);
     }
-    const dx = 180, dy = 110, pad = 60;
-    const pos = new Map();
     const sortedLevels = [...levels.keys()].sort((a,b) => a - b);
     let maxCols = 0;
     for (const d of sortedLevels) maxCols = Math.max(maxCols, levels.get(d).length);
+
     for (const d of sortedLevels) {
       const row = levels.get(d);
       const offset = (maxCols - row.length) * dx / 2;
@@ -1014,8 +1044,23 @@ tailwind.config = {
         pos.set(n.id, { x: pad + offset + i * dx, y: pad + d * dy });
       });
     }
-    const width = pad * 2 + maxCols * dx;
-    const height = pad * 2 + sortedLevels.length * dy;
+
+    // Layout isolated nodes in a grid below the connected graph
+    const connectedHeight = sortedLevels.length > 0 ? pad + sortedLevels.length * dy : pad;
+    const gridCols = Math.min(8, Math.max(4, Math.ceil(Math.sqrt(isolatedNodes.length))));
+    for (let i = 0; i < isolatedNodes.length; i++) {
+      const col = i % gridCols;
+      const row = Math.floor(i / gridCols);
+      pos.set(isolatedNodes[i].id, {
+        x: pad + col * dx,
+        y: connectedHeight + (sortedLevels.length > 0 ? 40 : 0) + row * dy
+      });
+    }
+    const isolatedRows = Math.ceil(isolatedNodes.length / gridCols);
+    const totalCols = Math.max(maxCols, gridCols);
+    const totalRows = sortedLevels.length + isolatedRows;
+    const width = pad * 2 + totalCols * dx;
+    const height = pad * 2 + (sortedLevels.length > 0 ? sortedLevels.length * dy : 0) + (isolatedRows > 0 ? (sortedLevels.length > 0 ? 40 : 0) + isolatedRows * dy : 0);
     return { pos, width, height };
   }
 
@@ -1159,7 +1204,7 @@ tailwind.config = {
           '<div class="text-xs text-gray-400 mt-1 leading-relaxed">' + escapeHtml(p.description || '') + '</div>' +
           '<div class="text-[11px] text-gray-500 mt-1.5">' + (p.tasks || []).length + ' task(s) &middot; by <span style="color:' + agentColor(p.createdBy) + '">' + escapeHtml(p.createdBy) + '</span></div>' +
         '</div>' +
-        '<button class="btn-primary text-xs" data-run="' + escapeHtml(p.name) + '">Run</button>' +
+        '<button class="btn-primary text-xs info-tip" data-run="' + escapeHtml(p.name) + '" data-tip="Create tasks from this playbook template and start a workflow run">Run</button>' +
       '</div>';
     }).join('');
     el.querySelectorAll('button[data-run]').forEach(btn => {
@@ -1168,12 +1213,14 @@ tailwind.config = {
   }
 
   async function runPlaybook(name, btn) {
+    if (!confirm('Run playbook "' + name + '"?\\n\\nThis will create new tasks from the playbook template and start a workflow run.')) return;
     btn.disabled = true;
     btn.textContent = 'Running...';
     try {
       const r = await api('/playbooks/' + encodeURIComponent(name) + '/run', { method: 'POST' });
       const n = (r.created_task_ids || []).length;
       toast('Created ' + n + ' tasks (workflow #' + r.workflow_run_id + ')');
+      refreshAll();
     } catch (e) {
       toast('Failed to run playbook', true);
     } finally {
@@ -1234,10 +1281,28 @@ tailwind.config = {
     };
   }
 
+  // ---------- Info Tooltips ----------
+  document.addEventListener('mouseenter', (e) => {
+    const el = e.target.closest('.info-tip');
+    if (!el) return;
+    const tip = $('tip');
+    tip.textContent = el.dataset.tip;
+    tip.style.display = 'block';
+    const r = el.getBoundingClientRect();
+    tip.style.left = r.left + 'px';
+    tip.style.top = (r.bottom + 6) + 'px';
+  }, true);
+  document.addEventListener('mouseleave', (e) => {
+    if (e.target.closest && e.target.closest('.info-tip')) {
+      $('tip').style.display = 'none';
+    }
+  }, true);
+
   // ---------- Boot ----------
   refreshAll();
   connectSSE();
   setInterval(refreshAll, 30000);
+  onHashChange(); // Restore tab from URL hash on load
 })();
 </script>
 </body>

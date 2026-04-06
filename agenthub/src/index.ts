@@ -10,6 +10,7 @@ import { startAuditCleanup } from './services/audit-cleanup.js';
 import { createEmailSender } from './services/email.js';
 import { loadConfig } from './config.js';
 import { createLogger, setRootLogger, getLogger } from './logger.js';
+import { setUsageTracking } from './models/usage.js';
 
 const config = loadConfig();
 
@@ -26,6 +27,7 @@ setRootLogger(
 );
 
 const adapter = createSqliteAdapter(config.dbPath);
+setUsageTracking(true);
 const emailSender = createEmailSender(config);
 const app = createApp(adapter, () => createMcpServer(adapter), config, emailSender);
 
