@@ -27,7 +27,7 @@ describe('Inbound endpoints — CRUD (management)', () => {
     expect(ep.actionType).toBe('broadcast_event');
     expect(ep.endpointKey).toMatch(/^[a-f0-9]{32}$/);
     expect(ep.active).toBe(true);
-    expect(ep.teamId).toBe(ctx.teamId);
+    expect(ep.workspaceId).toBe(ctx.workspaceId);
   });
 
   it('rejects invalid action_type', async () => {

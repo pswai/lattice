@@ -32,29 +32,29 @@ export function createPlaybookRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await definePlaybook(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await definePlaybook(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /playbooks — list
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
-    const result = await listPlaybooks(db, teamId);
+    const { workspaceId } = c.get('auth');
+    const result = await listPlaybooks(db, workspaceId);
     return c.json(result);
   });
 
   // GET /playbooks/:name — get one
   router.get('/:name', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const name = c.req.param('name');
-    const result = await getPlaybook(db, teamId, name);
+    const result = await getPlaybook(db, workspaceId, name);
     return c.json(result);
   });
 
   // POST /playbooks/:name/run — run
   router.post('/:name/run', async (c) => {
-    const { teamId, agentId } = c.get('auth');
+    const { workspaceId, agentId } = c.get('auth');
     const name = c.req.param('name');
     let vars: Record<string, string> | undefined;
     // Body is optional; accept { vars: { KEY: "value" } } if present.
@@ -73,7 +73,7 @@ export function createPlaybookRoutes(db: DbAdapter): Hono {
         // ignore body-parsing errors (empty body)
       }
     }
-    const result = await runPlaybook(db, teamId, agentId, name, vars);
+    const result = await runPlaybook(db, workspaceId, agentId, name, vars);
     return c.json(result, 201);
   });
 

@@ -5,7 +5,7 @@ import { SecretDetectedError } from '../errors.js';
 
 interface MessageRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   from_agent: string;
   to_agent: string;
   message: string;
@@ -16,7 +16,7 @@ interface MessageRow {
 function rowToMessage(row: MessageRow): Message {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     fromAgent: row.from_agent,
     toAgent: row.to_agent,
     message: row.message,
@@ -27,7 +27,7 @@ function rowToMessage(row: MessageRow): Message {
 
 export async function sendMessage(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   fromAgent: string,
   input: SendMessageInput,
 ): Promise<SendMessageResponse> {
@@ -38,16 +38,16 @@ export async function sendMessage(
   }
 
   const result = await db.run(`
-    INSERT INTO messages (team_id, from_agent, to_agent, message, tags)
+    INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags)
     VALUES (?, ?, ?, ?, ?)
-  `, teamId, fromAgent, input.to, input.message, JSON.stringify(input.tags));
+  `, workspaceId, fromAgent, input.to, input.message, JSON.stringify(input.tags));
 
   return { messageId: Number(result.lastInsertRowid) };
 }
 
 export async function getMessages(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: GetMessagesInput,
 ): Promise<GetMessagesResponse> {
@@ -56,10 +56,10 @@ export async function getMessages(
 
   const rows = await db.all<MessageRow>(`
     SELECT * FROM messages
-    WHERE team_id = ? AND to_agent = ? AND id > ?
+    WHERE workspace_id = ? AND to_agent = ? AND id > ?
     ORDER BY id ASC
     LIMIT ?
-  `, teamId, agentId, sinceId, limit);
+  `, workspaceId, agentId, sinceId, limit);
 
   const messages = rows.map(rowToMessage);
   const cursor = messages.length > 0 ? messages[messages.length - 1].id : sinceId;

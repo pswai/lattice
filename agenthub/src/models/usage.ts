@@ -1,5 +1,5 @@
 import type { DbAdapter } from '../db/adapter.js';
-import { getTeamPlan } from './subscription.js';
+import { getWorkspacePlan } from './subscription.js';
 import type { Plan } from './plan.js';
 
 // Module-level flag. When false, increment calls are no-ops — this lets
@@ -29,7 +29,7 @@ export interface UsageRow {
 }
 
 interface CounterRow {
-  team_id: string;
+  workspace_id: string;
   period_ym: string;
   exec_count: number;
   api_call_count: number;
@@ -49,7 +49,7 @@ export interface IncrementInput {
  */
 export async function incrementUsage(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: IncrementInput,
 ): Promise<void> {
   if (!usageTrackingEnabled) return;
@@ -60,21 +60,21 @@ export async function incrementUsage(
   const periodYm = currentPeriodYm();
   await db.run(`
     INSERT INTO usage_counters
-      (team_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
+      (workspace_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(team_id, period_ym) DO UPDATE SET
+    ON CONFLICT(workspace_id, period_ym) DO UPDATE SET
       exec_count = exec_count + excluded.exec_count,
       api_call_count = api_call_count + excluded.api_call_count,
       storage_bytes = storage_bytes + excluded.storage_bytes,
       updated_at = ?
-  `, teamId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
+  `, workspaceId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
 /** Force an increment regardless of the global flag — used by the quota
  *  middleware's post-response api_call_count bump. */
 export async function incrementUsageForced(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: IncrementInput,
 ): Promise<void> {
   const exec = input.exec ?? 0;
@@ -84,25 +84,25 @@ export async function incrementUsageForced(
   const periodYm = currentPeriodYm();
   await db.run(`
     INSERT INTO usage_counters
-      (team_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
+      (workspace_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(team_id, period_ym) DO UPDATE SET
+    ON CONFLICT(workspace_id, period_ym) DO UPDATE SET
       exec_count = exec_count + excluded.exec_count,
       api_call_count = api_call_count + excluded.api_call_count,
       storage_bytes = storage_bytes + excluded.storage_bytes,
       updated_at = ?
-  `, teamId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
+  `, workspaceId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
 export async function getUsage(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   periodYm?: string,
 ): Promise<UsageRow> {
   const period = periodYm ?? currentPeriodYm();
   const row = await db.get<CounterRow>(
-    'SELECT * FROM usage_counters WHERE team_id = ? AND period_ym = ?',
-    teamId, period,
+    'SELECT * FROM usage_counters WHERE workspace_id = ? AND period_ym = ?',
+    workspaceId, period,
   );
   if (!row) {
     return {
@@ -132,10 +132,10 @@ export interface UsageWithLimits {
 
 export async function getCurrentUsageWithLimits(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
 ): Promise<UsageWithLimits> {
-  const usage = await getUsage(db, teamId);
-  const plan = await getTeamPlan(db, teamId);
+  const usage = await getUsage(db, workspaceId);
+  const plan = await getWorkspacePlan(db, workspaceId);
 
   const ratios = [
     plan.execQuota > 0 ? usage.execCount / plan.execQuota : 0,

@@ -3,8 +3,8 @@ import { FREE_PLAN_FALLBACK, type Plan } from './plan.js';
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
 
-export interface TeamSubscription {
-  teamId: string;
+export interface WorkspaceSubscription {
+  workspaceId: string;
   planId: string;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
@@ -16,7 +16,7 @@ export interface TeamSubscription {
 }
 
 interface SubRow {
-  team_id: string;
+  workspace_id: string;
   plan_id: string;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -27,9 +27,9 @@ interface SubRow {
   updated_at: string;
 }
 
-function rowToSub(row: SubRow): TeamSubscription {
+function rowToSub(row: SubRow): WorkspaceSubscription {
   return {
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     planId: row.plan_id,
     stripeCustomerId: row.stripe_customer_id,
     stripeSubscriptionId: row.stripe_subscription_id,
@@ -41,19 +41,19 @@ function rowToSub(row: SubRow): TeamSubscription {
   };
 }
 
-export async function getTeamSubscription(
+export async function getWorkspaceSubscription(
   db: DbAdapter,
-  teamId: string,
-): Promise<TeamSubscription | null> {
+  workspaceId: string,
+): Promise<WorkspaceSubscription | null> {
   const row = await db.get<SubRow>(
-    'SELECT * FROM team_subscriptions WHERE team_id = ?',
-    teamId,
+    'SELECT * FROM workspace_subscriptions WHERE workspace_id = ?',
+    workspaceId,
   );
   return row ? rowToSub(row) : null;
 }
 
 export interface UpsertSubscriptionInput {
-  teamId: string;
+  workspaceId: string;
   planId: string;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
@@ -62,17 +62,17 @@ export interface UpsertSubscriptionInput {
   periodEnd?: string | null;
 }
 
-export async function upsertTeamSubscription(
+export async function upsertWorkspaceSubscription(
   db: DbAdapter,
   input: UpsertSubscriptionInput,
-): Promise<TeamSubscription> {
+): Promise<WorkspaceSubscription> {
   const status = input.status ?? 'active';
   await db.run(`
-    INSERT INTO team_subscriptions
-      (team_id, plan_id, stripe_customer_id, stripe_subscription_id,
+    INSERT INTO workspace_subscriptions
+      (workspace_id, plan_id, stripe_customer_id, stripe_subscription_id,
        current_period_start, current_period_end, status)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(team_id) DO UPDATE SET
+    ON CONFLICT(workspace_id) DO UPDATE SET
       plan_id = excluded.plan_id,
       stripe_customer_id = excluded.stripe_customer_id,
       stripe_subscription_id = excluded.stripe_subscription_id,
@@ -81,7 +81,7 @@ export async function upsertTeamSubscription(
       status = excluded.status,
       updated_at = ?
   `,
-    input.teamId,
+    input.workspaceId,
     input.planId,
     input.stripeCustomerId ?? null,
     input.stripeSubscriptionId ?? null,
@@ -90,14 +90,14 @@ export async function upsertTeamSubscription(
     status,
     new Date().toISOString(),
   );
-  return (await getTeamSubscription(db, input.teamId))!;
+  return (await getWorkspaceSubscription(db, input.workspaceId))!;
 }
 
 /**
  * Return the team's plan. If no subscription row exists, fall back to the
  * `free` plan (from the DB if seeded, else the in-memory default).
  */
-export async function getTeamPlan(db: DbAdapter, teamId: string): Promise<Plan> {
+export async function getWorkspacePlan(db: DbAdapter, workspaceId: string): Promise<Plan> {
   const row = await db.get<{
     id: string;
     name: string;
@@ -110,10 +110,10 @@ export async function getTeamPlan(db: DbAdapter, teamId: string): Promise<Plan> 
     created_at: string;
   }>(`
     SELECT p.*
-    FROM team_subscriptions s
+    FROM workspace_subscriptions s
     JOIN subscription_plans p ON p.id = s.plan_id
-    WHERE s.team_id = ?
-  `, teamId);
+    WHERE s.workspace_id = ?
+  `, workspaceId);
 
   if (row) {
     return {

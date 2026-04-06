@@ -84,9 +84,9 @@ export function createAuditMiddleware(db: DbAdapter) {
 
         // Defensive: skip if auth context is missing (shouldn't happen on /api/v1).
         const auth = c.get('auth' as never) as
-          | { teamId?: string; agentId?: string }
+          | { workspaceId?: string; agentId?: string }
           | undefined;
-        if (!auth?.teamId) return;
+        if (!auth?.workspaceId) return;
 
         const status = c.res.status;
         if (status >= 400) return;
@@ -106,7 +106,7 @@ export function createAuditMiddleware(db: DbAdapter) {
         }
 
         await writeAudit(db, {
-          teamId: auth.teamId,
+          workspaceId: auth.workspaceId,
           actor: auth.agentId || 'anonymous',
           action,
           resourceType: resourceType ?? null,

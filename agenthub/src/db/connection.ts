@@ -5,7 +5,7 @@ import {
   SCHEMA_SQL,
   TASK_COLUMN_MIGRATIONS,
   API_KEY_COLUMN_MIGRATIONS,
-  TEAMS_COLUMN_MIGRATIONS,
+  WORKSPACES_COLUMN_MIGRATIONS,
 } from './schema.js';
 import { DEFAULT_PLANS } from '../models/plan.js';
 import { SqliteAdapter, PgAdapter } from './adapter.js';
@@ -57,7 +57,7 @@ export function createSqliteAdapter(dbPath: string): SqliteAdapter {
 
   // Additive column migrations for existing databases
   runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
-  runSqliteColumnMigrations(db, 'teams', TEAMS_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'workspaces', WORKSPACES_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
 
   migrateFtsToTrigram(db);
@@ -124,7 +124,7 @@ function migrateInboundActionTypes(db: Database.Database): void {
     ALTER TABLE inbound_endpoints RENAME TO inbound_endpoints_old;
     CREATE TABLE inbound_endpoints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        team_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
         endpoint_key TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         action_type TEXT NOT NULL CHECK(action_type IN ('create_task', 'broadcast_event', 'save_context', 'run_playbook')),
@@ -137,7 +137,7 @@ function migrateInboundActionTypes(db: Database.Database): void {
     );
     INSERT INTO inbound_endpoints SELECT * FROM inbound_endpoints_old;
     DROP TABLE inbound_endpoints_old;
-    CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_team ON inbound_endpoints(team_id);
+    CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_workspace ON inbound_endpoints(workspace_id);
   `);
 }
 

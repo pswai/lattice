@@ -28,7 +28,7 @@ describe('audit model', () => {
 
   it('writeAudit persists a row and queryAudit returns it', async () => {
     await writeAudit(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       actor: 'agent-1',
       action: 'task.create',
       resourceType: 'tasks',
@@ -38,7 +38,7 @@ describe('audit model', () => {
       requestId: 'req-1',
     });
 
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].actor).toBe('agent-1');
     expect(rows[0].action).toBe('task.create');
@@ -50,28 +50,28 @@ describe('audit model', () => {
   });
 
   it('queryAudit filters by actor, action, resourceType', async () => {
-    await writeAudit(db, { teamId: 't', actor: 'a1', action: 'task.create', resourceType: 'tasks' });
-    await writeAudit(db, { teamId: 't', actor: 'a2', action: 'task.update', resourceType: 'tasks' });
-    await writeAudit(db, { teamId: 't', actor: 'a1', action: 'webhook.delete', resourceType: 'webhooks' });
-    await writeAudit(db, { teamId: 'other', actor: 'a1', action: 'task.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a1', action: 'task.create', resourceType: 'tasks' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a2', action: 'task.update', resourceType: 'tasks' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a1', action: 'webhook.delete', resourceType: 'webhooks' });
+    await writeAudit(db, { workspaceId: 'other', actor: 'a1', action: 'task.create' });
 
-    expect(await queryAudit(db, { teamId: 't' })).toHaveLength(3);
-    expect(await queryAudit(db, { teamId: 't', actor: 'a1' })).toHaveLength(2);
-    expect(await queryAudit(db, { teamId: 't', action: 'task.update' })).toHaveLength(1);
-    expect(await queryAudit(db, { teamId: 't', resourceType: 'webhooks' })).toHaveLength(1);
+    expect(await queryAudit(db, { workspaceId: 't' })).toHaveLength(3);
+    expect(await queryAudit(db, { workspaceId: 't', actor: 'a1' })).toHaveLength(2);
+    expect(await queryAudit(db, { workspaceId: 't', action: 'task.update' })).toHaveLength(1);
+    expect(await queryAudit(db, { workspaceId: 't', resourceType: 'webhooks' })).toHaveLength(1);
   });
 
   it('queryAudit filters by since/until', async () => {
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     // Force specific timestamps
     db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2025-01-01T00:00:00.000Z');
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2025-06-01T00:00:00.000Z');
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 3').run('2025-12-01T00:00:00.000Z');
 
     const mid = await queryAudit(db, {
-      teamId: 't',
+      workspaceId: 't',
       since: '2025-03-01T00:00:00.000Z',
       until: '2025-09-01T00:00:00.000Z',
     });
@@ -81,34 +81,34 @@ describe('audit model', () => {
 
   it('queryAudit supports beforeId cursor pagination', async () => {
     for (let i = 0; i < 5; i++) {
-      await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+      await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     }
-    const page1 = await queryAudit(db, { teamId: 't', limit: 2 });
+    const page1 = await queryAudit(db, { workspaceId: 't', limit: 2 });
     expect(page1.map((r) => r.id)).toEqual([5, 4]);
 
-    const page2 = await queryAudit(db, { teamId: 't', limit: 2, beforeId: page1[page1.length - 1].id });
+    const page2 = await queryAudit(db, { workspaceId: 't', limit: 2, beforeId: page1[page1.length - 1].id });
     expect(page2.map((r) => r.id)).toEqual([3, 2]);
 
-    const page3 = await queryAudit(db, { teamId: 't', limit: 2, beforeId: page2[page2.length - 1].id });
+    const page3 = await queryAudit(db, { workspaceId: 't', limit: 2, beforeId: page2[page2.length - 1].id });
     expect(page3.map((r) => r.id)).toEqual([1]);
   });
 
   it('queryAudit caps limit at 1000', async () => {
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     // Can't easily assert 1000 w/o inserting; just ensure no throw for huge values.
-    const rows = await queryAudit(db, { teamId: 't', limit: 999999 });
+    const rows = await queryAudit(db, { workspaceId: 't', limit: 999999 });
     expect(rows).toHaveLength(1);
   });
 
   it('pruneAuditOlderThan deletes rows before cutoff', async () => {
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
-    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { workspaceId: 't', actor: 'a', action: 'x.create' });
     db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2020-01-01T00:00:00.000Z');
     db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2099-01-01T00:00:00.000Z');
 
     const removed = await pruneAuditOlderThan(db, '2025-01-01T00:00:00.000Z');
     expect(removed).toBe(1);
-    const remaining = await queryAudit(db, { teamId: 't' });
+    const remaining = await queryAudit(db, { workspaceId: 't' });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(2);
   });
@@ -121,7 +121,7 @@ function buildAuditApp(db: any) {
   // Simulate auth middleware populating c.set('auth')
   app.use('*', async (c, next) => {
     c.set('requestId' as never, 'test-req-1' as never);
-    c.set('auth' as never, { teamId: 'team-a', agentId: 'agent-1', scope: 'write' } as never);
+    c.set('auth' as never, { workspaceId: 'team-a', agentId: 'agent-1', scope: 'write' } as never);
     await next();
   });
   app.use('*', createAuditMiddleware(db));
@@ -145,7 +145,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/tasks', { method: 'POST' });
     expect(res.status).toBe(201);
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('task.create');
     expect(rows[0].resource_type).toBe('tasks');
@@ -158,7 +158,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/tasks/123', { method: 'PATCH' });
     expect(res.status).toBe(200);
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('task.update');
     expect(rows[0].resource_id).toBe('123');
@@ -168,7 +168,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/webhooks/abc-def-ghi', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows[0].action).toBe('webhook.delete');
     expect(rows[0].resource_id).toBe('abc-def-ghi');
   });
@@ -176,21 +176,21 @@ describe('audit middleware', () => {
   it('SKIPS GET requests', async () => {
     const app = buildAuditApp(db);
     await app.request('/tasks', { method: 'GET' });
-    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { workspaceId: 'team-a' })).toHaveLength(0);
   });
 
   it('SKIPS 4xx responses', async () => {
     const app = buildAuditApp(db);
     const res = await app.request('/fail', { method: 'POST' });
     expect(res.status).toBe(400);
-    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { workspaceId: 'team-a' })).toHaveLength(0);
   });
 
   it('SKIPS 5xx responses', async () => {
     const app = buildAuditApp(db);
     const res = await app.request('/boom', { method: 'POST' });
     expect(res.status).toBe(500);
-    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { workspaceId: 'team-a' })).toHaveLength(0);
   });
 
   it('extracts IP from X-Forwarded-For (first entry)', async () => {
@@ -199,7 +199,7 @@ describe('audit middleware', () => {
       method: 'POST',
       headers: { 'X-Forwarded-For': '203.0.113.5, 10.0.0.1, 10.0.0.2' },
     });
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows[0].ip).toBe('203.0.113.5');
   });
 
@@ -209,14 +209,14 @@ describe('audit middleware', () => {
       method: 'POST',
       headers: { 'X-Real-IP': '198.51.100.9' },
     });
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     expect(rows[0].ip).toBe('198.51.100.9');
   });
 
   it('records metadata.query from request querystring', async () => {
     const app = buildAuditApp(db);
     await app.request('/tasks?foo=bar&foo=baz', { method: 'POST' });
-    const rows = await queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { workspaceId: 'team-a' });
     const meta = JSON.parse(rows[0].metadata);
     expect(meta.query.foo).toEqual(['bar', 'baz']);
   });
@@ -228,7 +228,7 @@ describe('audit middleware', () => {
     app.post('/tasks', (c) => c.json({ ok: true }, 201));
     const res = await app.request('/tasks', { method: 'POST' });
     expect(res.status).toBe(201);
-    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { workspaceId: 'team-a' })).toHaveLength(0);
   });
 });
 
@@ -245,20 +245,20 @@ describe('audit admin route', () => {
 
   beforeEach(async () => {
     db = createDb();
-    await writeAudit(db, { teamId: 'team-a', actor: 'a', action: 'task.create' });
-    await writeAudit(db, { teamId: 'team-a', actor: 'b', action: 'task.update' });
-    await writeAudit(db, { teamId: 'other', actor: 'a', action: 'task.create' });
+    await writeAudit(db, { workspaceId: 'team-a', actor: 'a', action: 'task.create' });
+    await writeAudit(db, { workspaceId: 'team-a', actor: 'b', action: 'task.update' });
+    await writeAudit(db, { workspaceId: 'other', actor: 'a', action: 'task.create' });
   });
 
   it('returns 401 without admin key', async () => {
     const app = buildAdminApp(db);
-    const res = await app.request('/admin/audit-log?team_id=team-a');
+    const res = await app.request('/admin/audit-log?workspace_id=team-a');
     expect(res.status).toBe(401);
   });
 
   it('returns 401 with wrong admin key', async () => {
     const app = buildAdminApp(db);
-    const res = await app.request('/admin/audit-log?team_id=team-a', {
+    const res = await app.request('/admin/audit-log?workspace_id=team-a', {
       headers: { Authorization: 'Bearer wrong' },
     });
     expect(res.status).toBe(401);
@@ -266,7 +266,7 @@ describe('audit admin route', () => {
 
   it('returns 503 when ADMIN_KEY is not configured', async () => {
     const app = buildAdminApp(db, '');
-    const res = await app.request('/admin/audit-log?team_id=team-a', {
+    const res = await app.request('/admin/audit-log?workspace_id=team-a', {
       headers: { Authorization: 'Bearer anything' },
     });
     expect(res.status).toBe(503);
@@ -274,16 +274,16 @@ describe('audit admin route', () => {
 
   it('returns 200 and items with valid admin key', async () => {
     const app = buildAdminApp(db);
-    const res = await app.request('/admin/audit-log?team_id=team-a', {
+    const res = await app.request('/admin/audit-log?workspace_id=team-a', {
       headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.items).toHaveLength(2);
-    expect(body.items[0].team_id).toBe('team-a');
+    expect(body.items[0].workspace_id).toBe('team-a');
   });
 
-  it('rejects missing team_id', async () => {
+  it('rejects missing workspace_id', async () => {
     const app = buildAdminApp(db);
     const res = await app.request('/admin/audit-log', {
       headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` },
@@ -293,7 +293,7 @@ describe('audit admin route', () => {
 
   it('filters by actor', async () => {
     const app = buildAdminApp(db);
-    const res = await app.request('/admin/audit-log?team_id=team-a&actor=b', {
+    const res = await app.request('/admin/audit-log?workspace_id=team-a&actor=b', {
       headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` },
     });
     const body = await res.json();
@@ -303,7 +303,7 @@ describe('audit admin route', () => {
 
   it('supports before_id cursor', async () => {
     const app = buildAdminApp(db);
-    const res = await app.request('/admin/audit-log?team_id=team-a&limit=1', {
+    const res = await app.request('/admin/audit-log?workspace_id=team-a&limit=1', {
       headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` },
     });
     const body = await res.json();
@@ -311,7 +311,7 @@ describe('audit admin route', () => {
     expect(body.next_before_id).toBe(body.items[0].id);
 
     const res2 = await app.request(
-      `/admin/audit-log?team_id=team-a&limit=1&before_id=${body.next_before_id}`,
+      `/admin/audit-log?workspace_id=team-a&limit=1&before_id=${body.next_before_id}`,
       { headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` } },
     );
     const body2 = await res2.json();

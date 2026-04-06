@@ -25,7 +25,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
 
   // GET /tasks — list tasks
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
 
     const status = c.req.query('status');
     const claimedBy = c.req.query('claimed_by');
@@ -33,13 +33,13 @@ export function createTaskRoutes(db: DbAdapter): Hono {
     const limitParam = c.req.query('limit');
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = await listTasks(db, teamId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
+    const result = await listTasks(db, workspaceId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
     return c.json(result);
   });
 
   // GET /tasks/graph — task DAG for visualization (declared before /:id)
   router.get('/graph', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const status = c.req.query('status');
     const workflowRunIdStr = c.req.query('workflow_run_id');
     const limitStr = c.req.query('limit');
@@ -62,7 +62,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
       limit = parsed;
     }
 
-    const result = await getTaskGraph(db, teamId, {
+    const result = await getTaskGraph(db, workspaceId, {
       status,
       workflow_run_id: workflowRunId,
       limit,
@@ -72,13 +72,13 @@ export function createTaskRoutes(db: DbAdapter): Hono {
 
   // GET /tasks/:id — get single task
   router.get('/:id', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const taskId = parseInt(c.req.param('id'), 10);
     if (isNaN(taskId)) {
       throw new ValidationError('Invalid task ID');
     }
 
-    const task = await getTask(db, teamId, taskId);
+    const task = await getTask(db, workspaceId, taskId);
     return c.json(task);
   });
 
@@ -90,8 +90,8 @@ export function createTaskRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await createTask(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await createTask(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
@@ -108,8 +108,8 @@ export function createTaskRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await updateTask(db, teamId, agentId, {
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await updateTask(db, workspaceId, agentId, {
       task_id: taskId,
       ...parsed.data,
     });

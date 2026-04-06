@@ -6,7 +6,7 @@ export type AgentStatus = 'online' | 'offline' | 'busy';
 
 export interface Agent {
   id: string;
-  teamId: string;
+  workspaceId: string;
   capabilities: string[];
   status: AgentStatus;
   metadata: Record<string, unknown>;
@@ -16,7 +16,7 @@ export interface Agent {
 
 interface AgentRow {
   id: string;
-  team_id: string;
+  workspace_id: string;
   capabilities: string;
   status: string;
   metadata: string;
@@ -27,7 +27,7 @@ interface AgentRow {
 function rowToAgent(row: AgentRow): Agent {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     capabilities: JSON.parse(row.capabilities) as string[],
     status: row.status as AgentStatus,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
@@ -42,15 +42,15 @@ function rowToAgent(row: AgentRow): Agent {
  */
 export async function autoRegisterAgent(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
 ): Promise<void> {
   await db.run(`
-    INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
+    INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat)
     VALUES (?, ?, '[]', 'online', '{}', ?)
-    ON CONFLICT (team_id, id) DO UPDATE SET
+    ON CONFLICT (workspace_id, id) DO UPDATE SET
       last_heartbeat = ?
-  `, agentId, teamId, new Date().toISOString(), new Date().toISOString());
+  `, agentId, workspaceId, new Date().toISOString(), new Date().toISOString());
 }
 
 export interface RegisterAgentInput {
@@ -62,29 +62,29 @@ export interface RegisterAgentInput {
 
 export async function registerAgent(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: RegisterAgentInput,
 ): Promise<Agent> {
   const status = input.status ?? 'online';
   const metadata = input.metadata ?? {};
 
   await db.run(`
-    INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
+    INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT (team_id, id) DO UPDATE SET
+    ON CONFLICT (workspace_id, id) DO UPDATE SET
       capabilities = excluded.capabilities,
       status = excluded.status,
       metadata = excluded.metadata,
       last_heartbeat = ?
-  `, input.agent_id, teamId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata), new Date().toISOString(), new Date().toISOString());
+  `, input.agent_id, workspaceId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata), new Date().toISOString(), new Date().toISOString());
 
   const row = await db.get<AgentRow>(
-    'SELECT * FROM agents WHERE team_id = ? AND id = ?',
-    teamId, input.agent_id,
+    'SELECT * FROM agents WHERE workspace_id = ? AND id = ?',
+    workspaceId, input.agent_id,
   );
 
   await broadcastInternal(
-    db, teamId, 'BROADCAST',
+    db, workspaceId, 'BROADCAST',
     `Agent "${input.agent_id}" registered (capabilities: ${input.capabilities.join(', ')})`,
     ['agent-registry'], input.agent_id,
   );
@@ -94,7 +94,7 @@ export async function registerAgent(
 
 export async function heartbeat(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   status?: AgentStatus,
 ): Promise<{ ok: boolean }> {
@@ -106,11 +106,11 @@ export async function heartbeat(
     params.push(status);
   }
 
-  params.push(teamId, agentId);
+  params.push(workspaceId, agentId);
 
   const result = await db.run(`
     UPDATE agents SET ${setClauses.join(', ')}
-    WHERE team_id = ? AND id = ?
+    WHERE workspace_id = ? AND id = ?
   `, ...params);
 
   return { ok: result.changes > 0 };
@@ -123,11 +123,11 @@ export interface ListAgentsInput {
 
 export async function listAgents(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: ListAgentsInput,
 ): Promise<{ agents: Agent[] }> {
-  const conditions = ['team_id = ?'];
-  const params: string[] = [teamId];
+  const conditions = ['workspace_id = ?'];
+  const params: string[] = [workspaceId];
 
   if (input.status) {
     conditions.push('status = ?');

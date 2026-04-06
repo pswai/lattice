@@ -34,16 +34,16 @@ function rowToRecommended(row: ContextEntryRow): RecommendedContextEntry {
 /** Compute top 2-3 context entries relevant to the caller's recent activity. */
 async function computeRecommendedContext(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
 ): Promise<RecommendedContextEntry[]> {
   // Look at the caller's recent broadcasts/context-save LEARNING events to extract active tags.
   const recentEventRows = await db.all<{ tags: string }>(`
     SELECT tags FROM events
-    WHERE team_id = ? AND created_by = ?
+    WHERE workspace_id = ? AND created_by = ?
     ORDER BY id DESC
     LIMIT ?
-  `, teamId, agentId, RECOMMENDED_ACTIVITY_LOOKBACK);
+  `, workspaceId, agentId, RECOMMENDED_ACTIVITY_LOOKBACK);
 
   const activeTags = new Set<string>();
   for (const row of recentEventRows) {
@@ -58,7 +58,7 @@ async function computeRecommendedContext(
     rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
-      WHERE team_id = ?
+      WHERE workspace_id = ?
         AND created_by != ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArrayTable(db.dialect, 'tags', 't')}
@@ -66,16 +66,16 @@ async function computeRecommendedContext(
         )
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `, teamId, agentId, ...tagList, RECOMMENDED_CONTEXT_LIMIT);
+    `, workspaceId, agentId, ...tagList, RECOMMENDED_CONTEXT_LIMIT);
   } else {
     // No recent activity from this agent — return most-recent team entries (still excluding self).
     rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
-      WHERE team_id = ? AND created_by != ?
+      WHERE workspace_id = ? AND created_by != ?
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `, teamId, agentId, RECOMMENDED_CONTEXT_LIMIT);
+    `, workspaceId, agentId, RECOMMENDED_CONTEXT_LIMIT);
   }
 
   return rows.map(rowToRecommended);
@@ -83,7 +83,7 @@ async function computeRecommendedContext(
 
 interface EventRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   event_type: string;
   message: string;
   tags: string;
@@ -94,7 +94,7 @@ interface EventRow {
 function rowToEvent(row: EventRow): Event {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     eventType: row.event_type as EventType,
     message: row.message,
     tags: JSON.parse(row.tags) as string[],
@@ -105,24 +105,24 @@ function rowToEvent(row: EventRow): Event {
 
 export async function broadcastEvent(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: BroadcastInput,
 ): Promise<BroadcastResponse> {
   const result = await db.run(`
-    INSERT INTO events (team_id, event_type, message, tags, created_by)
+    INSERT INTO events (workspace_id, event_type, message, tags, created_by)
     VALUES (?, ?, ?, ?, ?)
-  `, teamId, input.event_type, input.message, JSON.stringify(input.tags), agentId);
+  `, workspaceId, input.event_type, input.message, JSON.stringify(input.tags), agentId);
 
   const eventId = Number(result.lastInsertRowid);
-  eventBus.emit('event', { teamId, eventId });
-  await incrementUsage(db, teamId, { exec: 1 });
+  eventBus.emit('event', { workspaceId, eventId });
+  await incrementUsage(db, workspaceId, { exec: 1 });
   return { eventId };
 }
 
 export async function getUpdates(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: GetUpdatesInput,
 ): Promise<GetUpdatesResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
@@ -135,13 +135,13 @@ export async function getUpdates(
   if (!input.since_id && input.since_timestamp) {
     const row = await db.get<{ max_id: number }>(`
       SELECT COALESCE(MAX(id), 0) as max_id FROM events
-      WHERE team_id = ? AND created_at <= ?
-    `, teamId, input.since_timestamp);
+      WHERE workspace_id = ? AND created_at <= ?
+    `, workspaceId, input.since_timestamp);
     sinceId = row!.max_id;
   }
 
-  const clauses = ['team_id = ?', 'id > ?'];
-  const params: unknown[] = [teamId, sinceId];
+  const clauses = ['workspace_id = ?', 'id > ?'];
+  const params: unknown[] = [workspaceId, sinceId];
 
   if (hasEventType) {
     clauses.push('event_type = ?');
@@ -168,7 +168,7 @@ export async function getUpdates(
 
   const includeContext = input.include_context !== false;
   if (input.agent_id && includeContext) {
-    const recommended_context = await computeRecommendedContext(db, teamId, input.agent_id);
+    const recommended_context = await computeRecommendedContext(db, workspaceId, input.agent_id);
     return { events, cursor, recommended_context };
   }
 
@@ -179,13 +179,13 @@ export async function getUpdates(
  *  to the eventBus and waits up to timeout_sec for a match. */
 export async function waitForEvent(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: WaitForEventInput,
 ): Promise<WaitForEventResponse> {
   const timeoutSec = Math.min(Math.max(input.timeout_sec ?? 30, 0), 60);
 
   const query = (): Promise<WaitForEventResponse> =>
-    getUpdates(db, teamId, {
+    getUpdates(db, workspaceId, {
       since_id: input.since_id,
       topics: input.topics,
       event_type: input.event_type,
@@ -217,8 +217,8 @@ export async function waitForEvent(
       resolve(result);
     };
 
-    const onEvent = (payload: { teamId: string; eventId: number }) => {
-      if (payload.teamId !== teamId) return;
+    const onEvent = (payload: { workspaceId: string; eventId: number }) => {
+      if (payload.workspaceId !== workspaceId) return;
       if (payload.eventId <= input.since_id) return;
       query().then((result) => {
         if (result.events.length > 0) {
@@ -238,18 +238,18 @@ export async function waitForEvent(
 /** Internal helper — broadcast an event without going through HTTP validation */
 export async function broadcastInternal(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   eventType: EventType,
   message: string,
   tags: string[],
   createdBy: string,
 ): Promise<number> {
   const result = await db.run(`
-    INSERT INTO events (team_id, event_type, message, tags, created_by)
+    INSERT INTO events (workspace_id, event_type, message, tags, created_by)
     VALUES (?, ?, ?, ?, ?)
-  `, teamId, eventType, message, JSON.stringify(tags), createdBy);
+  `, workspaceId, eventType, message, JSON.stringify(tags), createdBy);
   const eventId = Number(result.lastInsertRowid);
-  eventBus.emit('event', { teamId, eventId });
+  eventBus.emit('event', { workspaceId, eventId });
   return eventId;
 }
 

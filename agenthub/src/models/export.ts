@@ -65,9 +65,9 @@ export interface ExportCounts {
   webhooks: number;
 }
 
-export interface TeamDataExport {
+export interface WorkspaceDataExport {
   version: string;
-  team_id: string;
+  workspace_id: string;
   exported_at: string;
   counts: ExportCounts;
   context_entries: ContextEntry[];
@@ -85,22 +85,22 @@ export interface TeamDataExport {
   webhooks: ExportedWebhook[];
 }
 
-async function exportContextEntries(db: DbAdapter, teamId: string): Promise<ContextEntry[]> {
+async function exportContextEntries(db: DbAdapter, workspaceId: string): Promise<ContextEntry[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     key: string;
     value: string;
     tags: string;
     created_by: string;
     created_at: string;
   }>(
-    'SELECT * FROM context_entries WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM context_entries WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     key: row.key,
     value: row.value,
     tags: JSON.parse(row.tags) as string[],
@@ -109,11 +109,11 @@ async function exportContextEntries(db: DbAdapter, teamId: string): Promise<Cont
   }));
 }
 
-async function exportEvents(db: DbAdapter, teamId: string): Promise<Event[]> {
+async function exportEvents(db: DbAdapter, workspaceId: string): Promise<Event[]> {
   // Last N events (most recent); return in chronological order
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     event_type: string;
     message: string;
     tags: string;
@@ -121,12 +121,12 @@ async function exportEvents(db: DbAdapter, teamId: string): Promise<Event[]> {
     created_at: string;
   }>(`
     SELECT * FROM (
-      SELECT * FROM events WHERE team_id = ? ORDER BY id DESC LIMIT ?
+      SELECT * FROM events WHERE workspace_id = ? ORDER BY id DESC LIMIT ?
     ) ORDER BY id ASC
-  `, teamId, EVENT_EXPORT_LIMIT);
+  `, workspaceId, EVENT_EXPORT_LIMIT);
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     eventType: row.event_type as EventType,
     message: row.message,
     tags: JSON.parse(row.tags) as string[],
@@ -135,10 +135,10 @@ async function exportEvents(db: DbAdapter, teamId: string): Promise<Event[]> {
   }));
 }
 
-async function exportTasks(db: DbAdapter, teamId: string): Promise<Task[]> {
+async function exportTasks(db: DbAdapter, workspaceId: string): Promise<Task[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     description: string;
     status: string;
     result: string | null;
@@ -151,12 +151,12 @@ async function exportTasks(db: DbAdapter, teamId: string): Promise<Task[]> {
     created_at: string;
     updated_at: string;
   }>(
-    'SELECT * FROM tasks WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM tasks WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     description: row.description,
     status: row.status as TaskStatus,
     result: row.result,
@@ -171,33 +171,33 @@ async function exportTasks(db: DbAdapter, teamId: string): Promise<Task[]> {
   }));
 }
 
-async function exportTaskDependencies(db: DbAdapter, teamId: string): Promise<ExportedTaskDependency[]> {
+async function exportTaskDependencies(db: DbAdapter, workspaceId: string): Promise<ExportedTaskDependency[]> {
   const rows = await db.all<{ task_id: number; depends_on: number }>(`
     SELECT td.task_id, td.depends_on
     FROM task_dependencies td
     JOIN tasks t ON t.id = td.task_id
-    WHERE t.team_id = ?
+    WHERE t.workspace_id = ?
     ORDER BY td.task_id ASC, td.depends_on ASC
-  `, teamId);
+  `, workspaceId);
   return rows.map((r) => ({ task_id: r.task_id, depends_on: r.depends_on }));
 }
 
-async function exportAgents(db: DbAdapter, teamId: string): Promise<Agent[]> {
+async function exportAgents(db: DbAdapter, workspaceId: string): Promise<Agent[]> {
   const rows = await db.all<{
     id: string;
-    team_id: string;
+    workspace_id: string;
     capabilities: string;
     status: string;
     metadata: string;
     last_heartbeat: string;
     registered_at: string;
   }>(
-    'SELECT * FROM agents WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM agents WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     capabilities: JSON.parse(row.capabilities) as string[],
     status: row.status as AgentStatus,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
@@ -206,22 +206,22 @@ async function exportAgents(db: DbAdapter, teamId: string): Promise<Agent[]> {
   }));
 }
 
-async function exportMessages(db: DbAdapter, teamId: string): Promise<Message[]> {
+async function exportMessages(db: DbAdapter, workspaceId: string): Promise<Message[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     from_agent: string;
     to_agent: string;
     message: string;
     tags: string;
     created_at: string;
   }>(
-    'SELECT * FROM messages WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM messages WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     fromAgent: row.from_agent,
     toAgent: row.to_agent,
     message: row.message,
@@ -230,7 +230,7 @@ async function exportMessages(db: DbAdapter, teamId: string): Promise<Message[]>
   }));
 }
 
-async function exportArtifacts(db: DbAdapter, teamId: string): Promise<ExportedArtifact[]> {
+async function exportArtifacts(db: DbAdapter, workspaceId: string): Promise<ExportedArtifact[]> {
   const rows = await db.all<{
     id: number;
     key: string;
@@ -240,8 +240,8 @@ async function exportArtifacts(db: DbAdapter, teamId: string): Promise<ExportedA
     created_at: string;
   }>(`
     SELECT id, key, content_type, size, created_by, created_at
-    FROM artifacts WHERE team_id = ? ORDER BY id ASC
-  `, teamId);
+    FROM artifacts WHERE workspace_id = ? ORDER BY id ASC
+  `, workspaceId);
   return rows.map((row) => ({
     id: row.id,
     key: row.key,
@@ -252,22 +252,22 @@ async function exportArtifacts(db: DbAdapter, teamId: string): Promise<ExportedA
   }));
 }
 
-async function exportPlaybooks(db: DbAdapter, teamId: string): Promise<Playbook[]> {
+async function exportPlaybooks(db: DbAdapter, workspaceId: string): Promise<Playbook[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     name: string;
     description: string;
     tasks_json: string;
     created_by: string;
     created_at: string;
   }>(
-    'SELECT * FROM playbooks WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM playbooks WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
     tasks: JSON.parse(row.tasks_json) as PlaybookTaskTemplate[],
@@ -276,10 +276,10 @@ async function exportPlaybooks(db: DbAdapter, teamId: string): Promise<Playbook[
   }));
 }
 
-async function exportWorkflowRuns(db: DbAdapter, teamId: string): Promise<WorkflowRun[]> {
+async function exportWorkflowRuns(db: DbAdapter, workspaceId: string): Promise<WorkflowRun[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     playbook_name: string;
     started_by: string;
     task_ids: string;
@@ -287,12 +287,12 @@ async function exportWorkflowRuns(db: DbAdapter, teamId: string): Promise<Workfl
     started_at: string;
     completed_at: string | null;
   }>(
-    'SELECT * FROM workflow_runs WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM workflow_runs WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     startedBy: row.started_by,
     taskIds: JSON.parse(row.task_ids) as number[],
@@ -302,10 +302,10 @@ async function exportWorkflowRuns(db: DbAdapter, teamId: string): Promise<Workfl
   }));
 }
 
-async function exportAgentProfiles(db: DbAdapter, teamId: string): Promise<AgentProfile[]> {
+async function exportAgentProfiles(db: DbAdapter, workspaceId: string): Promise<AgentProfile[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     name: string;
     description: string;
     system_prompt: string;
@@ -315,12 +315,12 @@ async function exportAgentProfiles(db: DbAdapter, teamId: string): Promise<Agent
     created_at: string;
     updated_at: string;
   }>(
-    'SELECT * FROM agent_profiles WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM agent_profiles WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
     systemPrompt: row.system_prompt,
@@ -332,10 +332,10 @@ async function exportAgentProfiles(db: DbAdapter, teamId: string): Promise<Agent
   }));
 }
 
-async function exportSchedules(db: DbAdapter, teamId: string): Promise<Schedule[]> {
+async function exportSchedules(db: DbAdapter, workspaceId: string): Promise<Schedule[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     playbook_name: string;
     cron_expression: string;
     enabled: number;
@@ -346,12 +346,12 @@ async function exportSchedules(db: DbAdapter, teamId: string): Promise<Schedule[
     created_at: string;
     updated_at: string;
   }>(
-    'SELECT * FROM schedules WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM schedules WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     cronExpression: row.cron_expression,
     enabled: row.enabled === 1,
@@ -364,10 +364,10 @@ async function exportSchedules(db: DbAdapter, teamId: string): Promise<Schedule[
   }));
 }
 
-async function exportInboundEndpoints(db: DbAdapter, teamId: string): Promise<ExportedInboundEndpoint[]> {
+async function exportInboundEndpoints(db: DbAdapter, workspaceId: string): Promise<ExportedInboundEndpoint[]> {
   const rows = await db.all<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     endpoint_key: string;
     name: string;
     action_type: string;
@@ -378,8 +378,8 @@ async function exportInboundEndpoints(db: DbAdapter, teamId: string): Promise<Ex
     created_at: string;
     updated_at: string;
   }>(
-    'SELECT * FROM inbound_endpoints WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM inbound_endpoints WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
@@ -395,10 +395,10 @@ async function exportInboundEndpoints(db: DbAdapter, teamId: string): Promise<Ex
   }));
 }
 
-async function exportWebhooks(db: DbAdapter, teamId: string): Promise<ExportedWebhook[]> {
+async function exportWebhooks(db: DbAdapter, workspaceId: string): Promise<ExportedWebhook[]> {
   const rows = await db.all<{
     id: string;
-    team_id: string;
+    workspace_id: string;
     url: string;
     secret: string;
     event_types: string;
@@ -408,8 +408,8 @@ async function exportWebhooks(db: DbAdapter, teamId: string): Promise<ExportedWe
     created_at: string;
     updated_at: string;
   }>(
-    'SELECT * FROM webhooks WHERE team_id = ? ORDER BY created_at ASC',
-    teamId,
+    'SELECT * FROM webhooks WHERE workspace_id = ? ORDER BY created_at ASC',
+    workspaceId,
   );
   return rows.map((row) => ({
     id: row.id,
@@ -424,24 +424,24 @@ async function exportWebhooks(db: DbAdapter, teamId: string): Promise<ExportedWe
   }));
 }
 
-export async function exportTeamData(db: DbAdapter, teamId: string): Promise<TeamDataExport> {
-  const context_entries = await exportContextEntries(db, teamId);
-  const events = await exportEvents(db, teamId);
-  const tasks = await exportTasks(db, teamId);
-  const task_dependencies = await exportTaskDependencies(db, teamId);
-  const agents = await exportAgents(db, teamId);
-  const messages = await exportMessages(db, teamId);
-  const artifacts = await exportArtifacts(db, teamId);
-  const playbooks = await exportPlaybooks(db, teamId);
-  const workflow_runs = await exportWorkflowRuns(db, teamId);
-  const agent_profiles = await exportAgentProfiles(db, teamId);
-  const schedules = await exportSchedules(db, teamId);
-  const inbound_endpoints = await exportInboundEndpoints(db, teamId);
-  const webhooks = await exportWebhooks(db, teamId);
+export async function exportWorkspaceData(db: DbAdapter, workspaceId: string): Promise<WorkspaceDataExport> {
+  const context_entries = await exportContextEntries(db, workspaceId);
+  const events = await exportEvents(db, workspaceId);
+  const tasks = await exportTasks(db, workspaceId);
+  const task_dependencies = await exportTaskDependencies(db, workspaceId);
+  const agents = await exportAgents(db, workspaceId);
+  const messages = await exportMessages(db, workspaceId);
+  const artifacts = await exportArtifacts(db, workspaceId);
+  const playbooks = await exportPlaybooks(db, workspaceId);
+  const workflow_runs = await exportWorkflowRuns(db, workspaceId);
+  const agent_profiles = await exportAgentProfiles(db, workspaceId);
+  const schedules = await exportSchedules(db, workspaceId);
+  const inbound_endpoints = await exportInboundEndpoints(db, workspaceId);
+  const webhooks = await exportWebhooks(db, workspaceId);
 
   return {
     version: EXPORT_VERSION,
-    team_id: teamId,
+    workspace_id: workspaceId,
     exported_at: new Date().toISOString(),
     counts: {
       context_entries: context_entries.length,

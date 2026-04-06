@@ -1,15 +1,15 @@
-# AgentHub SaaS Readiness — Technical RFC
+# Lattice SaaS Readiness — Technical RFC
 
 **Date:** 2026-04-05
-**Author:** orchestrator (dog-fooded through AgentHub)
+**Author:** orchestrator (dog-fooded through Lattice)
 **Status:** Draft for review
-**Scope:** What it takes to turn AgentHub from a self-hosted coordination bus into a multi-tenant SaaS.
+**Scope:** What it takes to turn Lattice from a self-hosted coordination bus into a multi-tenant SaaS.
 
 ---
 
 ## 1. Executive verdict
 
-**AgentHub is not SaaS-ready today.** The agent-coordination logic is solid (35 MCP tools, 482 tests, 16 tables, observability + audit + RBAC scopes all landed in Phase 4). What is missing is every layer *outside* the coordination bus: human identity, self-serve onboarding, billing, compliance, and a datastore that survives multi-tenant cloud load.
+**Lattice is not SaaS-ready today.** The agent-coordination logic is solid (35 MCP tools, 482 tests, 16 tables, observability + audit + RBAC scopes all landed in Phase 4). What is missing is every layer *outside* the coordination bus: human identity, self-serve onboarding, billing, compliance, and a datastore that survives multi-tenant cloud load.
 
 ### Four P0 blockers
 
@@ -56,7 +56,7 @@
 
 ### 2.3 Competitive benchmark
 
-| Feature | n8n Business | LangSmith | Dify | CrewAI | AgentHub today | AgentHub free tier target |
+| Feature | n8n Business | LangSmith | Dify | CrewAI | Lattice today | Lattice free tier target |
 |--|--|--|--|--|--|--|
 | Email + OAuth | ✔ | ✔ | ✔ | ✔ | ✘ | ✔ |
 | SSO (SAML/OIDC) | ✔ (paid) | ✔ (ent) | ✔ (ent) | ✔ (ent) | ✘ | defer to ent |
@@ -305,7 +305,7 @@ Counter updates batch via an in-memory ring buffer + `setInterval` flusher to av
 
 ## 5. Pricing model recommendation
 
-**Follow n8n (execution-based), not LangSmith (seat-based).** Agents run many, many executions per human; seat pricing caps revenue per customer and misaligns with value delivered. Executions align directly with AgentHub's value proposition (coordinate agents).
+**Follow n8n (execution-based), not LangSmith (seat-based).** Agents run many, many executions per human; seat pricing caps revenue per customer and misaligns with value delivered. Executions align directly with Lattice's value proposition (coordinate agents).
 
 Proposed tiers:
 
@@ -369,7 +369,7 @@ Proposed tiers:
 
 ## 7. Open questions for user decision
 
-1. **Hosted or managed open-source?** Do we keep AgentHub fully OSS (Apache 2.0) with a hosted commercial offering, or move to BSL/SSPL to prevent hyperscaler copycat? Recommendation: stay Apache 2.0, win on operational quality.
+1. **Hosted or managed open-source?** Do we keep Lattice fully OSS (Apache 2.0) with a hosted commercial offering, or move to BSL/SSPL to prevent hyperscaler copycat? Recommendation: stay Apache 2.0, win on operational quality.
 2. **Workspace naming.** Keep `teams` as the DB name or rename to `workspaces`? Rename is cheap now, expensive later. Recommendation: rename to `workspaces` in Week 2 of Phase 1 before data volume matters.
 3. **Who owns SOC2?** Not a fit for a 2–3 person team unless we dedicate a founder to it. Recommendation: Vanta + part-time compliance consultant, ~$40k all-in.
 4. **Self-hosted story.** Do we continue supporting SQLite for self-hosters, or Postgres-only post-migration? Recommendation: keep SQLite for local dev + small self-hosted; Postgres required for cloud + multi-tenant self-hosted.
@@ -380,10 +380,10 @@ Proposed tiers:
 
 ## 8. Bottom line
 
-AgentHub's coordination engine is production-grade. The path to SaaS is scaffolding work — identity, commerce, compliance — well-understood patterns with no research risk. **Highest single risk: Postgres migration (FTS parity).** Everything else is straightforward.
+Lattice's coordination engine is production-grade. The path to SaaS is scaffolding work — identity, commerce, compliance — well-understood patterns with no research risk. **Highest single risk: Postgres migration (FTS parity).** Everything else is straightforward.
 
 If approved, start with **Phase 1 Week 1**: the Drizzle adapter seam. Pull a 2-table proof-of-concept (e.g. `teams`, `api_keys`) through the new adapter against Postgres in CI. Ship that first, then fan out.
 
 ---
 
-*Generated via AgentHub dog-food workflow: 3 parallel Explore subagents + 1 DX-fixer teammate, coordinated via AgentHub's own task/context/message bus.*
+*Generated via Lattice dog-food workflow: 3 parallel Explore subagents + 1 DX-fixer teammate, coordinated via Lattice's own task/context/message bus.*

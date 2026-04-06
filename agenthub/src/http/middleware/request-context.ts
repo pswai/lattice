@@ -20,7 +20,7 @@ const REQUEST_ID_RE = /^[A-Za-z0-9_.\-]{6,64}$/;
  * - Echoes the ID back in the response header for client correlation
  * - Creates a per-request child logger bound with req_id
  * - Logs a single `http_request` line on completion (method, path,
- *   status, duration_ms, team_id, agent_id) — one line per request,
+ *   status, duration_ms, workspace_id, agent_id) — one line per request,
  *   suitable for any log aggregator (Loki, CloudWatch, Datadog, etc).
  */
 export function createRequestContextMiddleware(baseLogger?: Logger) {
@@ -40,7 +40,7 @@ export function createRequestContextMiddleware(baseLogger?: Logger) {
       const dur = Math.round(performance.now() - start);
       // auth context is only present after auth middleware ran; may be undefined
       const auth = c.get('auth' as never) as
-        | { teamId?: string; agentId?: string }
+        | { workspaceId?: string; agentId?: string }
         | undefined;
       // c.error is set by Hono when a downstream middleware/handler throws,
       // even after onError converts it into a 500 response.
@@ -51,7 +51,7 @@ export function createRequestContextMiddleware(baseLogger?: Logger) {
         status: caught ? 500 : c.res.status,
         duration_ms: dur,
       };
-      if (auth?.teamId) fields.team_id = auth.teamId;
+      if (auth?.workspaceId) fields.workspace_id = auth.workspaceId;
       if (auth?.agentId && auth.agentId !== 'anonymous') fields.agent_id = auth.agentId;
       if (caught instanceof Error) fields.error = caught.message;
       log.info('http_request', fields);

@@ -216,7 +216,7 @@ describe('createMetricsMiddleware', () => {
   it('uses team from auth context when set', async () => {
     const app = new Hono();
     app.use('*', async (c, next) => {
-      c.set('auth' as never, { teamId: 'team-xyz', agentId: 'a', scope: 'write' } as never);
+      c.set('auth' as never, { workspaceId: 'team-xyz', agentId: 'a', scope: 'write' } as never);
       await next();
     });
     app.use('*', createMetricsMiddleware());

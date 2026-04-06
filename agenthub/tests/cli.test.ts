@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestDb, setupTeam } from './helpers.js';
+import { createTestDb, setupWorkspace } from './helpers.js';
 import { createHash, randomBytes } from 'crypto';
 import { SCHEMA_SQL } from '../src/db/schema.js';
 import Database from 'better-sqlite3';
@@ -21,7 +21,7 @@ describe('CLI Init Logic', () => {
     ).all() as Array<{ name: string }>;
 
     const tableNames = tables.map((t) => t.name);
-    expect(tableNames).toContain('teams');
+    expect(tableNames).toContain('workspaces');
     expect(tableNames).toContain('api_keys');
     expect(tableNames).toContain('agents');
     expect(tableNames).toContain('context_entries');
@@ -37,25 +37,25 @@ describe('CLI Init Logic', () => {
     const db = createTestDb();
 
     // Simulate what CLI init does
-    const teamId = 'cli-test-team';
-    const teamName = 'CLI Test Team';
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, teamName);
+    const workspaceId = 'cli-test-team';
+    const workspaceName = 'CLI Test Team';
+    db.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(workspaceId, workspaceName);
 
     const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    db.prepare('INSERT INTO api_keys (team_id, key_hash, label) VALUES (?, ?, ?)').run(
-      teamId,
+    db.prepare('INSERT INTO api_keys (workspace_id, key_hash, label) VALUES (?, ?, ?)').run(
+      workspaceId,
       keyHash,
       'cli-init',
     );
 
     // Verify team exists
-    const team = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as any;
+    const team = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId) as any;
     expect(team).toBeDefined();
     expect(team.name).toBe('CLI Test Team');
 
     // Verify API key exists and is hashed
-    const key = db.prepare('SELECT * FROM api_keys WHERE team_id = ?').get(teamId) as any;
+    const key = db.prepare('SELECT * FROM api_keys WHERE workspace_id = ?').get(workspaceId) as any;
     expect(key).toBeDefined();
     expect(key.key_hash).toBe(keyHash);
     expect(key.label).toBe('cli-init');
@@ -74,33 +74,33 @@ describe('CLI Init Logic', () => {
 
   it('should handle existing team gracefully (generate new key only)', async () => {
     const db = createTestDb();
-    const teamId = 'existing-team';
+    const workspaceId = 'existing-team';
 
     // First init creates team
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, 'Existing Team');
+    db.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(workspaceId, 'Existing Team');
     const key1Hash = createHash('sha256').update('key1').digest('hex');
-    db.prepare('INSERT INTO api_keys (team_id, key_hash, label) VALUES (?, ?, ?)').run(
-      teamId,
+    db.prepare('INSERT INTO api_keys (workspace_id, key_hash, label) VALUES (?, ?, ?)').run(
+      workspaceId,
       key1Hash,
       'cli-init',
     );
 
     // Second init: team exists, just add new key
-    const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(teamId);
+    const existing = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(workspaceId);
     expect(existing).toBeDefined();
 
     const key2Hash = createHash('sha256').update('key2').digest('hex');
-    db.prepare('INSERT INTO api_keys (team_id, key_hash, label) VALUES (?, ?, ?)').run(
-      teamId,
+    db.prepare('INSERT INTO api_keys (workspace_id, key_hash, label) VALUES (?, ?, ?)').run(
+      workspaceId,
       key2Hash,
       'cli-init',
     );
 
     // Should have 2 keys, 1 team
-    const keys = db.prepare('SELECT * FROM api_keys WHERE team_id = ?').all(teamId);
+    const keys = db.prepare('SELECT * FROM api_keys WHERE workspace_id = ?').all(workspaceId);
     expect(keys).toHaveLength(2);
 
-    const teams = db.prepare('SELECT * FROM teams WHERE id = ?').all(teamId);
+    const teams = db.prepare('SELECT * FROM workspaces WHERE id = ?').all(workspaceId);
     expect(teams).toHaveLength(1);
 
     await db.close();
@@ -142,9 +142,9 @@ describe('CLI — Schema Integrity', () => {
     ).all() as Array<{ name: string }>;
     const indexNames = indexes.map((i) => i.name);
 
-    expect(indexNames).toContain('idx_context_team');
-    expect(indexNames).toContain('idx_events_team_time');
-    expect(indexNames).toContain('idx_tasks_team');
+    expect(indexNames).toContain('idx_context_workspace');
+    expect(indexNames).toContain('idx_events_workspace_time');
+    expect(indexNames).toContain('idx_tasks_workspace');
     expect(indexNames).toContain('idx_tasks_status');
     expect(indexNames).toContain('idx_agents_heartbeat');
     expect(indexNames).toContain('idx_messages_recipient');
@@ -158,7 +158,7 @@ describe('CLI — Schema Integrity', () => {
     // Try to insert an API key for a non-existent team — should fail with FK constraint
     expect(() => {
       db.prepare(
-        "INSERT INTO api_keys (team_id, key_hash, label) VALUES ('nonexistent', 'abc123', 'test')",
+        "INSERT INTO api_keys (workspace_id, key_hash, label) VALUES ('nonexistent', 'abc123', 'test')",
       ).run();
     }).toThrow();
 

@@ -11,14 +11,14 @@ describe('wait_for_event', () => {
 
   describe('model: waitForEvent', () => {
     it('returns immediately if matching events already exist', async () => {
-      await broadcastEvent(ctx.db, ctx.teamId, 'a', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
         event_type: 'BROADCAST',
         message: 'pre-existing',
         tags: [],
       });
 
       const start = Date.now();
-      const result = await waitForEvent(ctx.db, ctx.teamId, {
+      const result = await waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         timeout_sec: 30,
       });
@@ -30,14 +30,14 @@ describe('wait_for_event', () => {
     });
 
     it('waits and returns when matching event arrives', async () => {
-      const waitPromise = waitForEvent(ctx.db, ctx.teamId, {
+      const waitPromise = waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         timeout_sec: 5,
       });
 
       // Emit after a short delay
       setTimeout(() => {
-        broadcastEvent(ctx.db, ctx.teamId, 'a', {
+        broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
           event_type: 'BROADCAST',
           message: 'late-arrival',
           tags: [],
@@ -51,7 +51,7 @@ describe('wait_for_event', () => {
 
     it('times out and returns empty when no matching event arrives', async () => {
       const start = Date.now();
-      const result = await waitForEvent(ctx.db, ctx.teamId, {
+      const result = await waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         timeout_sec: 1,
       });
@@ -64,7 +64,7 @@ describe('wait_for_event', () => {
     });
 
     it('respects topics filter — ignores non-matching events', async () => {
-      const waitPromise = waitForEvent(ctx.db, ctx.teamId, {
+      const waitPromise = waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         topics: ['wanted'],
         timeout_sec: 2,
@@ -72,7 +72,7 @@ describe('wait_for_event', () => {
 
       // Emit a non-matching event first
       setTimeout(() => {
-        broadcastEvent(ctx.db, ctx.teamId, 'a', {
+        broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
           event_type: 'BROADCAST',
           message: 'ignore me',
           tags: ['other'],
@@ -81,7 +81,7 @@ describe('wait_for_event', () => {
 
       // Then emit the matching event
       setTimeout(() => {
-        broadcastEvent(ctx.db, ctx.teamId, 'a', {
+        broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
           event_type: 'BROADCAST',
           message: 'pick me',
           tags: ['wanted'],
@@ -94,14 +94,14 @@ describe('wait_for_event', () => {
     });
 
     it('respects event_type filter', async () => {
-      const waitPromise = waitForEvent(ctx.db, ctx.teamId, {
+      const waitPromise = waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         event_type: 'ERROR',
         timeout_sec: 2,
       });
 
       setTimeout(() => {
-        broadcastEvent(ctx.db, ctx.teamId, 'a', {
+        broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
           event_type: 'BROADCAST',
           message: 'wrong type',
           tags: [],
@@ -109,7 +109,7 @@ describe('wait_for_event', () => {
       }, 30);
 
       setTimeout(() => {
-        broadcastEvent(ctx.db, ctx.teamId, 'a', {
+        broadcastEvent(ctx.db, ctx.workspaceId, 'a', {
           event_type: 'ERROR',
           message: 'right type',
           tags: [],
@@ -122,13 +122,13 @@ describe('wait_for_event', () => {
       expect(result.events[0].eventType).toBe('ERROR');
     });
 
-    it('isolates by team — other team events do not wake the waiter', async () => {
+    it('isolates by team — other workspace events do not wake the waiter', async () => {
       // Set up a second team
       const otherTeam = 'other-team';
-      ctx.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(otherTeam, 'Other');
+      ctx.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(otherTeam, 'Other');
 
       const start = Date.now();
-      const waitPromise = waitForEvent(ctx.db, ctx.teamId, {
+      const waitPromise = waitForEvent(ctx.db, ctx.workspaceId, {
         since_id: 0,
         timeout_sec: 1,
       });

@@ -1,7 +1,7 @@
 # AI Infrastructure Monetization Research
 
 **Date:** April 2026
-**Purpose:** Inform AgentHub monetization strategy with real market data
+**Purpose:** Inform Lattice monetization strategy with real market data
 
 ---
 
@@ -243,7 +243,7 @@ Execution/trace-based pricing aligns costs with value delivered. It scales natur
 
 ---
 
-## 8. Recommendations for AgentHub
+## 8. Recommendations for Lattice
 
 Based on this research, the patterns that work best for AI infrastructure tools:
 

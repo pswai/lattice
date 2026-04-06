@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, setupTeam, type TestContext } from './helpers.js';
+import { createTestContext, authHeaders, request, setupWorkspace, type TestContext } from './helpers.js';
 
 describe('Authentication', () => {
   let ctx: TestContext;
@@ -81,7 +81,7 @@ describe('Authentication', () => {
     it('should prevent team A from seeing team B data', async () => {
       // Set up team B
       const teamBKey = 'ltk_teamb_key_12345678901234567890';
-      setupTeam(ctx.db, 'team-b', teamBKey);
+      setupWorkspace(ctx.db, 'team-b', teamBKey);
 
       // Team A saves context
       await request(ctx.app, 'POST', '/api/v1/context', {
@@ -100,7 +100,7 @@ describe('Authentication', () => {
 
     it('should prevent team A from seeing team B events', async () => {
       const teamBKey = 'ltk_teamb_key_12345678901234567890';
-      setupTeam(ctx.db, 'team-b', teamBKey);
+      setupWorkspace(ctx.db, 'team-b', teamBKey);
 
       // Team A broadcasts event
       await request(ctx.app, 'POST', '/api/v1/events', {
@@ -119,7 +119,7 @@ describe('Authentication', () => {
 
     it('should prevent team A from seeing team B tasks', async () => {
       const teamBKey = 'ltk_teamb_key_12345678901234567890';
-      setupTeam(ctx.db, 'team-b', teamBKey);
+      setupWorkspace(ctx.db, 'team-b', teamBKey);
 
       // Team A creates task
       const createRes = await request(ctx.app, 'POST', '/api/v1/tasks', {

@@ -2,7 +2,7 @@ import type { DbAdapter } from '../db/adapter.js';
 
 export interface AuditRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   actor: string;
   action: string;
   resource_type: string | null;
@@ -14,7 +14,7 @@ export interface AuditRow {
 }
 
 export interface WriteAuditInput {
-  teamId: string;
+  workspaceId: string;
   actor: string;
   action: string;
   resourceType?: string | null;
@@ -25,7 +25,7 @@ export interface WriteAuditInput {
 }
 
 export interface QueryAuditInput {
-  teamId: string;
+  workspaceId: string;
   actor?: string;
   action?: string;
   resourceType?: string;
@@ -46,9 +46,9 @@ export async function writeAudit(db: DbAdapter, input: WriteAuditInput): Promise
   const metadataJson = JSON.stringify(input.metadata ?? {});
   await db.run(
     `INSERT INTO audit_log
-       (team_id, actor, action, resource_type, resource_id, metadata, ip, request_id)
+       (workspace_id, actor, action, resource_type, resource_id, metadata, ip, request_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    input.teamId,
+    input.workspaceId,
     input.actor,
     input.action,
     input.resourceType ?? null,
@@ -66,8 +66,8 @@ export async function queryAudit(
   db: DbAdapter,
   input: QueryAuditInput,
 ): Promise<AuditRow[]> {
-  const where: string[] = ['team_id = ?'];
-  const params: unknown[] = [input.teamId];
+  const where: string[] = ['workspace_id = ?'];
+  const params: unknown[] = [input.workspaceId];
 
   if (input.actor) {
     where.push('actor = ?');
@@ -97,7 +97,7 @@ export async function queryAudit(
   const requested = input.limit ?? DEFAULT_LIMIT;
   const limit = Math.min(Math.max(1, Math.floor(requested)), MAX_LIMIT);
 
-  const sql = `SELECT id, team_id, actor, action, resource_type, resource_id,
+  const sql = `SELECT id, workspace_id, actor, action, resource_type, resource_id,
                       metadata, ip, request_id, created_at
                FROM audit_log
                WHERE ${where.join(' AND ')}

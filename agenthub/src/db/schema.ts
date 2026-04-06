@@ -1,6 +1,6 @@
 export const SCHEMA_SQL = `
--- Teams table
-CREATE TABLE IF NOT EXISTS teams (
+-- Workspaces table
+CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     owner_user_id TEXT,
@@ -8,10 +8,10 @@ CREATE TABLE IF NOT EXISTS teams (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
--- API keys for team authentication
+-- API keys for workspace authentication
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     label TEXT NOT NULL DEFAULT '',
     scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin')),
@@ -19,22 +19,22 @@ CREATE TABLE IF NOT EXISTS api_keys (
     expires_at TEXT,
     last_used_at TEXT,
     revoked_at TEXT,
-    FOREIGN KEY (team_id) REFERENCES teams(id)
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
 );
 
 -- Context entries — append-only shared knowledge base
 CREATE TABLE IF NOT EXISTS context_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE(team_id, key)
+    UNIQUE(workspace_id, key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_context_team ON context_entries(team_id);
+CREATE INDEX IF NOT EXISTS idx_context_workspace ON context_entries(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_context_created ON context_entries(created_at);
 
 -- FTS5 virtual table for full-text search on context entries.
@@ -69,7 +69,7 @@ END;
 -- Events — messaging bus
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     event_type TEXT NOT NULL CHECK(event_type IN ('LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE')),
     message TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
@@ -77,13 +77,13 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_events_team_time ON events(team_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_events_team_id ON events(team_id, id);
+CREATE INDEX IF NOT EXISTS idx_events_workspace_time ON events(workspace_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_workspace_id ON events(workspace_id, id);
 
 -- Tasks — task coordination with claim/reap
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     description TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'claimed', 'completed', 'escalated', 'abandoned')),
     result TEXT,
@@ -97,8 +97,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(team_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_reap ON tasks(status, claimed_at);
 
 -- Task dependencies — lightweight DAG for task ordering
@@ -113,45 +113,45 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 -- Agent registry — capability discovery and presence tracking
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT NOT NULL,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     capabilities TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'online' CHECK(status IN ('online', 'offline', 'busy')),
     metadata TEXT NOT NULL DEFAULT '{}',
     last_heartbeat TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (team_id, id)
+    PRIMARY KEY (workspace_id, id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(team_id, last_heartbeat);
+CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(workspace_id, last_heartbeat);
 
 -- Messages — agent-to-agent direct messaging
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     from_agent TEXT NOT NULL,
     to_agent TEXT NOT NULL,
     message TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(team_id, to_agent, id);
+CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(workspace_id, to_agent, id);
 
 -- Playbooks — reusable task template bundles
 CREATE TABLE IF NOT EXISTS playbooks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     tasks_json TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE(team_id, name)
+    UNIQUE(workspace_id, name)
 );
 
 -- Artifacts — typed file storage (HTML, JSON, code, reports) separate from context
 CREATE TABLE IF NOT EXISTS artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     key TEXT NOT NULL,
     content_type TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -160,14 +160,14 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE(team_id, key)
+    UNIQUE(workspace_id, key)
 );
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(team_id, content_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(workspace_id, content_type);
 
 -- Agent profiles — reusable role definitions (system prompts, default capabilities/tags)
 CREATE TABLE IF NOT EXISTS agent_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     system_prompt TEXT NOT NULL,
@@ -176,13 +176,13 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE(team_id, name)
+    UNIQUE(workspace_id, name)
 );
 
 -- Workflow runs — track playbook executions as first-class entities
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     playbook_name TEXT NOT NULL,
     started_by TEXT NOT NULL,
     task_ids TEXT NOT NULL DEFAULT '[]',
@@ -190,12 +190,12 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     completed_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_team ON workflow_runs(team_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workspace ON workflow_runs(workspace_id, started_at);
 
--- Webhooks — outbound HTTP delivery of team events
+-- Webhooks — outbound HTTP delivery of workspace events
 CREATE TABLE IF NOT EXISTS webhooks (
     id TEXT PRIMARY KEY,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     url TEXT NOT NULL,
     secret TEXT NOT NULL,
     event_types TEXT NOT NULL DEFAULT '["*"]',
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_webhooks_team_active ON webhooks(team_id, active);
+CREATE INDEX IF NOT EXISTS idx_webhooks_workspace_active ON webhooks(workspace_id, active);
 
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
     id TEXT PRIMARY KEY,
@@ -225,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_deliveries_retry ON webhook_deliveries(status, ne
 -- Schedules — recurring playbook executions (cron-like)
 CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     playbook_name TEXT NOT NULL,
     cron_expression TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -235,14 +235,14 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE(team_id, playbook_name, cron_expression)
+    UNIQUE(workspace_id, playbook_name, cron_expression)
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run_at);
 
 -- Inbound endpoints — public receiver URLs that let external systems trigger Lattice actions
 CREATE TABLE IF NOT EXISTS inbound_endpoints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     endpoint_key TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     action_type TEXT NOT NULL CHECK(action_type IN ('create_task', 'broadcast_event', 'save_context', 'run_playbook')),
@@ -253,13 +253,13 @@ CREATE TABLE IF NOT EXISTS inbound_endpoints (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_team ON inbound_endpoints(team_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_workspace ON inbound_endpoints(workspace_id);
 
 -- Audit log — append-only record of mutating API actions.
 -- No UPDATE/DELETE API; background retention prunes by age.
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     actor TEXT NOT NULL,
     action TEXT NOT NULL,
     resource_type TEXT,
@@ -269,9 +269,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     request_id TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_audit_team_time ON audit_log(team_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_team_actor ON audit_log(team_id, actor, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_team_action ON audit_log(team_id, action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_workspace_time ON audit_log(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_workspace_actor ON audit_log(workspace_id, actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_workspace_action ON audit_log(workspace_id, action, created_at DESC);
 
 -- Users — human end-users for SaaS self-serve (separate from API-key teams).
 CREATE TABLE IF NOT EXISTS users (
@@ -318,22 +318,22 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 
--- Team memberships — join users to teams with a role.
-CREATE TABLE IF NOT EXISTS team_memberships (
+-- Workspace memberships — join users to teams with a role.
+CREATE TABLE IF NOT EXISTS workspace_memberships (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'viewer')),
     invited_by TEXT,
     joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (user_id, team_id)
+    PRIMARY KEY (user_id, workspace_id)
 );
-CREATE INDEX IF NOT EXISTS idx_team_memberships_team ON team_memberships(team_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_memberships_workspace ON workspace_memberships(workspace_id);
 
--- Team invitations — pending invites to join a team.
+-- Workspace invitations — pending invites to join a team.
 -- token_hash = sha256(raw); raw is surfaced only once at creation time.
-CREATE TABLE IF NOT EXISTS team_invitations (
+CREATE TABLE IF NOT EXISTS workspace_invitations (
     id TEXT PRIMARY KEY,
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('admin', 'member', 'viewer')),
     token_hash TEXT NOT NULL UNIQUE,
@@ -343,8 +343,8 @@ CREATE TABLE IF NOT EXISTS team_invitations (
     revoked_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
-CREATE INDEX IF NOT EXISTS idx_team_invitations_email_lower ON team_invitations(LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace ON workspace_invitations(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_email_lower ON workspace_invitations(LOWER(email));
 
 -- OAuth identities — links external provider accounts (e.g., GitHub) to users.
 CREATE TABLE IF NOT EXISTS oauth_identities (
@@ -370,9 +370,9 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
--- Team subscriptions — per-team plan assignment + Stripe linkage.
-CREATE TABLE IF NOT EXISTS team_subscriptions (
-    team_id TEXT PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
+-- Workspace subscriptions — per-workspace plan assignment + Stripe linkage.
+CREATE TABLE IF NOT EXISTS workspace_subscriptions (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
     plan_id TEXT NOT NULL REFERENCES subscription_plans(id),
     stripe_customer_id TEXT,
     stripe_subscription_id TEXT,
@@ -383,17 +383,17 @@ CREATE TABLE IF NOT EXISTS team_subscriptions (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
--- Usage counters — per-team, per-period (YYYY-MM) usage tallies.
+-- Usage counters — per-workspace, per-period (YYYY-MM) usage tallies.
 CREATE TABLE IF NOT EXISTS usage_counters (
-    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     period_ym TEXT NOT NULL,
     exec_count INTEGER NOT NULL DEFAULT 0,
     api_call_count INTEGER NOT NULL DEFAULT 0,
     storage_bytes INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (team_id, period_ym)
+    PRIMARY KEY (workspace_id, period_ym)
 );
-CREATE INDEX IF NOT EXISTS idx_usage_counters_team ON usage_counters(team_id);
+CREATE INDEX IF NOT EXISTS idx_usage_counters_workspace ON usage_counters(workspace_id);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the
@@ -410,14 +410,14 @@ export const TASK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   },
 ];
 
-export const TEAMS_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+export const WORKSPACES_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'owner_user_id',
-    sql: 'ALTER TABLE teams ADD COLUMN owner_user_id TEXT',
+    sql: 'ALTER TABLE workspaces ADD COLUMN owner_user_id TEXT',
   },
   {
     name: 'slug',
-    sql: 'ALTER TABLE teams ADD COLUMN slug TEXT',
+    sql: 'ALTER TABLE workspaces ADD COLUMN slug TEXT',
   },
 ];
 

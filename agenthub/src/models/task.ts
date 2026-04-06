@@ -9,7 +9,7 @@ import { incrementUsage } from './usage.js';
 
 interface TaskRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   description: string;
   status: string;
   result: string | null;
@@ -26,7 +26,7 @@ interface TaskRow {
 function rowToTask(row: TaskRow): Task {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     description: row.description,
     status: row.status as TaskStatus,
     result: row.result,
@@ -50,12 +50,12 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 
 export async function getTask(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   taskId: number,
 ): Promise<Task> {
   const row = await db.get<TaskRow>(
-    'SELECT * FROM tasks WHERE id = ? AND team_id = ?',
-    taskId, teamId,
+    'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+    taskId, workspaceId,
   );
 
   if (!row) {
@@ -74,12 +74,12 @@ export interface ListTasksInput {
 
 export async function listTasks(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: ListTasksInput,
 ): Promise<{ tasks: Task[]; total: number }> {
   const limit = Math.min(input.limit ?? 50, 200);
-  const conditions = ['team_id = ?'];
-  const params: (string | number)[] = [teamId];
+  const conditions = ['workspace_id = ?'];
+  const params: (string | number)[] = [workspaceId];
 
   if (input.status) {
     conditions.push('status = ?');
@@ -134,12 +134,12 @@ export interface GetTaskGraphInput {
 
 export async function getTaskGraph(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: GetTaskGraphInput,
 ): Promise<{ nodes: TaskGraphNode[]; edges: TaskGraphEdge[] }> {
   const limit = Math.min(input.limit ?? 100, 500);
-  const conditions = ['t.team_id = ?'];
-  const params: (string | number)[] = [teamId];
+  const conditions = ['t.workspace_id = ?'];
+  const params: (string | number)[] = [workspaceId];
 
   if (input.status) {
     const statuses = input.status
@@ -158,7 +158,7 @@ export async function getTaskGraph(
     sql = `
       SELECT t.id, t.description, t.status, t.priority, t.assigned_to, t.claimed_by, t.created_at
       FROM tasks t
-      JOIN workflow_runs wr ON wr.team_id = t.team_id AND wr.id = ?
+      JOIN workflow_runs wr ON wr.workspace_id = t.workspace_id AND wr.id = ?
       WHERE ${conditions.join(' AND ')}
         AND EXISTS (SELECT 1 FROM ${jsonArrayTable(db.dialect, 'wr.task_ids')} WHERE value = t.id)
       ORDER BY t.priority ASC, t.created_at ASC
@@ -218,7 +218,7 @@ export async function getTaskGraph(
 
 export async function createTask(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: CreateTaskInput,
 ): Promise<CreateTaskResponse> {
@@ -231,9 +231,9 @@ export async function createTask(
   const claimedAt = status === 'claimed' ? new Date().toISOString() : null;
 
   const result = await db.run(`
-    INSERT INTO tasks (team_id, description, status, created_by, claimed_by, claimed_at, priority, assigned_to)
+    INSERT INTO tasks (workspace_id, description, status, created_by, claimed_by, claimed_at, priority, assigned_to)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `, teamId, input.description, status, agentId, claimedBy, claimedAt, priority, assignedTo);
+  `, workspaceId, input.description, status, agentId, claimedBy, claimedAt, priority, assignedTo);
 
   const taskId = Number(result.lastInsertRowid);
 
@@ -249,13 +249,13 @@ export async function createTask(
 
   // Auto-broadcast TASK_UPDATE event
   await broadcastInternal(
-    db, teamId, 'TASK_UPDATE',
+    db, workspaceId, 'TASK_UPDATE',
     `Task #${taskId} created: "${input.description}" (status: ${status})`,
     ['task-update'], agentId,
   );
 
   // Billing: count task creation as one execution.
-  await incrementUsage(db, teamId, { exec: 1 });
+  await incrementUsage(db, workspaceId, { exec: 1 });
 
   return {
     task_id: taskId,
@@ -266,14 +266,14 @@ export async function createTask(
 
 export async function updateTask(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: UpdateTaskInput,
 ): Promise<UpdateTaskResponse> {
   // Fetch current task
   const row = await db.get<TaskRow>(
-    'SELECT * FROM tasks WHERE id = ? AND team_id = ?',
-    input.task_id, teamId,
+    'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+    input.task_id, workspaceId,
   );
 
   if (!row) {
@@ -358,13 +358,13 @@ export async function updateTask(
   // Side effects based on new status
   if (input.status === 'completed') {
     await broadcastInternal(
-      db, teamId, 'TASK_UPDATE',
+      db, workspaceId, 'TASK_UPDATE',
       `Task #${input.task_id} completed by ${agentId}: ${resultText ?? '(no result)'}`,
       ['task-update'], agentId,
     );
     // Save result as context entry
     if (resultText) {
-      await saveContext(db, teamId, agentId, {
+      await saveContext(db, workspaceId, agentId, {
         key: `task-result-${input.task_id}`,
         value: resultText,
         tags: ['task-result'],
@@ -372,19 +372,19 @@ export async function updateTask(
     }
   } else if (input.status === 'escalated') {
     await broadcastInternal(
-      db, teamId, 'ESCALATION',
+      db, workspaceId, 'ESCALATION',
       `Task #${input.task_id} escalated by ${agentId}: ${resultText ?? '(no reason)'}`,
       ['task-escalation'], agentId,
     );
   } else if (input.status === 'abandoned') {
     await broadcastInternal(
-      db, teamId, 'TASK_UPDATE',
+      db, workspaceId, 'TASK_UPDATE',
       `Task #${input.task_id} abandoned by ${agentId}`,
       ['task-update'], agentId,
     );
   } else if (input.status === 'claimed') {
     await broadcastInternal(
-      db, teamId, 'TASK_UPDATE',
+      db, workspaceId, 'TASK_UPDATE',
       `Task #${input.task_id} claimed by ${agentId}`,
       ['task-update'], agentId,
     );

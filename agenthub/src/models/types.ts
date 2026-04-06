@@ -2,7 +2,7 @@
 
 export interface ContextEntry {
   id: number;
-  teamId: string;
+  workspaceId: string;
   key: string;
   value: string;
   tags: string[];
@@ -14,7 +14,7 @@ export type EventType = 'LEARNING' | 'BROADCAST' | 'ESCALATION' | 'ERROR' | 'TAS
 
 export interface Event {
   id: number;
-  teamId: string;
+  workspaceId: string;
   eventType: EventType;
   message: string;
   tags: string[];
@@ -28,7 +28,7 @@ export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
 export interface Task {
   id: number;
-  teamId: string;
+  workspaceId: string;
   description: string;
   status: TaskStatus;
   result: string | null;
@@ -149,7 +149,7 @@ export interface UpdateTaskResponse {
 
 export interface Message {
   id: number;
-  teamId: string;
+  workspaceId: string;
   fromAgent: string;
   toAgent: string;
   message: string;
@@ -191,7 +191,7 @@ export type ArtifactContentType =
 
 export interface Artifact {
   id: number;
-  teamId: string;
+  workspaceId: string;
   key: string;
   contentType: ArtifactContentType;
   content: string;
@@ -204,7 +204,7 @@ export interface Artifact {
 
 export interface ArtifactSummary {
   id: number;
-  teamId: string;
+  workspaceId: string;
   key: string;
   contentType: ArtifactContentType;
   metadata: Record<string, unknown>;
@@ -243,7 +243,7 @@ export interface ListArtifactsResponse {
 export type ApiKeyScope = 'read' | 'write' | 'admin';
 
 export interface AuthContext {
-  teamId: string;
+  workspaceId: string;
   agentId: string;
   scope: ApiKeyScope;
 }

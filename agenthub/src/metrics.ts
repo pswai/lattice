@@ -301,7 +301,7 @@ export const httpRequestsTotal = metricsRegistry.register(
   new Counter({
     name: 'lattice_http_requests_total',
     help: 'Total number of HTTP requests processed.',
-    labelNames: ['method', 'route', 'status', 'team'],
+    labelNames: ['method', 'route', 'status', 'workspace'],
   }),
 );
 
@@ -318,7 +318,7 @@ export const activeAgentsGauge = metricsRegistry.register(
   new Gauge({
     name: 'lattice_active_agents',
     help: 'Number of agents currently online per team.',
-    labelNames: ['team'],
+    labelNames: ['workspace'],
   }),
 );
 
@@ -326,7 +326,7 @@ export const tasksGauge = metricsRegistry.register(
   new Gauge({
     name: 'lattice_tasks',
     help: 'Number of tasks by team and status.',
-    labelNames: ['team', 'status'],
+    labelNames: ['workspace', 'status'],
   }),
 );
 
@@ -334,7 +334,7 @@ export const eventsTotal = metricsRegistry.register(
   new Counter({
     name: 'lattice_events_total',
     help: 'Total number of events emitted.',
-    labelNames: ['team', 'event_type'],
+    labelNames: ['workspace', 'event_type'],
   }),
 );
 

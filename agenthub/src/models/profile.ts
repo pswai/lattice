@@ -3,7 +3,7 @@ import { ValidationError, NotFoundError } from '../errors.js';
 
 export interface AgentProfile {
   id: number;
-  teamId: string;
+  workspaceId: string;
   name: string;
   description: string;
   systemPrompt: string;
@@ -16,7 +16,7 @@ export interface AgentProfile {
 
 interface ProfileRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   name: string;
   description: string;
   system_prompt: string;
@@ -30,7 +30,7 @@ interface ProfileRow {
 function rowToProfile(row: ProfileRow): AgentProfile {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
     systemPrompt: row.system_prompt,
@@ -52,7 +52,7 @@ export interface DefineProfileInput {
 
 export async function defineProfile(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: DefineProfileInput,
 ): Promise<AgentProfile> {
@@ -76,9 +76,9 @@ export async function defineProfile(
   const tagsJson = JSON.stringify(input.default_tags ?? []);
 
   await db.run(`
-    INSERT INTO agent_profiles (team_id, name, description, system_prompt, default_capabilities, default_tags, created_by)
+    INSERT INTO agent_profiles (workspace_id, name, description, system_prompt, default_capabilities, default_tags, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(team_id, name) DO UPDATE SET
+    ON CONFLICT(workspace_id, name) DO UPDATE SET
       description = excluded.description,
       system_prompt = excluded.system_prompt,
       default_capabilities = excluded.default_capabilities,
@@ -86,7 +86,7 @@ export async function defineProfile(
       created_by = excluded.created_by,
       updated_at = ?
   `,
-    teamId,
+    workspaceId,
     input.name,
     input.description,
     input.system_prompt,
@@ -97,8 +97,8 @@ export async function defineProfile(
   );
 
   const row = await db.get<ProfileRow>(
-    'SELECT * FROM agent_profiles WHERE team_id = ? AND name = ?',
-    teamId, input.name,
+    'SELECT * FROM agent_profiles WHERE workspace_id = ? AND name = ?',
+    workspaceId, input.name,
   );
 
   return rowToProfile(row!);
@@ -106,11 +106,11 @@ export async function defineProfile(
 
 export async function listProfiles(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
 ): Promise<{ profiles: AgentProfile[]; total: number }> {
   const rows = await db.all<ProfileRow>(
-    'SELECT * FROM agent_profiles WHERE team_id = ? ORDER BY name ASC',
-    teamId,
+    'SELECT * FROM agent_profiles WHERE workspace_id = ? ORDER BY name ASC',
+    workspaceId,
   );
 
   return {
@@ -121,12 +121,12 @@ export async function listProfiles(
 
 export async function getProfile(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   name: string,
 ): Promise<AgentProfile> {
   const row = await db.get<ProfileRow>(
-    'SELECT * FROM agent_profiles WHERE team_id = ? AND name = ?',
-    teamId, name,
+    'SELECT * FROM agent_profiles WHERE workspace_id = ? AND name = ?',
+    workspaceId, name,
   );
 
   if (!row) {
@@ -137,12 +137,12 @@ export async function getProfile(
 
 export async function deleteProfile(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   name: string,
 ): Promise<{ deleted: boolean }> {
   const result = await db.run(
-    'DELETE FROM agent_profiles WHERE team_id = ? AND name = ?',
-    teamId, name,
+    'DELETE FROM agent_profiles WHERE workspace_id = ? AND name = ?',
+    workspaceId, name,
   );
   if (result.changes === 0) {
     throw new NotFoundError('AgentProfile', name);

@@ -1,4 +1,4 @@
-# AgentHub Phase 1: Architecture Specification
+# Lattice Phase 1: Architecture Specification
 
 **Status**: Draft  
 **Author**: Principal Engineer  
@@ -295,7 +295,7 @@ export interface AuthContext {
 
 export interface AppConfig {
   port: number;                    // default 3000
-  dbPath: string;                  // default ./data/agenthub.db
+  dbPath: string;                  // default ./data/lattice.db
   pollIntervalMs: number;          // default 5000 (informational, client-side)
   taskReapTimeoutMinutes: number;  // default 30
   taskReapIntervalMs: number;      // default 60000 (how often reaper runs)
@@ -578,7 +578,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: 'agenthub',
+    name: 'lattice',
     version: '0.1.0',
   });
 
@@ -652,12 +652,12 @@ app.post('/mcp', async (c) => {
 
 ### 5.3 Agent MCP Client Configuration
 
-Agents configure AgentHub as a remote MCP server. Example for Claude Code (`~/.claude/settings.json`):
+Agents configure Lattice as a remote MCP server. Example for Claude Code (`~/.claude/settings.json`):
 
 ```json
 {
   "mcpServers": {
-    "agenthub": {
+    "lattice": {
       "type": "streamableHttp",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -909,7 +909,7 @@ All configuration via environment variables, loaded in `src/config.ts`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
-| `DB_PATH` | `./data/agenthub.db` | SQLite database file path |
+| `DB_PATH` | `./data/lattice.db` | SQLite database file path |
 | `TASK_REAP_TIMEOUT_MINUTES` | `30` | Minutes before a claimed task is auto-abandoned |
 | `TASK_REAP_INTERVAL_MS` | `60000` | How often the reaper checks for stale tasks |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
@@ -918,7 +918,7 @@ All configuration via environment variables, loaded in `src/config.ts`.
 **`.env.example`:**
 ```env
 PORT=3000
-DB_PATH=./data/agenthub.db
+DB_PATH=./data/lattice.db
 TASK_REAP_TIMEOUT_MINUTES=30
 TASK_REAP_INTERVAL_MS=60000
 LOG_LEVEL=info
@@ -945,7 +945,7 @@ const app = createApp(db, mcpServer);
 startTaskReaper(db, config);
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`AgentHub listening on http://localhost:${info.port}`);
+  console.log(`Lattice listening on http://localhost:${info.port}`);
   console.log(`MCP endpoint: http://localhost:${info.port}/mcp`);
   console.log(`REST API: http://localhost:${info.port}/api/v1`);
 });

@@ -6,7 +6,7 @@ import { createAuthMiddleware, resolveTeamFromRequest } from './middleware/auth.
 import { createRequestContextMiddleware } from './middleware/request-context.js';
 import { createMetricsMiddleware } from './middleware/metrics.js';
 import { createAuditMiddleware } from './middleware/audit.js';
-import { createRateLimitMiddleware } from './middleware/rate-limit.js';
+import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
 import { createQuotaMiddleware } from './middleware/quota.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
@@ -26,8 +26,9 @@ import {
   createInboundReceiverRoutes,
   createInboundManagementRoutes,
 } from './routes/inbound.js';
-import { createTeamRoutes } from './routes/teams.js';
+import { createWorkspaceTeamRoutes } from './routes/teams.js';
 import { createExportRoutes } from './routes/export.js';
+import { createDashboardSnapshotRoutes } from './routes/dashboard-snapshot.js';
 import { createSseRoutes } from './routes/sse.js';
 import { createAnalyticsRoutes } from './routes/analytics.js';
 import { createAdminRoutes } from './routes/admin.js';
@@ -119,7 +120,7 @@ export function createApp(
     }
 
     const agentId = c.req.header('X-Agent-ID') || 'anonymous';
-    const auth = { teamId: result.resolved.teamId, agentId, scope: result.resolved.scope };
+    const auth = { workspaceId: result.resolved.workspaceId, agentId, scope: result.resolved.scope };
 
     // Run the MCP handler within the auth context so tool handlers can access it
     return mcpAuthStorage.run(auth, async () => {
@@ -166,6 +167,11 @@ export function createApp(
     api.use('*', createRateLimitMiddleware({ perMinute: config.rateLimitPerMinute }));
   }
 
+  // Rate limit per-workspace (after auth so workspaceId is available); 0 disables.
+  if (config && config.rateLimitPerMinuteWorkspace > 0) {
+    api.use('*', createWorkspaceRateLimitMiddleware({ perMinute: config.rateLimitPerMinuteWorkspace }));
+  }
+
   // Append-only audit log on mutating requests (after auth so actor is known).
   if (config?.auditEnabled ?? true) {
     api.use('*', createAuditMiddleware(db));
@@ -189,8 +195,9 @@ export function createApp(
   api.route('/profiles', createProfileRoutes(db));
   api.route('/webhooks', createWebhookRoutes(db));
   api.route('/inbound', createInboundManagementRoutes(db));
-  api.route('/teams', createTeamRoutes(db));
+  api.route('/teams', createWorkspaceTeamRoutes(db));
   api.route('/export', createExportRoutes(db));
+  api.route('/dashboard-snapshot', createDashboardSnapshotRoutes(db));
 
   app.route('/api/v1', api);
 

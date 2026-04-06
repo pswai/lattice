@@ -44,14 +44,14 @@ function userIdByEmail(db: Database.Database, email: string): string {
 
 function addMember(
   db: Database.Database,
-  teamId: string,
+  workspaceId: string,
   email: string,
   role: 'owner' | 'admin' | 'member' | 'viewer',
 ): string {
   const uid = userIdByEmail(db, email);
   db.prepare(
-    'INSERT INTO team_memberships (user_id, team_id, role) VALUES (?, ?, ?)',
-  ).run(uid, teamId, role);
+    'INSERT INTO workspace_memberships (user_id, workspace_id, role) VALUES (?, ?, ?)',
+  ).run(uid, workspaceId, role);
   return uid;
 }
 

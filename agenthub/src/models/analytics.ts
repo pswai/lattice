@@ -54,7 +54,7 @@ export interface MessageAnalytics {
   since: number;
 }
 
-export interface TeamAnalytics {
+export interface WorkspaceAnalytics {
   tasks: TaskAnalytics;
   events: EventAnalytics;
   agents: AgentAnalytics;
@@ -84,17 +84,17 @@ export function parseSinceDuration(since: string | undefined): string {
   return new Date(Date.now() - ms).toISOString();
 }
 
-export async function getTeamAnalytics(
+export async function getWorkspaceAnalytics(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   sinceIso: string,
-): Promise<TeamAnalytics> {
+): Promise<WorkspaceAnalytics> {
   // ── Tasks ────────────────────────────────────────────────────────
   const taskStatusRows = await db.all<{ status: string; cnt: number }>(`
     SELECT status, COUNT(*) as cnt FROM tasks
-    WHERE team_id = ? AND created_at >= ?
+    WHERE workspace_id = ? AND created_at >= ?
     GROUP BY status
-  `, teamId, sinceIso);
+  `, workspaceId, sinceIso);
 
   const byStatus = {
     open: 0, claimed: 0, completed: 0, escalated: 0, abandoned: 0,
@@ -113,8 +113,8 @@ export async function getTeamAnalytics(
   const avgRow = await db.get<{ avg_ms: number | null }>(`
     SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400000) AS avg_ms
     FROM tasks
-    WHERE team_id = ? AND status = 'completed' AND created_at >= ?
-  `, teamId, sinceIso);
+    WHERE workspace_id = ? AND status = 'completed' AND created_at >= ?
+  `, workspaceId, sinceIso);
   const avgCompletionMs = avgRow!.avg_ms;
 
   const medianRow = await db.get<{ median: number | null }>(`
@@ -123,19 +123,19 @@ export async function getTeamAnalytics(
              ROW_NUMBER() OVER (ORDER BY (julianday(updated_at) - julianday(created_at))) AS rn,
              COUNT(*) OVER () AS cnt
       FROM tasks
-      WHERE team_id = ? AND status = 'completed' AND created_at >= ?
+      WHERE workspace_id = ? AND status = 'completed' AND created_at >= ?
     )
     SELECT AVG(ms) AS median FROM ordered
     WHERE cnt > 0 AND rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
-  `, teamId, sinceIso);
+  `, workspaceId, sinceIso);
   const medianCompletionMs = medianRow?.median ?? null;
 
   // ── Events ───────────────────────────────────────────────────────
   const eventTypeRows = await db.all<{ event_type: string; cnt: number }>(`
     SELECT event_type, COUNT(*) as cnt FROM events
-    WHERE team_id = ? AND created_at >= ?
+    WHERE workspace_id = ? AND created_at >= ?
     GROUP BY event_type
-  `, teamId, sinceIso);
+  `, workspaceId, sinceIso);
 
   const byType = {
     LEARNING: 0, BROADCAST: 0, ESCALATION: 0, ERROR: 0, TASK_UPDATE: 0,
@@ -154,9 +154,9 @@ export async function getTeamAnalytics(
     SELECT CAST((julianday('now') - julianday(created_at)) * 24 AS INTEGER) AS hours_ago,
            COUNT(*) AS cnt
     FROM events
-    WHERE team_id = ? AND created_at >= ?
+    WHERE workspace_id = ? AND created_at >= ?
     GROUP BY hours_ago
-  `, teamId, last24hIso);
+  `, workspaceId, last24hIso);
 
   const perHour = new Array(24).fill(0) as number[];
   for (const row of perHourRows) {
@@ -170,8 +170,8 @@ export async function getTeamAnalytics(
     SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) AS online
-    FROM agents WHERE team_id = ?
-  `, teamId);
+    FROM agents WHERE workspace_id = ?
+  `, workspaceId);
 
   const topProducers = await db.all<TopProducer>(`
     SELECT
@@ -181,52 +181,52 @@ export async function getTeamAnalytics(
     FROM agents a
     LEFT JOIN (
       SELECT created_by, COUNT(*) AS cnt FROM events
-      WHERE team_id = ? AND created_at >= ?
+      WHERE workspace_id = ? AND created_at >= ?
       GROUP BY created_by
     ) e ON e.created_by = a.id
     LEFT JOIN (
       SELECT claimed_by, COUNT(*) AS cnt FROM tasks
-      WHERE team_id = ? AND status = 'completed' AND updated_at >= ?
+      WHERE workspace_id = ? AND status = 'completed' AND updated_at >= ?
       GROUP BY claimed_by
     ) t ON t.claimed_by = a.id
-    WHERE a.team_id = ?
+    WHERE a.workspace_id = ?
       AND (COALESCE(e.cnt, 0) > 0 OR COALESCE(t.cnt, 0) > 0)
     ORDER BY events DESC, tasks_completed DESC, agent_id ASC
     LIMIT 10
-  `, teamId, sinceIso, teamId, sinceIso, teamId);
+  `, workspaceId, sinceIso, workspaceId, sinceIso, workspaceId);
 
   // ── Context ──────────────────────────────────────────────────────
   const contextTotalRow = await db.get<{ cnt: number }>(
-    'SELECT COUNT(*) AS cnt FROM context_entries WHERE team_id = ?',
-    teamId,
+    'SELECT COUNT(*) AS cnt FROM context_entries WHERE workspace_id = ?',
+    workspaceId,
   );
   const contextTotal = contextTotalRow!.cnt;
 
   const contextSinceRow = await db.get<{ cnt: number }>(
-    'SELECT COUNT(*) AS cnt FROM context_entries WHERE team_id = ? AND created_at >= ?',
-    teamId, sinceIso,
+    'SELECT COUNT(*) AS cnt FROM context_entries WHERE workspace_id = ? AND created_at >= ?',
+    workspaceId, sinceIso,
   );
   const contextSince = contextSinceRow!.cnt;
 
   const topAuthors = await db.all<TopAuthor>(`
     SELECT created_by AS agent_id, COUNT(*) AS count
     FROM context_entries
-    WHERE team_id = ? AND created_at >= ?
+    WHERE workspace_id = ? AND created_at >= ?
     GROUP BY created_by
     ORDER BY count DESC, agent_id ASC
     LIMIT 10
-  `, teamId, sinceIso);
+  `, workspaceId, sinceIso);
 
   // ── Messages ─────────────────────────────────────────────────────
   const messagesTotalRow = await db.get<{ cnt: number }>(
-    'SELECT COUNT(*) AS cnt FROM messages WHERE team_id = ?',
-    teamId,
+    'SELECT COUNT(*) AS cnt FROM messages WHERE workspace_id = ?',
+    workspaceId,
   );
   const messagesTotal = messagesTotalRow!.cnt;
 
   const messagesSinceRow = await db.get<{ cnt: number }>(
-    'SELECT COUNT(*) AS cnt FROM messages WHERE team_id = ? AND created_at >= ?',
-    teamId, sinceIso,
+    'SELECT COUNT(*) AS cnt FROM messages WHERE workspace_id = ? AND created_at >= ?',
+    workspaceId, sinceIso,
   );
   const messagesSince = messagesSinceRow!.cnt;
 

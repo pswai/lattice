@@ -21,14 +21,14 @@ export function createMessageRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await sendMessage(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await sendMessage(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /messages — get messages for the authenticated agent
   router.get('/', async (c) => {
-    const { teamId, agentId } = c.get('auth');
+    const { workspaceId, agentId } = c.get('auth');
 
     const sinceIdParam = c.req.query('since_id');
     const limitParam = c.req.query('limit');
@@ -36,7 +36,7 @@ export function createMessageRoutes(db: DbAdapter): Hono {
     const since_id = sinceIdParam ? parseInt(sinceIdParam, 10) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = await getMessages(db, teamId, agentId, { since_id, limit });
+    const result = await getMessages(db, workspaceId, agentId, { since_id, limit });
     return c.json(result);
   });
 

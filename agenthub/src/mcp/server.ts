@@ -9,7 +9,7 @@ import { sendMessage, getMessages } from '../models/message.js';
 import { definePlaybook, listPlaybooks, runPlaybook } from '../models/playbook.js';
 import { defineSchedule, listSchedules, deleteSchedule } from '../models/schedule.js';
 import { listWorkflowRuns, getWorkflowRun, type WorkflowRunStatus } from '../models/workflow.js';
-import { getTeamAnalytics, parseSinceDuration } from '../models/analytics.js';
+import { getWorkspaceAnalytics, parseSinceDuration } from '../models/analytics.js';
 import { saveArtifact, getArtifact, listArtifacts } from '../models/artifact.js';
 import { defineProfile, listProfiles, getProfile, deleteProfile } from '../models/profile.js';
 import {
@@ -18,7 +18,7 @@ import {
   deleteInboundEndpoint,
   type InboundActionType,
 } from '../models/inbound.js';
-import { exportTeamData } from '../models/export.js';
+import { exportWorkspaceData } from '../models/export.js';
 import { scanForSecrets } from '../services/secret-scanner.js';
 import { AppError, SecretDetectedError } from '../errors.js';
 import { getMcpAuth } from './auth-context.js';
@@ -59,9 +59,9 @@ export function createMcpServer(db: DbAdapter): McpServer {
       tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for categorization and filtering'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
         // Secret scan on key and value
@@ -73,7 +73,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
         }
 
         // saveContext handles both DB write and auto-broadcast of LEARNING event
-        const result = await saveContext(db, teamId, agentId, params);
+        const result = await saveContext(db, workspaceId, agentId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -92,11 +92,11 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().optional().describe('Max results (default 20, max 100)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
         // Validation (query or tags required) is enforced in the model layer
-        const result = await getContext(db, teamId, params);
+        const result = await getContext(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -116,9 +116,9 @@ export function createMcpServer(db: DbAdapter): McpServer {
       tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for topic-based filtering'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
         const scan = scanForSecrets(params.message);
@@ -126,7 +126,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
         }
 
-        const result = await broadcastEvent(db, teamId, agentId, params);
+        const result = await broadcastEvent(db, workspaceId, agentId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -147,10 +147,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       include_context: z.boolean().optional().describe('Include recommended_context (default true)'),
     },
     async (params) => {
-      const { teamId, agentId } = getMcpAuth();
+      const { workspaceId, agentId } = getMcpAuth();
 
       try {
-        const result = await getUpdates(db, teamId, { ...params, agent_id: agentId });
+        const result = await getUpdates(db, workspaceId, { ...params, agent_id: agentId });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -170,10 +170,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       timeout_sec: z.number().int().nonnegative().max(60).optional().describe('Max seconds to wait (default 30, max 60)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await waitForEvent(db, teamId, params);
+        const result = await waitForEvent(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -195,12 +195,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       assigned_to: z.string().max(100).optional().describe('Agent ID this task is assigned to'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await createTask(db, teamId, agentId, params);
+        const result = await createTask(db, workspaceId, agentId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -223,12 +223,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       assigned_to: z.string().max(100).nullable().optional().describe('Reassign to agent, or null to unassign'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await updateTask(db, teamId, agentId, params);
+        const result = await updateTask(db, workspaceId, agentId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -248,10 +248,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().optional().describe('Max results (default 50, max 200)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listTasks(db, teamId, params);
+        const result = await listTasks(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -268,10 +268,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       task_id: z.number().describe('Task ID to retrieve'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const task = await getTask(db, teamId, params.task_id);
+        const task = await getTask(db, workspaceId, params.task_id);
         return { content: [{ type: 'text', text: JSON.stringify(task) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -290,10 +290,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().optional().describe('Max nodes (default 100, max 500)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await getTaskGraph(db, teamId, params);
+        const result = await getTaskGraph(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -313,10 +313,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       metadata: z.record(z.unknown()).optional().describe('Optional metadata about this agent'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await registerAgent(db, teamId, params);
+        const result = await registerAgent(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -334,10 +334,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Filter by status'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listAgents(db, teamId, params);
+        const result = await listAgents(db, workspaceId, params);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -355,12 +355,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Optionally update your status'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
-      await autoRegisterAgent(db, teamId, params.agent_id);
+      await autoRegisterAgent(db, workspaceId, params.agent_id);
 
       try {
-        const result = await heartbeat(db, teamId, params.agent_id, params.status);
+        const result = await heartbeat(db, workspaceId, params.agent_id, params.status);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -380,12 +380,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for categorization'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await sendMessage(db, teamId, agentId, {
+        const result = await sendMessage(db, workspaceId, agentId, {
           to: params.to,
           message: params.message,
           tags: params.tags,
@@ -408,11 +408,11 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().optional().describe('Max messages to return (default 50, max 200)'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
 
       try {
-        const result = await getMessages(db, teamId, agentId, {
+        const result = await getMessages(db, workspaceId, agentId, {
           since_id: params.since_id,
           limit: params.limit,
         });
@@ -439,12 +439,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       }))).describe('Ordered task templates. depends_on_index references earlier templates by position.'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await definePlaybook(db, teamId, agentId, {
+        const result = await definePlaybook(db, workspaceId, agentId, {
           name: params.name,
           description: params.description,
           tasks: params.tasks,
@@ -463,10 +463,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
     'List all playbooks defined for your team.',
     {},
     async () => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listPlaybooks(db, teamId);
+        const result = await listPlaybooks(db, workspaceId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -485,12 +485,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       vars: z.record(z.string()).optional().describe('Template variables substituted into task descriptions — replaces {{vars.KEY}} with the value'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await runPlaybook(db, teamId, agentId, params.name, params.vars);
+        const result = await runPlaybook(db, workspaceId, agentId, params.name, params.vars);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -510,12 +510,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       enabled: z.boolean().optional().describe('Whether the schedule is active (default true)'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await defineSchedule(db, teamId, agentId, {
+        const result = await defineSchedule(db, workspaceId, agentId, {
           playbook_name: params.playbook_name,
           cron_expression: params.cron_expression,
           enabled: params.enabled,
@@ -534,9 +534,9 @@ export function createMcpServer(db: DbAdapter): McpServer {
     'List all schedules defined for your team.',
     {},
     async () => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
       try {
-        const result = await listSchedules(db, teamId);
+        const result = await listSchedules(db, workspaceId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -554,11 +554,11 @@ export function createMcpServer(db: DbAdapter): McpServer {
       id: z.number().int().positive().describe('Schedule ID to delete'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
       try {
-        const result = await deleteSchedule(db, teamId, params.id);
+        const result = await deleteSchedule(db, workspaceId, params.id);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -576,10 +576,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().int().positive().max(200).optional().describe('Max results (default 50, max 200)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listWorkflowRuns(db, teamId, {
+        const result = await listWorkflowRuns(db, workspaceId, {
           status: params.status as WorkflowRunStatus | undefined,
           limit: params.limit,
         });
@@ -599,10 +599,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       id: z.number().int().positive().describe('Workflow run ID'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await getWorkflowRun(db, teamId, params.id);
+        const result = await getWorkflowRun(db, workspaceId, params.id);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -626,12 +626,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       metadata: z.record(z.unknown()).optional().describe('Optional structured metadata'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await saveArtifact(db, teamId, agentId, {
+        const result = await saveArtifact(db, workspaceId, agentId, {
           key: params.key,
           content_type: params.content_type,
           content: params.content,
@@ -653,10 +653,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       key: z.string().min(1).max(255).describe('Artifact key'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await getArtifact(db, teamId, params.key);
+        const result = await getArtifact(db, workspaceId, params.key);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -677,10 +677,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       limit: z.number().optional().describe('Max results (default 50, max 200)'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listArtifacts(db, teamId, {
+        const result = await listArtifacts(db, workspaceId, {
           content_type: params.content_type,
           limit: params.limit,
         });
@@ -700,11 +700,11 @@ export function createMcpServer(db: DbAdapter): McpServer {
       since: z.string().optional().describe('Duration window, e.g. "24h" (default), "7d", "30d"'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
         const sinceIso = parseSinceDuration(params.since);
-        const result = await getTeamAnalytics(db, teamId, sinceIso);
+        const result = await getWorkspaceAnalytics(db, workspaceId, sinceIso);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -729,12 +729,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       default_tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Default tags for events/messages from this role'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await defineProfile(db, teamId, agentId, {
+        const result = await defineProfile(db, workspaceId, agentId, {
           name: params.name,
           description: params.description,
           system_prompt: params.system_prompt,
@@ -755,10 +755,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
     'List all agent profiles defined for your team.',
     {},
     async () => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await listProfiles(db, teamId);
+        const result = await listProfiles(db, workspaceId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -775,10 +775,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       name: z.string().min(1).max(100).describe('Profile name'),
     },
     async (params) => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
 
       try {
-        const result = await getProfile(db, teamId, params.name);
+        const result = await getProfile(db, workspaceId, params.name);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -796,12 +796,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
       name: z.string().min(1).max(100).describe('Profile name to delete'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await deleteProfile(db, teamId, params.name);
+        const result = await deleteProfile(db, workspaceId, params.name);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -832,12 +832,12 @@ export function createMcpServer(db: DbAdapter): McpServer {
         .describe('Optional HMAC-SHA256 secret — if set, requests must send X-Lattice-Signature: sha256=<hex>'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const result = await defineInboundEndpoint(db, teamId, agentId, {
+        const result = await defineInboundEndpoint(db, workspaceId, agentId, {
           name: params.name,
           action_type: params.action_type as InboundActionType,
           action_config: params.action_config,
@@ -857,9 +857,9 @@ export function createMcpServer(db: DbAdapter): McpServer {
     'List all inbound webhook endpoints defined for your team.',
     {},
     async () => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
       try {
-        const result = await listInboundEndpoints(db, teamId);
+        const result = await listInboundEndpoints(db, workspaceId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -877,11 +877,11 @@ export function createMcpServer(db: DbAdapter): McpServer {
       endpoint_id: z.number().describe('Endpoint ID to delete'),
     },
     async (params) => {
-      const { teamId, agentId: headerAgentId } = getMcpAuth();
+      const { workspaceId, agentId: headerAgentId } = getMcpAuth();
       const agentId = params.agent_id || headerAgentId;
-      await autoRegisterAgent(db, teamId, agentId);
+      await autoRegisterAgent(db, workspaceId, agentId);
       try {
-        const result = await deleteInboundEndpoint(db, teamId, params.endpoint_id);
+        const result = await deleteInboundEndpoint(db, workspaceId, params.endpoint_id);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -890,15 +890,15 @@ export function createMcpServer(db: DbAdapter): McpServer {
     },
   );
 
-  // ─── export_team_data ─────────────────────────────────────────────
+  // ─── export_workspace_data ─────────────────────────────────────────────
   server.tool(
-    'export_team_data',
+    'export_workspace_data',
     'Export a team snapshot for backup/portability. Returns all team data (context, events, tasks, agents, messages, artifacts metadata, playbooks, workflow runs, profiles, schedules, endpoints, webhooks). Secrets are redacted and artifact content is not included.',
     {},
     async () => {
-      const { teamId } = getMcpAuth();
+      const { workspaceId } = getMcpAuth();
       try {
-        const result = await exportTeamData(db, teamId);
+        const result = await exportWorkspaceData(db, workspaceId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);

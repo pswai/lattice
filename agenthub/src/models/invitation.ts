@@ -7,7 +7,7 @@ export type InvitationRole = 'admin' | 'member' | 'viewer';
 
 export interface Invitation {
   id: string;
-  teamId: string;
+  workspaceId: string;
   email: string;
   role: InvitationRole;
   invitedBy: string | null;
@@ -19,7 +19,7 @@ export interface Invitation {
 
 interface InvitationRow {
   id: string;
-  team_id: string;
+  workspace_id: string;
   email: string;
   role: string;
   token_hash: string;
@@ -33,7 +33,7 @@ interface InvitationRow {
 function rowToInvitation(row: InvitationRow): Invitation {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     email: row.email,
     role: row.role as InvitationRole,
     invitedBy: row.invited_by,
@@ -49,7 +49,7 @@ function hashToken(raw: string): string {
 }
 
 export interface CreateInvitationInput {
-  teamId: string;
+  workspaceId: string;
   email: string;
   role: InvitationRole;
   invitedBy: string;
@@ -72,9 +72,9 @@ export async function createInvitation(
   const tokenHash = hashToken(raw);
   const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
   await db.run(
-    `INSERT INTO team_invitations (id, team_id, email, role, token_hash, invited_by, expires_at)
+    `INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    invitationId, input.teamId, input.email, input.role, tokenHash, input.invitedBy, expiresAt,
+    invitationId, input.workspaceId, input.email, input.role, tokenHash, input.invitedBy, expiresAt,
   );
   return { raw, invitationId, expiresAt };
 }
@@ -83,7 +83,7 @@ export async function getInvitationByToken(db: DbAdapter, raw: string): Promise<
   if (!raw) return null;
   const tokenHash = hashToken(raw);
   const row = await db.get<InvitationRow>(
-    'SELECT * FROM team_invitations WHERE token_hash = ?',
+    'SELECT * FROM workspace_invitations WHERE token_hash = ?',
     tokenHash,
   );
   if (!row) return null;
@@ -95,35 +95,35 @@ export async function getInvitationByToken(db: DbAdapter, raw: string): Promise<
 
 export async function getInvitationById(db: DbAdapter, id: string): Promise<Invitation | null> {
   const row = await db.get<InvitationRow>(
-    'SELECT * FROM team_invitations WHERE id = ?',
+    'SELECT * FROM workspace_invitations WHERE id = ?',
     id,
   );
   if (!row) return null;
   return rowToInvitation(row);
 }
 
-export async function listTeamInvitations(db: DbAdapter, teamId: string): Promise<Invitation[]> {
+export async function listWorkspaceInvitations(db: DbAdapter, workspaceId: string): Promise<Invitation[]> {
   const rows = await db.all<InvitationRow>(
-    `SELECT * FROM team_invitations
-     WHERE team_id = ?
+    `SELECT * FROM workspace_invitations
+     WHERE workspace_id = ?
        AND accepted_at IS NULL
        AND revoked_at IS NULL
        AND expires_at > ?
      ORDER BY created_at DESC`,
-    teamId, new Date().toISOString(),
+    workspaceId, new Date().toISOString(),
   );
   return rows.map(rowToInvitation);
 }
 
 export async function revokeInvitation(db: DbAdapter, id: string): Promise<void> {
   await db.run(
-    "UPDATE team_invitations SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND accepted_at IS NULL",
+    "UPDATE workspace_invitations SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND accepted_at IS NULL",
     new Date().toISOString(), id,
   );
 }
 
 export interface AcceptInvitationResult {
-  teamId: string;
+  workspaceId: string;
   role: MembershipRole;
 }
 
@@ -136,21 +136,21 @@ export async function acceptInvitation(
   if (!inv) {
     throw new ValidationError('Invitation is invalid, expired, or already used');
   }
-  const existing = await getMembership(db, userId, inv.teamId);
+  const existing = await getMembership(db, userId, inv.workspaceId);
   if (existing) {
     throw new ValidationError('User is already a member of this workspace');
   }
   await db.transaction(async (tx) => {
     await tx.run(
-      "UPDATE team_invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL",
+      "UPDATE workspace_invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL",
       new Date().toISOString(), inv.id,
     );
     await addMembership(db, {
       userId,
-      teamId: inv.teamId,
+      workspaceId: inv.workspaceId,
       role: inv.role,
       invitedBy: inv.invitedBy ?? undefined,
     });
   });
-  return { teamId: inv.teamId, role: inv.role };
+  return { workspaceId: inv.workspaceId, role: inv.role };
 }

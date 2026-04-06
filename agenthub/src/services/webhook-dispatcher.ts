@@ -13,7 +13,7 @@ import { assertPublicUrl } from './ssrf-guard.js';
 
 interface EventRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   event_type: string;
   message: string;
   tags: string;
@@ -37,7 +37,7 @@ export function startWebhookDispatcher(
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
 
   // On each new domain event, create a pending delivery row for matching webhooks.
-  const onEvent = (payload: { teamId: string; eventId: number }) => {
+  const onEvent = (payload: { workspaceId: string; eventId: number }) => {
     (async () => {
       try {
         const eventRow = await db.get<EventRow>(
@@ -45,7 +45,7 @@ export function startWebhookDispatcher(
           payload.eventId,
         );
         if (!eventRow) return;
-        const matches = await listActiveWebhooksForEvent(db, payload.teamId, eventRow.event_type);
+        const matches = await listActiveWebhooksForEvent(db, payload.workspaceId, eventRow.event_type);
         for (const wh of matches) {
           await createDelivery(db, wh.id, eventRow.id);
         }
@@ -113,7 +113,7 @@ async function deliverOne(
     id: delivery.id,
     event_id: delivery.eventId,
     event_type: eventRow.event_type,
-    team_id: eventRow.team_id,
+    workspace_id: eventRow.workspace_id,
     message: eventRow.message,
     tags: JSON.parse(eventRow.tags),
     created_by: eventRow.created_by,

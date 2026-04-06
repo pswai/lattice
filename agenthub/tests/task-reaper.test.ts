@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestDb, setupTeam } from './helpers.js';
+import { createTestDb, setupWorkspace } from './helpers.js';
 import { createTask, updateTask } from '../src/models/task.js';
 import { getUpdates } from '../src/models/event.js';
 
@@ -11,13 +11,13 @@ function reapAbandonedTasks(db: ReturnType<typeof createTestDb>, timeoutMinutes:
   const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
 
   const staleTasks = db.rawDb.prepare(`
-    SELECT id, team_id, description, claimed_by, version
+    SELECT id, workspace_id, description, claimed_by, version
     FROM tasks
     WHERE status = 'claimed'
       AND claimed_at < ?
   `).all(cutoff) as Array<{
     id: number;
-    team_id: string;
+    workspace_id: string;
     description: string;
     claimed_by: string;
     version: number;
@@ -38,9 +38,9 @@ function reapAbandonedTasks(db: ReturnType<typeof createTestDb>, timeoutMinutes:
 
     if (result.changes > 0) {
       db.rawDb.prepare(`
-        INSERT INTO events (team_id, event_type, message, tags, created_by)
+        INSERT INTO events (workspace_id, event_type, message, tags, created_by)
         VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
-      `).run(task.team_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
+      `).run(task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
       reaped++;
     }
   }
@@ -49,17 +49,17 @@ function reapAbandonedTasks(db: ReturnType<typeof createTestDb>, timeoutMinutes:
 
 describe('Task Reaper', () => {
   let db: ReturnType<typeof createTestDb>;
-  const teamId = 'test-team';
+  const workspaceId = 'test-team';
   const agentId = 'test-agent';
 
   beforeEach(() => {
     db = createTestDb();
-    setupTeam(db, teamId);
+    setupWorkspace(db, workspaceId);
   });
 
   it('should reap tasks claimed longer than timeout', async () => {
     // Create and claim a task
-    const task = await createTask(db, teamId, agentId, { description: 'Stale task' });
+    const task = await createTask(db, workspaceId, agentId, { description: 'Stale task' });
 
     // Manually backdate the claimed_at to 60 minutes ago
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -78,7 +78,7 @@ describe('Task Reaper', () => {
 
   it('should not reap recently claimed tasks', async () => {
     // Create and claim a task (just now)
-    await createTask(db, teamId, agentId, { description: 'Fresh task' });
+    await createTask(db, workspaceId, agentId, { description: 'Fresh task' });
 
     // Run reaper with 30 minute timeout
     const reaped = reapAbandonedTasks(db, 30);
@@ -87,7 +87,7 @@ describe('Task Reaper', () => {
 
   it('should not reap open tasks', async () => {
     // Create open task
-    await createTask(db, teamId, agentId, { description: 'Open task', status: 'open' });
+    await createTask(db, workspaceId, agentId, { description: 'Open task', status: 'open' });
 
     // Run reaper
     const reaped = reapAbandonedTasks(db, 0); // 0 minute timeout = reap everything claimed
@@ -95,8 +95,8 @@ describe('Task Reaper', () => {
   });
 
   it('should not reap completed tasks', async () => {
-    const task = await createTask(db, teamId, agentId, { description: 'Completed task' });
-    await updateTask(db, teamId, agentId, {
+    const task = await createTask(db, workspaceId, agentId, { description: 'Completed task' });
+    await updateTask(db, workspaceId, agentId, {
       task_id: task.task_id,
       status: 'completed',
       result: 'Done',
@@ -108,7 +108,7 @@ describe('Task Reaper', () => {
   });
 
   it('should broadcast TASK_UPDATE event on reap', async () => {
-    const task = await createTask(db, teamId, agentId, { description: 'Reapable task' });
+    const task = await createTask(db, workspaceId, agentId, { description: 'Reapable task' });
 
     // Backdate
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -117,7 +117,7 @@ describe('Task Reaper', () => {
     reapAbandonedTasks(db, 30);
 
     // Check for reaper event
-    const updates = await getUpdates(db, teamId, {});
+    const updates = await getUpdates(db, workspaceId, {});
     const reaperEvents = updates.events.filter(
       (e) => e.createdBy === 'system:reaper' && e.tags.includes('task-reaper'),
     );
@@ -126,7 +126,7 @@ describe('Task Reaper', () => {
   });
 
   it('should use optimistic locking during reap', async () => {
-    const task = await createTask(db, teamId, agentId, { description: 'Race condition task' });
+    const task = await createTask(db, workspaceId, agentId, { description: 'Race condition task' });
 
     // Backdate
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -162,7 +162,7 @@ describe('Task Reaper', () => {
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
     for (let i = 0; i < 3; i++) {
-      const task = await createTask(db, teamId, agentId, { description: `Stale task ${i}` });
+      const task = await createTask(db, workspaceId, agentId, { description: `Stale task ${i}` });
       db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
     }
 

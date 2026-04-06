@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, createTestDb, setupTeam, authHeaders, request, type TestContext } from './helpers.js';
+import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
 import { autoRegisterAgent, listAgents } from '../src/models/agent.js';
 
 /**
@@ -9,17 +9,17 @@ import { autoRegisterAgent, listAgents } from '../src/models/agent.js';
  */
 describe('Auto-Registration — Model Layer', () => {
   let db: ReturnType<typeof createTestDb>;
-  const teamId = 'test-team';
+  const workspaceId = 'test-team';
 
   beforeEach(() => {
     db = createTestDb();
-    setupTeam(db, teamId);
+    setupWorkspace(db, workspaceId);
   });
 
   it('should create a new agent with online status and empty capabilities', async () => {
-    await autoRegisterAgent(db, teamId, 'new-agent');
+    await autoRegisterAgent(db, workspaceId, 'new-agent');
 
-    const { agents } = await listAgents(db, teamId, {});
+    const { agents } = await listAgents(db, workspaceId, {});
     const agent = agents.find(a => a.id === 'new-agent');
     expect(agent).toBeDefined();
     expect(agent!.status).toBe('online');
@@ -29,14 +29,14 @@ describe('Auto-Registration — Model Layer', () => {
   it('should not overwrite capabilities or status on re-registration', async () => {
     // Register with explicit capabilities
     db.rawDb.prepare(`
-      INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
+      INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat)
       VALUES (?, ?, '["python","testing"]', 'busy', '{}', '2020-01-01T00:00:00.000Z')
-    `).run('skilled-agent', teamId);
+    `).run('skilled-agent', workspaceId);
 
     // Auto-register again (simulating MCP call)
-    await autoRegisterAgent(db, teamId, 'skilled-agent');
+    await autoRegisterAgent(db, workspaceId, 'skilled-agent');
 
-    const { agents } = await listAgents(db, teamId, {});
+    const { agents } = await listAgents(db, workspaceId, {});
     const agent = agents.find(a => a.id === 'skilled-agent');
     expect(agent!.capabilities).toEqual(['python', 'testing']);
     expect(agent!.status).toBe('busy');
@@ -45,15 +45,15 @@ describe('Auto-Registration — Model Layer', () => {
   it('should update last_heartbeat on subsequent auto-registration calls', async () => {
     // Insert with old heartbeat
     db.rawDb.prepare(`
-      INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
+      INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat)
       VALUES (?, ?, '[]', 'online', '{}', '2020-01-01T00:00:00.000Z')
-    `).run('heartbeat-agent', teamId);
+    `).run('heartbeat-agent', workspaceId);
 
-    await autoRegisterAgent(db, teamId, 'heartbeat-agent');
+    await autoRegisterAgent(db, workspaceId, 'heartbeat-agent');
 
     const row = db.rawDb.prepare(
-      'SELECT last_heartbeat FROM agents WHERE team_id = ? AND id = ?',
-    ).get(teamId, 'heartbeat-agent') as any;
+      'SELECT last_heartbeat FROM agents WHERE workspace_id = ? AND id = ?',
+    ).get(workspaceId, 'heartbeat-agent') as any;
 
     expect(row.last_heartbeat).not.toBe('2020-01-01T00:00:00.000Z');
     // Should be a recent timestamp
@@ -62,22 +62,22 @@ describe('Auto-Registration — Model Layer', () => {
   });
 
   it('should be idempotent — multiple calls do not create duplicates', async () => {
-    await autoRegisterAgent(db, teamId, 'repeat-agent');
-    await autoRegisterAgent(db, teamId, 'repeat-agent');
-    await autoRegisterAgent(db, teamId, 'repeat-agent');
+    await autoRegisterAgent(db, workspaceId, 'repeat-agent');
+    await autoRegisterAgent(db, workspaceId, 'repeat-agent');
+    await autoRegisterAgent(db, workspaceId, 'repeat-agent');
 
     const rows = db.rawDb.prepare(
-      'SELECT * FROM agents WHERE team_id = ? AND id = ?',
-    ).all(teamId, 'repeat-agent');
+      'SELECT * FROM agents WHERE workspace_id = ? AND id = ?',
+    ).all(workspaceId, 'repeat-agent');
     expect(rows).toHaveLength(1);
   });
 
   it('should auto-register multiple different agents independently', async () => {
-    await autoRegisterAgent(db, teamId, 'agent-x');
-    await autoRegisterAgent(db, teamId, 'agent-y');
-    await autoRegisterAgent(db, teamId, 'agent-z');
+    await autoRegisterAgent(db, workspaceId, 'agent-x');
+    await autoRegisterAgent(db, workspaceId, 'agent-y');
+    await autoRegisterAgent(db, workspaceId, 'agent-z');
 
-    const { agents } = await listAgents(db, teamId, {});
+    const { agents } = await listAgents(db, workspaceId, {});
     expect(agents).toHaveLength(3);
     expect(agents.map(a => a.id).sort()).toEqual(['agent-x', 'agent-y', 'agent-z']);
   });
@@ -92,7 +92,7 @@ describe('Auto-Registration — Visible in REST list_agents', () => {
 
   it('should show auto-registered agents in GET /api/v1/agents', async () => {
     // Auto-register directly via model (simulates MCP tool call)
-    await autoRegisterAgent(ctx.db, ctx.teamId, 'mcp-agent');
+    await autoRegisterAgent(ctx.db, ctx.workspaceId, 'mcp-agent');
 
     // Verify visible through REST API
     const res = await request(ctx.app, 'GET', '/api/v1/agents', {
@@ -105,7 +105,7 @@ describe('Auto-Registration — Visible in REST list_agents', () => {
   });
 
   it('should filter auto-registered agents by status', async () => {
-    await autoRegisterAgent(ctx.db, ctx.teamId, 'online-agent');
+    await autoRegisterAgent(ctx.db, ctx.workspaceId, 'online-agent');
 
     const res = await request(ctx.app, 'GET', '/api/v1/agents?status=online', {
       headers: authHeaders(ctx.apiKey),
@@ -126,7 +126,7 @@ describe('Auto-Registration — Visible in REST list_agents', () => {
     });
 
     // Auto-register same agent (like an MCP tool call would)
-    await autoRegisterAgent(ctx.db, ctx.teamId, 'full-agent');
+    await autoRegisterAgent(ctx.db, ctx.workspaceId, 'full-agent');
 
     // Capabilities and status should be preserved
     const res = await request(ctx.app, 'GET', '/api/v1/agents', {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import {
   createTestDb,
-  setupTeam,
+  setupWorkspace,
   testConfig,
   TEST_ADMIN_KEY,
   request,
@@ -28,25 +28,25 @@ function buildRouter(db: Database.Database): Hono {
 
 describe('admin-keys routes', () => {
   let db: Database.Database;
-  let teamId: string;
+  let workspaceId: string;
   let apiKey: string;
   let router: Hono;
 
   beforeEach(() => {
     db = createTestDb();
-    const t = setupTeam(db);
-    teamId = t.teamId;
+    const t = setupWorkspace(db);
+    workspaceId = t.workspaceId;
     apiKey = t.apiKey;
     router = buildRouter(db);
   });
 
   it('requires admin bearer auth', async () => {
-    const res = await router.request(`/admin/teams/${teamId}/keys`);
+    const res = await router.request(`/admin/teams/${workspaceId}/keys`);
     expect(res.status).toBe(401);
   });
 
   it('GET lists keys without exposing hash or raw key', async () => {
-    const res = await router.request(`/admin/teams/${teamId}/keys`, {
+    const res = await router.request(`/admin/teams/${workspaceId}/keys`, {
       headers: adminHeaders(),
     });
     expect(res.status).toBe(200);
@@ -76,7 +76,7 @@ describe('admin-keys routes', () => {
   });
 
   it('POST creates a key with optional expires_in_days', async () => {
-    const res = await router.request(`/admin/teams/${teamId}/keys`, {
+    const res = await router.request(`/admin/teams/${workspaceId}/keys`, {
       method: 'POST',
       headers: adminHeaders(),
       body: JSON.stringify({ label: 'ci', scope: 'read', expires_in_days: 7 }),
@@ -91,7 +91,7 @@ describe('admin-keys routes', () => {
 
   it('POST rotate issues new key and revokes old', async () => {
     // First create a key to rotate.
-    const createRes = await router.request(`/admin/teams/${teamId}/keys`, {
+    const createRes = await router.request(`/admin/teams/${workspaceId}/keys`, {
       method: 'POST',
       headers: adminHeaders(),
       body: JSON.stringify({ label: 'rotate-me', scope: 'write' }),
@@ -100,7 +100,7 @@ describe('admin-keys routes', () => {
     const keyId = created.id;
 
     const rotateRes = await router.request(
-      `/admin/teams/${teamId}/keys/${keyId}/rotate`,
+      `/admin/teams/${workspaceId}/keys/${keyId}/rotate`,
       { method: 'POST', headers: adminHeaders() },
     );
     expect(rotateRes.status).toBe(201);
@@ -120,14 +120,14 @@ describe('admin-keys routes', () => {
 
   it('POST rotate 404s for unknown key', async () => {
     const res = await router.request(
-      `/admin/teams/${teamId}/keys/99999/rotate`,
+      `/admin/teams/${workspaceId}/keys/99999/rotate`,
       { method: 'POST', headers: adminHeaders() },
     );
     expect(res.status).toBe(404);
   });
 
   it('POST revoke marks key revoked', async () => {
-    const createRes = await router.request(`/admin/teams/${teamId}/keys`, {
+    const createRes = await router.request(`/admin/teams/${workspaceId}/keys`, {
       method: 'POST',
       headers: adminHeaders(),
       body: JSON.stringify({ label: 'kill-me' }),
@@ -154,7 +154,7 @@ describe('admin-keys routes', () => {
     const fullApp = createApp(db, () => createMcpServer(db), config);
 
     // Create a fresh key via admin-keys router
-    const createRes = await router.request(`/admin/teams/${teamId}/keys`, {
+    const createRes = await router.request(`/admin/teams/${workspaceId}/keys`, {
       method: 'POST',
       headers: adminHeaders(),
       body: JSON.stringify({ label: 'e2e', scope: 'write' }),

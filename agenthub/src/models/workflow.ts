@@ -6,7 +6,7 @@ export type WorkflowRunStatus = 'running' | 'completed' | 'failed';
 
 export interface WorkflowRun {
   id: number;
-  teamId: string;
+  workspaceId: string;
   playbookName: string;
   startedBy: string;
   taskIds: number[];
@@ -17,7 +17,7 @@ export interface WorkflowRun {
 
 interface WorkflowRunRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   playbook_name: string;
   started_by: string;
   task_ids: string;
@@ -29,7 +29,7 @@ interface WorkflowRunRow {
 function rowToRun(row: WorkflowRunRow): WorkflowRun {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     startedBy: row.started_by,
     taskIds: JSON.parse(row.task_ids) as number[],
@@ -41,14 +41,14 @@ function rowToRun(row: WorkflowRunRow): WorkflowRun {
 
 export async function createWorkflowRun(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   playbookName: string,
   startedBy: string,
 ): Promise<number> {
   const result = await db.run(`
-    INSERT INTO workflow_runs (team_id, playbook_name, started_by, task_ids, status)
+    INSERT INTO workflow_runs (workspace_id, playbook_name, started_by, task_ids, status)
     VALUES (?, ?, ?, '[]', 'running')
-  `, teamId, playbookName, startedBy);
+  `, workspaceId, playbookName, startedBy);
   return Number(result.lastInsertRowid);
 }
 
@@ -74,12 +74,12 @@ export interface WorkflowRunListItem extends WorkflowRun {
 
 export async function listWorkflowRuns(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: ListWorkflowRunsInput,
 ): Promise<{ workflow_runs: WorkflowRunListItem[]; total: number }> {
   const limit = Math.min(input.limit ?? 50, 200);
-  const conditions = ['team_id = ?'];
-  const params: (string | number)[] = [teamId];
+  const conditions = ['workspace_id = ?'];
+  const params: (string | number)[] = [workspaceId];
 
   if (input.status) {
     conditions.push('status = ?');
@@ -109,12 +109,12 @@ export interface WorkflowRunDetails extends WorkflowRun {
 
 export async function getWorkflowRun(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: number,
 ): Promise<WorkflowRunDetails> {
   const row = await db.get<WorkflowRunRow>(
-    'SELECT * FROM workflow_runs WHERE id = ? AND team_id = ?',
-    id, teamId,
+    'SELECT * FROM workflow_runs WHERE id = ? AND workspace_id = ?',
+    id, workspaceId,
   );
 
   if (!row) {
@@ -127,8 +127,8 @@ export async function getWorkflowRun(
   if (run.taskIds.length > 0) {
     const placeholders = run.taskIds.map(() => '?').join(',');
     const taskRows = await db.all<{ id: number; description: string; status: string }>(
-      `SELECT id, description, status FROM tasks WHERE id IN (${placeholders}) AND team_id = ?`,
-      ...run.taskIds, teamId,
+      `SELECT id, description, status FROM tasks WHERE id IN (${placeholders}) AND workspace_id = ?`,
+      ...run.taskIds, workspaceId,
     );
     tasks.push(...taskRows);
   }

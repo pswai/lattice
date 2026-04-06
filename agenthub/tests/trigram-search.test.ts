@@ -134,23 +134,23 @@ describe('Trigram FTS migration', () => {
       const legacy = new Database(dbPath);
       legacy.pragma('journal_mode = WAL');
       legacy.exec(`
-        CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
+        CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
         CREATE TABLE context_entries (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          team_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
           key TEXT NOT NULL,
           value TEXT NOT NULL,
           tags TEXT NOT NULL DEFAULT '[]',
           created_by TEXT NOT NULL,
           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-          UNIQUE(team_id, key)
+          UNIQUE(workspace_id, key)
         );
         CREATE VIRTUAL TABLE context_entries_fts USING fts5(
           key, value, tags, content='context_entries', content_rowid='id'
         );
       `);
-      legacy.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t1', 'Team 1');
-      legacy.prepare(`INSERT INTO context_entries (team_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`)
+      legacy.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run('t1', 'Team 1');
+      legacy.prepare(`INSERT INTO context_entries (workspace_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`)
         .run('t1', 'cli-doc', 'the cli subcommand', '[]', 'seed');
       // Populate FTS from content table
       legacy.exec(`INSERT INTO context_entries_fts(context_entries_fts) VALUES('rebuild')`);

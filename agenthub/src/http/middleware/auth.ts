@@ -42,19 +42,19 @@ declare module 'hono' {
 
 /**
  * Result of resolving the team from an incoming request.
- * `baseTeamId` is the team bound to the Authorization API key.
- * `teamId` is the effective team the request operates on
- * (equal to baseTeamId unless X-Team-Override was applied).
+ * `baseWorkspaceId` is the team bound to the Authorization API key.
+ * `workspaceId` is the effective team the request operates on
+ * (equal to baseWorkspaceId unless X-Team-Override was applied).
  */
-export interface ResolvedTeam {
-  teamId: string;
-  baseTeamId: string;
+export interface ResolvedWorkspace {
+  workspaceId: string;
+  baseWorkspaceId: string;
   overrideApplied: boolean;
   scope: ApiKeyScope;
 }
 
 export type AuthResolution =
-  | { ok: true; resolved: ResolvedTeam }
+  | { ok: true; resolved: ResolvedWorkspace }
   | { ok: false; status: 401; error: string; message: string };
 
 function hashKey(key: string): string {
@@ -64,15 +64,15 @@ function hashKey(key: string): string {
 async function lookupKey(
   db: DbAdapter,
   apiKey: string,
-): Promise<{ teamId: string; scope: ApiKeyScope } | null> {
+): Promise<{ workspaceId: string; scope: ApiKeyScope } | null> {
   const keyHash = hashKey(apiKey);
   const row = await db.get<{
-    team_id: string;
+    workspace_id: string;
     scope: ApiKeyScope;
     expires_at: string | null;
     revoked_at: string | null;
   }>(
-    'SELECT team_id, scope, expires_at, revoked_at FROM api_keys WHERE key_hash = ?',
+    'SELECT workspace_id, scope, expires_at, revoked_at FROM api_keys WHERE key_hash = ?',
     keyHash,
   );
   if (!row) return null;
@@ -83,7 +83,7 @@ async function lookupKey(
   }
   // Fire-and-forget throttled update of last_used_at.
   touchLastUsed(db, keyHash).catch(() => {});
-  return { teamId: row.team_id, scope: row.scope };
+  return { workspaceId: row.workspace_id, scope: row.scope };
 }
 
 /**
@@ -133,8 +133,8 @@ export async function resolveTeamFromRequest(
     return {
       ok: true,
       resolved: {
-        teamId: override.teamId,
-        baseTeamId: base.teamId,
+        workspaceId: override.workspaceId,
+        baseWorkspaceId: base.workspaceId,
         overrideApplied: true,
         scope: override.scope,
       },
@@ -144,8 +144,8 @@ export async function resolveTeamFromRequest(
   return {
     ok: true,
     resolved: {
-      teamId: base.teamId,
-      baseTeamId: base.teamId,
+      workspaceId: base.workspaceId,
+      baseWorkspaceId: base.workspaceId,
       overrideApplied: false,
       scope: base.scope,
     },
@@ -188,7 +188,7 @@ export function createAuthMiddleware(db: DbAdapter) {
     }
 
     const agentId = c.req.header('X-Agent-ID') || 'anonymous';
-    c.set('auth', { teamId: result.resolved.teamId, agentId, scope });
+    c.set('auth', { workspaceId: result.resolved.workspaceId, agentId, scope });
 
     await next();
   });

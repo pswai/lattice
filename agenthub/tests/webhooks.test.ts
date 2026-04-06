@@ -178,7 +178,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['BROADCAST']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', ['t'], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'hello', ['t'], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     expect(received.length).toBe(1);
@@ -208,11 +208,11 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     await createWebhook('https://example.com/hook', ['TASK_UPDATE']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     expect(received).toHaveLength(0);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'TASK_UPDATE', 'x', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'TASK_UPDATE', 'x', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     expect(received).toHaveLength(1);
   });
@@ -232,7 +232,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
@@ -250,7 +250,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
@@ -273,7 +273,7 @@ describe('Webhooks — delivery dispatcher', () => {
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
     for (let i = 0; i < 20; i++) {
-      await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', `m${i}`, [], 'alice');
+      await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', `m${i}`, [], 'alice');
     }
     await new Promise((r) => setTimeout(r, 600));
     // Drain remaining deliveries.
@@ -292,10 +292,10 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'fail', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'fail', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     shouldFail = false;
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'ok', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'ok', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const row = ctx.db
@@ -315,7 +315,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50, timeoutMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
       headers: authHeaders(ctx.apiKey, 'alice'),
@@ -330,7 +330,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     await createWebhook('https://example.com/hook', ['*']);
 
-    await broadcastInternal(ctx.db, ctx.teamId, 'LEARNING', 'neat', ['tag'], 'alice');
+    await broadcastInternal(ctx.db, ctx.workspaceId, 'LEARNING', 'neat', ['tag'], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const headers = received[0].headers;

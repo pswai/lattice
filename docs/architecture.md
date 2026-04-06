@@ -1,4 +1,4 @@
-# AgentHub Architecture (Phase 2)
+# Lattice Architecture (Phase 2)
 
 **Status**: Current  
 **Date**: 2026-04-05  
@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-AgentHub is an MCP-native coordination layer for AI agent teams. It provides shared knowledge, event-driven messaging, task management, agent discovery, and direct messaging — all accessible via MCP tools or REST API.
+Lattice is an MCP-native coordination layer for AI agent teams. It provides shared knowledge, event-driven messaging, task management, agent discovery, and direct messaging — all accessible via MCP tools or REST API.
 
 ### Architecture
 
@@ -24,7 +24,7 @@ AgentHub is an MCP-native coordination layer for AI agent teams. It provides sha
 └─────────────────────────────┼───────────────────────────────┘
                               │
 ┌─────────────────────────────┼───────────────────────────────┐
-│                    AgentHub Server                           │
+│                    Lattice Server                           │
 │                             │                               │
 │  ┌──────────────────────────▼──────────────────────────┐    │
 │  │               Hono HTTP Server                       │    │
@@ -525,7 +525,7 @@ Indexed on (`webhook_id`, `created_at` DESC) and (`status`, `next_retry_at`).
 | `name` | TEXT | Human-readable name |
 | `action_type` | TEXT | CHECK: create_task, broadcast_event, save_context |
 | `action_config` | TEXT | JSON: per-action settings (templates, tags, etc.) |
-| `hmac_secret` | TEXT | Nullable. If set, requests require `X-AgentHub-Signature: sha256=<hex>`. |
+| `hmac_secret` | TEXT | Nullable. If set, requests require `X-Lattice-Signature: sha256=<hex>`. |
 | `active` | INTEGER | 0/1 |
 | `created_by` | TEXT | Agent ID |
 | `created_at` / `updated_at` | TEXT | ISO 8601 |
@@ -603,7 +603,7 @@ Auth: no server-side session — the dashboard reads an API key from `localStora
 Ships with:
 
 - `Dockerfile` — multi-stage `node:20-alpine` (builder stage installs devDeps + tsc; runtime stage copies `dist/` + prod node_modules)
-- `docker-compose.yml` — runs AgentHub with a healthcheck on `/health` and a named volume for the SQLite file
+- `docker-compose.yml` — runs Lattice with a healthcheck on `/health` and a named volume for the SQLite file
 
 One-command deploy:
 
@@ -616,22 +616,22 @@ See [examples/docker-deploy.md](../agenthub/examples/docker-deploy.md) for env-v
 ## 6. CLI
 
 ```
-npx agenthub <command>
+npx lattice <command>
 ```
 
 | Command | Description |
 |---------|-------------|
 | `init` | Interactive setup: team name, team ID, DB path, port. Creates SQLite DB, inserts team + API key, outputs `.mcp.json` snippet. |
-| `start` | Boots the AgentHub server (imports `src/index.ts`). |
-| `status` | Shows server health (GET /health), admin stats (GET /admin/stats if ADMIN_KEY set), and last 5 events (GET /api/v1/events if AGENTHUB_API_KEY set). Color-coded terminal output. |
+| `start` | Boots the Lattice server (imports `src/index.ts`). |
+| `status` | Shows server health (GET /health), admin stats (GET /admin/stats if ADMIN_KEY set), and last 5 events (GET /api/v1/events if LATTICE_API_KEY set). Color-coded terminal output. |
 
 ### CLI Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `AGENTHUB_URL` | Server URL (default: `http://localhost:3000`) |
+| `LATTICE_URL` | Server URL (default: `http://localhost:3000`) |
 | `ADMIN_KEY` | Admin key for stats display |
-| `AGENTHUB_API_KEY` | Team API key for event display |
+| `LATTICE_API_KEY` | Team API key for event display |
 
 ---
 
@@ -673,7 +673,7 @@ On mismatch the middleware returns HTTP 403 with `{"error": "INSUFFICIENT_SCOPE"
 
 ## 8. Dog-Food Results
 
-Four rounds of live dog-food testing using AgentHub to coordinate real agent teams.
+Four rounds of live dog-food testing using Lattice to coordinate real agent teams.
 
 ### Round 1 — Market Research (3 agents)
 
@@ -721,7 +721,7 @@ All via environment variables, loaded in `src/config.ts`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
-| `DB_PATH` | `./data/agenthub.db` | SQLite database file path |
+| `DB_PATH` | `./data/lattice.db` | SQLite database file path |
 | `POLL_INTERVAL_MS` | `5000` | Suggested client poll interval |
 | `TASK_REAP_TIMEOUT_MINUTES` | `30` | Minutes before claimed task is auto-abandoned |
 | `TASK_REAP_INTERVAL_MS` | `60000` | Task reaper check interval |

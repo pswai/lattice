@@ -61,10 +61,10 @@ describe('logger', () => {
       level: 'info',
       format: 'json',
       stream,
-      fields: { team_id: 'a' },
+      fields: { workspace_id: 'a' },
     });
-    log.info('x', { team_id: 'b' });
-    expect(JSON.parse(stream.lines[0]).team_id).toBe('b');
+    log.info('x', { workspace_id: 'b' });
+    expect(JSON.parse(stream.lines[0]).workspace_id).toBe('b');
   });
 
   it('redacts Lattice API keys from log lines', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, createTestDb, setupTeam, type TestContext } from './helpers.js';
+import { createTestContext, authHeaders, request, createTestDb, setupWorkspace, type TestContext } from './helpers.js';
 import {
   computeNextRun,
   defineSchedule,
@@ -91,7 +91,7 @@ describe('computeNextRun — cron parser', () => {
 describe('Schedule model', () => {
   async function setup() {
     const db = createTestDb();
-    setupTeam(db, 'team-a');
+    setupWorkspace(db, 'team-a');
     await definePlaybook(db, 'team-a', 'alice', {
       name: 'cleanup',
       description: 'nightly cleanup',
@@ -137,7 +137,7 @@ describe('Schedule model', () => {
 
   it('listSchedules returns schedules for the team only', async () => {
     const db = await setup();
-    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    setupWorkspace(db, 'team-b', 'ltk_other_key_12345678901234567890');
     await definePlaybook(db, 'team-b', 'bob', {
       name: 'cleanup',
       description: 'other team',
@@ -154,7 +154,7 @@ describe('Schedule model', () => {
 
     const listA = await listSchedules(db, 'team-a');
     expect(listA.total).toBe(1);
-    expect(listA.schedules[0].teamId).toBe('team-a');
+    expect(listA.schedules[0].workspaceId).toBe('team-a');
   });
 
   it('deleteSchedule removes the row', async () => {
@@ -171,7 +171,7 @@ describe('Schedule model', () => {
 
   it('deleteSchedule is team-scoped', async () => {
     const db = await setup();
-    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    setupWorkspace(db, 'team-b', 'ltk_other_key_12345678901234567890');
     const s = await defineSchedule(db, 'team-a', 'alice', {
       playbook_name: 'cleanup',
       cron_expression: '*/5 * * * *',
@@ -182,7 +182,7 @@ describe('Schedule model', () => {
 
   it('getDueSchedules returns only overdue + enabled rows, cross-team', async () => {
     const db = await setup();
-    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    setupWorkspace(db, 'team-b', 'ltk_other_key_12345678901234567890');
     await definePlaybook(db, 'team-b', 'bob', {
       name: 'cleanup',
       description: 'other team',
@@ -194,37 +194,37 @@ describe('Schedule model', () => {
     const future = new Date(Date.now() + 60 * 60_000).toISOString();
 
     db.prepare(
-      `INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+      `INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
        VALUES (?, ?, ?, 1, ?, ?)`,
     ).run('team-a', 'cleanup', '*/5 * * * *', past, 'alice');
 
     db.prepare(
-      `INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+      `INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
        VALUES (?, ?, ?, 1, ?, ?)`,
     ).run('team-b', 'cleanup', '*/10 * * * *', past, 'bob');
 
     db.prepare(
-      `INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+      `INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
        VALUES (?, ?, ?, 1, ?, ?)`,
     ).run('team-a', 'cleanup', '*/15 * * * *', future, 'alice');
 
     // Disabled but overdue — should NOT be returned
     db.prepare(
-      `INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+      `INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
        VALUES (?, ?, ?, 0, ?, ?)`,
     ).run('team-a', 'cleanup', '*/30 * * * *', past, 'alice');
 
     const due = await getDueSchedules(db);
     expect(due.length).toBe(2);
-    const teamIds = due.map((d) => d.teamId).sort();
-    expect(teamIds).toEqual(['team-a', 'team-b']);
+    const workspaceIds = due.map((d) => d.workspaceId).sort();
+    expect(workspaceIds).toEqual(['team-a', 'team-b']);
   });
 });
 
 describe('Scheduler worker', () => {
   it('runDueSchedules runs overdue playbooks and advances next_run_at', async () => {
     const db = createTestDb();
-    setupTeam(db, 'team-a');
+    setupWorkspace(db, 'team-a');
     await definePlaybook(db, 'team-a', 'alice', {
       name: 'cleanup',
       description: 'nightly cleanup',
@@ -233,7 +233,7 @@ describe('Scheduler worker', () => {
 
     const past = new Date(Date.now() - 60_000).toISOString();
     db.prepare(
-      `INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+      `INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
        VALUES (?, ?, ?, 1, ?, ?)`,
     ).run('team-a', 'cleanup', '*/5 * * * *', past, 'alice');
 
@@ -242,19 +242,19 @@ describe('Scheduler worker', () => {
 
     // next_run_at should now be in the future
     const row = db.rawDb
-      .prepare('SELECT * FROM schedules WHERE team_id = ?')
+      .prepare('SELECT * FROM schedules WHERE workspace_id = ?')
       .get('team-a') as { next_run_at: string; last_run_at: string | null; last_workflow_run_id: number | null };
     expect(new Date(row.next_run_at).getTime()).toBeGreaterThan(Date.now());
     expect(row.last_run_at).not.toBeNull();
     expect(row.last_workflow_run_id).toBeGreaterThan(0);
 
     // Playbook was run — two tasks were created
-    const tasks = db.rawDb.prepare('SELECT * FROM tasks WHERE team_id = ?').all('team-a') as unknown[];
+    const tasks = db.rawDb.prepare('SELECT * FROM tasks WHERE workspace_id = ?').all('team-a') as unknown[];
     expect(tasks).toHaveLength(2);
 
     // SCHEDULE_FIRED event broadcast
     const events = db.rawDb
-      .prepare(`SELECT * FROM events WHERE team_id = ? AND tags LIKE '%schedule_fired%'`)
+      .prepare(`SELECT * FROM events WHERE workspace_id = ? AND tags LIKE '%schedule_fired%'`)
       .all('team-a') as unknown[];
     expect(events.length).toBeGreaterThan(0);
 
@@ -269,7 +269,7 @@ describe('Schedules HTTP API', () => {
   beforeEach(async () => {
     ctx = createTestContext();
     // Seed a playbook to reference
-    await definePlaybook(ctx.db, ctx.teamId, ctx.agentId, {
+    await definePlaybook(ctx.db, ctx.workspaceId, ctx.agentId, {
       name: 'nightly',
       description: 'nightly pipeline',
       tasks: [{ description: 'step 1' }],

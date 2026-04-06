@@ -4,7 +4,7 @@ import { getLogger } from '../logger.js';
 
 interface StaleTaskRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   description: string;
   claimed_by: string;
   version: number;
@@ -24,7 +24,7 @@ async function reapAbandonedTasks(db: DbAdapter, config: AppConfig): Promise<voi
   const cutoff = new Date(Date.now() - config.taskReapTimeoutMinutes * 60 * 1000).toISOString();
 
   const staleTasks = await db.all<StaleTaskRow>(`
-    SELECT id, team_id, description, claimed_by, version
+    SELECT id, workspace_id, description, claimed_by, version
     FROM tasks
     WHERE status = 'claimed'
       AND claimed_at < ?
@@ -44,9 +44,9 @@ async function reapAbandonedTasks(db: DbAdapter, config: AppConfig): Promise<voi
 
     if (result.changes > 0) {
       await db.run(`
-        INSERT INTO events (team_id, event_type, message, tags, created_by)
+        INSERT INTO events (workspace_id, event_type, message, tags, created_by)
         VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
-      `, task.team_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
+      `, task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
     }
   }
 }

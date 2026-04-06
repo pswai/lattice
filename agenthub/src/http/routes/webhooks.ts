@@ -25,15 +25,15 @@ export function createWebhookRoutes(db: DbAdapter): Hono {
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const { teamId, agentId } = c.get('auth');
-    const webhook = await createWebhook(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const webhook = await createWebhook(db, workspaceId, agentId, parsed.data);
     return c.json(webhook, 201);
   });
 
   // GET /webhooks
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
-    const webhooks = (await listWebhooks(db, teamId)).map((w) => ({
+    const { workspaceId } = c.get('auth');
+    const webhooks = (await listWebhooks(db, workspaceId)).map((w) => ({
       ...w,
       secret: w.secret.slice(0, 10) + '...',
     }));
@@ -42,25 +42,25 @@ export function createWebhookRoutes(db: DbAdapter): Hono {
 
   // GET /webhooks/:id
   router.get('/:id', async (c) => {
-    const { teamId } = c.get('auth');
-    const wh = await getWebhook(db, teamId, c.req.param('id'));
+    const { workspaceId } = c.get('auth');
+    const wh = await getWebhook(db, workspaceId, c.req.param('id'));
     return c.json({ ...wh, secret: wh.secret.slice(0, 10) + '...' });
   });
 
   // DELETE /webhooks/:id
   router.delete('/:id', async (c) => {
-    const { teamId } = c.get('auth');
-    const result = await deleteWebhook(db, teamId, c.req.param('id'));
+    const { workspaceId } = c.get('auth');
+    const result = await deleteWebhook(db, workspaceId, c.req.param('id'));
     return c.json(result);
   });
 
   // GET /webhooks/:id/deliveries
   router.get('/:id/deliveries', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const id = c.req.param('id');
     const limitParam = c.req.query('limit');
     const limit = limitParam ? parseInt(limitParam, 10) : 100;
-    const deliveries = await listDeliveries(db, teamId, id, limit);
+    const deliveries = await listDeliveries(db, workspaceId, id, limit);
     return c.json({ deliveries, total: deliveries.length });
   });
 

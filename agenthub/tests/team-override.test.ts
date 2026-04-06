@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, setupTeam, type TestContext } from './helpers.js';
+import { createTestContext, authHeaders, request, setupWorkspace, type TestContext } from './helpers.js';
 
 describe('X-Team-Override', () => {
   let ctx: TestContext;
@@ -7,7 +7,7 @@ describe('X-Team-Override', () => {
 
   beforeEach(() => {
     ctx = createTestContext();
-    setupTeam(ctx.db, 'team-b', TEAM_B_KEY);
+    setupWorkspace(ctx.db, 'team-b', TEAM_B_KEY);
   });
 
   describe('REST routes', () => {
@@ -91,11 +91,11 @@ describe('X-Team-Override', () => {
       });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.teamId).toBe(ctx.teamId);
-      expect(data.baseTeamId).toBe(ctx.teamId);
+      expect(data.workspaceId).toBe(ctx.workspaceId);
+      expect(data.baseWorkspaceId).toBe(ctx.workspaceId);
       expect(data.overrideApplied).toBe(false);
-      expect(data.accessibleTeams).toEqual([
-        { teamId: ctx.teamId, via: 'authorization' },
+      expect(data.accessibleWorkspaces).toEqual([
+        { workspaceId: ctx.workspaceId, via: 'authorization' },
       ]);
     });
 
@@ -107,13 +107,13 @@ describe('X-Team-Override', () => {
       const res = await request(ctx.app, 'GET', '/api/v1/teams/mine', { headers });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.teamId).toBe('team-b');
-      expect(data.baseTeamId).toBe(ctx.teamId);
+      expect(data.workspaceId).toBe('team-b');
+      expect(data.baseWorkspaceId).toBe(ctx.workspaceId);
       expect(data.overrideApplied).toBe(true);
-      expect(data.accessibleTeams).toEqual(
+      expect(data.accessibleWorkspaces).toEqual(
         expect.arrayContaining([
-          { teamId: ctx.teamId, via: 'authorization' },
-          { teamId: 'team-b', via: 'x-team-override' },
+          { workspaceId: ctx.workspaceId, via: 'authorization' },
+          { workspaceId: 'team-b', via: 'x-team-override' },
         ]),
       );
     });

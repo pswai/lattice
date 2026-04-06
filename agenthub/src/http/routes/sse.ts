@@ -13,12 +13,12 @@ export function createSseRoutes(db: DbAdapter): Hono {
 
   // GET /stream — SSE endpoint for real-time event streaming
   router.get('/stream', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const lastEventId = c.req.header('Last-Event-ID');
 
     // Backfill: send events since Last-Event-ID
     const sinceId = lastEventId ? parseInt(lastEventId, 10) : 0;
-    const backfill = await getUpdates(db, teamId, { since_id: sinceId, limit: 200 });
+    const backfill = await getUpdates(db, workspaceId, { since_id: sinceId, limit: 200 });
 
     // Track the latest ID we've sent to avoid duplicates
     let lastSentId = backfill.events.length > 0
@@ -43,10 +43,10 @@ export function createSseRoutes(db: DbAdapter): Hono {
         }
 
         // Subscribe to new events
-        const onEvent = (payload: { teamId: string; eventId: number }) => {
-          if (payload.teamId !== teamId) return;
+        const onEvent = (payload: { workspaceId: string; eventId: number }) => {
+          if (payload.workspaceId !== workspaceId) return;
           // Fetch events since our last sent ID to get the full event data
-          getUpdates(db, teamId, { since_id: lastSentId, limit: 200 }).then((updates) => {
+          getUpdates(db, workspaceId, { since_id: lastSentId, limit: 200 }).then((updates) => {
             for (const event of updates.events) {
               send(formatSSE(event));
             }

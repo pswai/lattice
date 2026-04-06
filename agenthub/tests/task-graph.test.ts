@@ -89,8 +89,8 @@ describe('Task Graph', () => {
 
     // Build a workflow_run that includes only A and B
     ctx.rawDb.prepare(
-      "INSERT INTO workflow_runs (team_id, playbook_name, started_by, task_ids, status) VALUES (?, ?, ?, ?, 'running')"
-    ).run(ctx.teamId, 'pb', 'alice', JSON.stringify([a.task_id, b.task_id]));
+      "INSERT INTO workflow_runs (workspace_id, playbook_name, started_by, task_ids, status) VALUES (?, ?, ?, ?, 'running')"
+    ).run(ctx.workspaceId, 'pb', 'alice', JSON.stringify([a.task_id, b.task_id]));
     const wrId = ctx.rawDb.prepare('SELECT last_insert_rowid() AS id').get() as { id: number };
 
     // Add a dep A -> B and A -> C

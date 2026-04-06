@@ -12,7 +12,7 @@ export interface PlaybookTaskTemplate {
 
 export interface Playbook {
   id: number;
-  teamId: string;
+  workspaceId: string;
   name: string;
   description: string;
   tasks: PlaybookTaskTemplate[];
@@ -22,7 +22,7 @@ export interface Playbook {
 
 interface PlaybookRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   name: string;
   description: string;
   tasks_json: string;
@@ -33,7 +33,7 @@ interface PlaybookRow {
 function rowToPlaybook(row: PlaybookRow): Playbook {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
     tasks: JSON.parse(row.tasks_json) as PlaybookTaskTemplate[],
@@ -74,7 +74,7 @@ function validateTasks(tasks: PlaybookTaskTemplate[]): void {
 
 export async function definePlaybook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: DefinePlaybookInput,
 ): Promise<Playbook> {
@@ -89,17 +89,17 @@ export async function definePlaybook(
   const tasksJson = JSON.stringify(input.tasks);
 
   await db.run(`
-    INSERT INTO playbooks (team_id, name, description, tasks_json, created_by)
+    INSERT INTO playbooks (workspace_id, name, description, tasks_json, created_by)
     VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(team_id, name) DO UPDATE SET
+    ON CONFLICT(workspace_id, name) DO UPDATE SET
       description = excluded.description,
       tasks_json = excluded.tasks_json,
       created_by = excluded.created_by
-  `, teamId, input.name, input.description, tasksJson, agentId);
+  `, workspaceId, input.name, input.description, tasksJson, agentId);
 
   const row = await db.get<PlaybookRow>(
-    'SELECT * FROM playbooks WHERE team_id = ? AND name = ?',
-    teamId, input.name,
+    'SELECT * FROM playbooks WHERE workspace_id = ? AND name = ?',
+    workspaceId, input.name,
   );
 
   return rowToPlaybook(row!);
@@ -107,11 +107,11 @@ export async function definePlaybook(
 
 export async function listPlaybooks(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
 ): Promise<{ playbooks: Playbook[]; total: number }> {
   const rows = await db.all<PlaybookRow>(
-    'SELECT * FROM playbooks WHERE team_id = ? ORDER BY name ASC',
-    teamId,
+    'SELECT * FROM playbooks WHERE workspace_id = ? ORDER BY name ASC',
+    workspaceId,
   );
 
   return {
@@ -122,12 +122,12 @@ export async function listPlaybooks(
 
 export async function getPlaybook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   name: string,
 ): Promise<Playbook> {
   const row = await db.get<PlaybookRow>(
-    'SELECT * FROM playbooks WHERE team_id = ? AND name = ?',
-    teamId, name,
+    'SELECT * FROM playbooks WHERE workspace_id = ? AND name = ?',
+    workspaceId, name,
   );
 
   if (!row) {
@@ -144,14 +144,14 @@ function substituteVars(str: string, vars?: Record<string, string>): string {
 
 export async function runPlaybook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   name: string,
   vars?: Record<string, string>,
 ): Promise<{ workflow_run_id: number; created_task_ids: number[] }> {
-  const playbook = await getPlaybook(db, teamId, name);
+  const playbook = await getPlaybook(db, workspaceId, name);
 
-  const workflowRunId = await createWorkflowRun(db, teamId, name, agentId);
+  const workflowRunId = await createWorkflowRun(db, workspaceId, name, agentId);
 
   const createdIds: number[] = [];
   for (let i = 0; i < playbook.tasks.length; i++) {
@@ -168,7 +168,7 @@ export async function runPlaybook(
       : template.description;
     const description = substituteVars(rawDescription, vars);
 
-    const result = await createTask(db, teamId, agentId, {
+    const result = await createTask(db, workspaceId, agentId, {
       description,
       status: 'open',
       depends_on: dependsOn.length > 0 ? dependsOn : undefined,
@@ -180,7 +180,7 @@ export async function runPlaybook(
 
   // Billing: count 1 for the run itself (individual tasks are already counted
   // by createTask). Spec asks for: tasks spawned + 1 for the run.
-  await incrementUsage(db, teamId, { exec: 1 });
+  await incrementUsage(db, workspaceId, { exec: 1 });
 
   return { workflow_run_id: workflowRunId, created_task_ids: createdIds };
 }

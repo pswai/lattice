@@ -90,15 +90,15 @@ describe('GET /metrics', () => {
 
   it('reflects agents-online gauge from DB', async () => {
     const db = createDb();
-    db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t1', 'T1');
+    db.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run('t1', 'T1');
     db.rawDb.prepare(
-      "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a1', 't1', 'online', '[]')",
+      "INSERT INTO agents (id, workspace_id, status, capabilities) VALUES ('a1', 't1', 'online', '[]')",
     ).run();
     db.rawDb.prepare(
-      "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a2', 't1', 'online', '[]')",
+      "INSERT INTO agents (id, workspace_id, status, capabilities) VALUES ('a2', 't1', 'online', '[]')",
     ).run();
     db.rawDb.prepare(
-      "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a3', 't1', 'offline', '[]')",
+      "INSERT INTO agents (id, workspace_id, status, capabilities) VALUES ('a3', 't1', 'offline', '[]')",
     ).run();
     await refreshGaugesFromDb(db, { force: true });
     const app = mountOps(db);
@@ -106,24 +106,24 @@ describe('GET /metrics', () => {
     await refreshGaugesFromDb(db, { force: true });
     const res = await app.request('/metrics');
     const text = await res.text();
-    expect(text).toContain('lattice_active_agents{team="t1"} 2');
+    expect(text).toContain('lattice_active_agents{workspace="t1"} 2');
   });
 
   it('reflects tasks-by-status gauge from DB', async () => {
     const db = createDb();
-    db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t2', 'T2');
+    db.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run('t2', 'T2');
     db.rawDb.prepare(
-      "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'a', 'open', 'x')",
+      "INSERT INTO tasks (workspace_id, description, status, created_by) VALUES ('t2', 'a', 'open', 'x')",
     ).run();
     db.rawDb.prepare(
-      "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'b', 'open', 'x')",
+      "INSERT INTO tasks (workspace_id, description, status, created_by) VALUES ('t2', 'b', 'open', 'x')",
     ).run();
     db.rawDb.prepare(
-      "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'c', 'completed', 'x')",
+      "INSERT INTO tasks (workspace_id, description, status, created_by) VALUES ('t2', 'c', 'completed', 'x')",
     ).run();
     const text = await refreshRender(db);
-    expect(text).toContain('lattice_tasks{team="t2",status="open"} 2');
-    expect(text).toContain('lattice_tasks{team="t2",status="completed"} 1');
+    expect(text).toContain('lattice_tasks{workspace="t2",status="open"} 2');
+    expect(text).toContain('lattice_tasks{workspace="t2",status="completed"} 1');
   });
 
   it('returns disabled marker when metrics disabled', async () => {

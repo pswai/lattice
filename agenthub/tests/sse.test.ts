@@ -81,12 +81,12 @@ describe('SSE Events Streaming', () => {
 
     it('should backfill existing events on connect', async () => {
       // Seed some events first
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'LEARNING',
         message: 'First learning',
         tags: ['test'],
       });
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'BROADCAST',
         message: 'First broadcast',
         tags: ['test'],
@@ -114,7 +114,7 @@ describe('SSE Events Streaming', () => {
       });
 
       // Broadcast an event after connecting
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'ERROR',
         message: 'Something went wrong',
         tags: ['error'],
@@ -129,12 +129,12 @@ describe('SSE Events Streaming', () => {
 
     it('should support Last-Event-ID for resumption', async () => {
       // Seed events
-      const { eventId: id1 } = await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      const { eventId: id1 } = await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'LEARNING',
         message: 'Event one',
         tags: ['test'],
       });
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'BROADCAST',
         message: 'Event two',
         tags: ['test'],
@@ -160,8 +160,8 @@ describe('SSE Events Streaming', () => {
       const otherApiKey = 'ltk_other_key_12345678901234567890';
       const { createHash } = await import('crypto');
       const keyHash = createHash('sha256').update(otherApiKey).digest('hex');
-      ctx.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(otherTeamId, 'Other Team');
-      ctx.rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label) VALUES (?, ?, ?)').run(otherTeamId, keyHash, 'other key');
+      ctx.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(otherTeamId, 'Other Team');
+      ctx.rawDb.prepare('INSERT INTO api_keys (workspace_id, key_hash, label) VALUES (?, ?, ?)').run(otherTeamId, keyHash, 'other key');
 
       // Connect SSE for the main team
       const res = await ctx.app.request('/api/v1/events/stream', {
@@ -176,7 +176,7 @@ describe('SSE Events Streaming', () => {
       });
 
       // Also broadcast event to OUR team
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'BROADCAST',
         message: 'Our team event',
         tags: ['test'],
@@ -190,7 +190,7 @@ describe('SSE Events Streaming', () => {
     });
 
     it('should format SSE events correctly', async () => {
-      await broadcastEvent(ctx.db, ctx.teamId, 'agent-1', {
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
         event_type: 'LEARNING',
         message: 'Test event',
         tags: ['test'],
@@ -205,7 +205,7 @@ describe('SSE Events Streaming', () => {
       expect(events[0].event).toBe('message');
       const data = JSON.parse(events[0].data);
       expect(data.id).toBe(Number(events[0].id));
-      expect(data.teamId).toBe(ctx.teamId);
+      expect(data.workspaceId).toBe(ctx.workspaceId);
     });
   });
 });

@@ -14,7 +14,7 @@ export type InboundActionType =
 
 export interface InboundEndpoint {
   id: number;
-  teamId: string;
+  workspaceId: string;
   endpointKey: string;
   name: string;
   actionType: InboundActionType;
@@ -28,7 +28,7 @@ export interface InboundEndpoint {
 
 interface EndpointRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   endpoint_key: string;
   name: string;
   action_type: string;
@@ -43,7 +43,7 @@ interface EndpointRow {
 function rowToEndpoint(row: EndpointRow): InboundEndpoint {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     endpointKey: row.endpoint_key,
     name: row.name,
     actionType: row.action_type as InboundActionType,
@@ -72,7 +72,7 @@ export interface DefineInboundEndpointInput {
 
 export async function defineInboundEndpoint(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: DefineInboundEndpointInput,
 ): Promise<InboundEndpoint> {
@@ -92,9 +92,9 @@ export async function defineInboundEndpoint(
   const endpointKey = randomBytes(16).toString('hex');
 
   const result = await db.run(
-    `INSERT INTO inbound_endpoints (team_id, endpoint_key, name, action_type, action_config, hmac_secret, created_by)
+    `INSERT INTO inbound_endpoints (workspace_id, endpoint_key, name, action_type, action_config, hmac_secret, created_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    teamId,
+    workspaceId,
     endpointKey,
     input.name,
     input.action_type,
@@ -112,11 +112,11 @@ export async function defineInboundEndpoint(
 
 export async function listInboundEndpoints(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
 ): Promise<{ endpoints: InboundEndpoint[]; total: number }> {
   const rows = await db.all<EndpointRow>(
-    'SELECT * FROM inbound_endpoints WHERE team_id = ? ORDER BY created_at DESC',
-    teamId,
+    'SELECT * FROM inbound_endpoints WHERE workspace_id = ? ORDER BY created_at DESC',
+    workspaceId,
   );
   const endpoints = rows.map(rowToEndpoint);
   return { endpoints, total: endpoints.length };
@@ -136,12 +136,12 @@ export async function getInboundEndpointByKey(
 
 export async function getInboundEndpoint(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: number,
 ): Promise<InboundEndpoint> {
   const row = await db.get<EndpointRow>(
-    'SELECT * FROM inbound_endpoints WHERE id = ? AND team_id = ?',
-    id, teamId,
+    'SELECT * FROM inbound_endpoints WHERE id = ? AND workspace_id = ?',
+    id, workspaceId,
   );
   if (!row) throw new NotFoundError('InboundEndpoint', id);
   return rowToEndpoint(row);
@@ -149,12 +149,12 @@ export async function getInboundEndpoint(
 
 export async function deleteInboundEndpoint(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: number,
 ): Promise<{ deleted: boolean }> {
   const result = await db.run(
-    'DELETE FROM inbound_endpoints WHERE id = ? AND team_id = ?',
-    id, teamId,
+    'DELETE FROM inbound_endpoints WHERE id = ? AND workspace_id = ?',
+    id, workspaceId,
   );
   if (result.changes === 0) throw new NotFoundError('InboundEndpoint', id);
   return { deleted: true };
@@ -228,7 +228,7 @@ export async function processInboundWebhook(
       | 'P3';
     const assignedTo =
       typeof cfg.assigned_to === 'string' ? cfg.assigned_to : undefined;
-    const result = await createTask(db, endpoint.teamId, agentId, {
+    const result = await createTask(db, endpoint.workspaceId, agentId, {
       description,
       status: 'open',
       priority,
@@ -253,7 +253,7 @@ export async function processInboundWebhook(
     const tags = Array.isArray(cfg.tags)
       ? (cfg.tags as unknown[]).filter((t): t is string => typeof t === 'string')
       : ['inbound'];
-    const result = await broadcastEvent(db, endpoint.teamId, agentId, {
+    const result = await broadcastEvent(db, endpoint.workspaceId, agentId, {
       event_type: eventType,
       message,
       tags,
@@ -273,7 +273,7 @@ export async function processInboundWebhook(
     const tags = Array.isArray(cfg.tags)
       ? (cfg.tags as unknown[]).filter((t): t is string => typeof t === 'string')
       : ['inbound'];
-    const result = await saveContext(db, endpoint.teamId, agentId, {
+    const result = await saveContext(db, endpoint.workspaceId, agentId, {
       key,
       value,
       tags,
@@ -296,7 +296,7 @@ export async function processInboundWebhook(
         vars[key] = typeof value === 'string' ? value : JSON.stringify(value);
       }
     }
-    const result = await runPlaybook(db, endpoint.teamId, agentId, playbookName, vars);
+    const result = await runPlaybook(db, endpoint.workspaceId, agentId, playbookName, vars);
     return {
       action: 'run_playbook',
       workflow_run_id: result.workflow_run_id,

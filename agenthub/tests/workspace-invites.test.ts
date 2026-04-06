@@ -82,7 +82,7 @@ describe('/workspaces/:id/invites', () => {
     const adminCookie = await signup(app, 'admin@example.com');
     // Manually promote admin user to admin
     db.prepare(
-      "INSERT INTO team_memberships (user_id, team_id, role) SELECT id, 'ws2', 'admin' FROM users WHERE email = 'admin@example.com'",
+      "INSERT INTO workspace_memberships (user_id, workspace_id, role) SELECT id, 'ws2', 'admin' FROM users WHERE email = 'admin@example.com'",
     ).run();
     const res = await req(app, 'POST', '/workspaces/ws2/invites', {
       cookie: adminCookie,
@@ -96,7 +96,7 @@ describe('/workspaces/:id/invites', () => {
     await createWorkspace(app, ownerCookie, 'ws3');
     const memberCookie = await signup(app, 'member@example.com');
     db.prepare(
-      "INSERT INTO team_memberships (user_id, team_id, role) SELECT id, 'ws3', 'member' FROM users WHERE email = 'member@example.com'",
+      "INSERT INTO workspace_memberships (user_id, workspace_id, role) SELECT id, 'ws3', 'member' FROM users WHERE email = 'member@example.com'",
     ).run();
     const res = await req(app, 'POST', '/workspaces/ws3/invites', {
       cookie: memberCookie,
@@ -145,16 +145,16 @@ describe('/workspaces/:id/invites', () => {
       body: { token: invite_token },
     });
     expect(accept.status).toBe(201);
-    const acceptBody = (await accept.json()) as { team_id: string; role: string };
-    expect(acceptBody).toEqual({ team_id: 'acme', role: 'member' });
+    const acceptBody = (await accept.json()) as { workspace_id: string; role: string };
+    expect(acceptBody).toEqual({ workspace_id: 'acme', role: 'member' });
 
     // Bob sees workspace in /auth/me
     const me = await req(app, 'GET', '/auth/me', { cookie: bobCookie });
     const meBody = (await me.json()) as {
-      memberships: Array<{ team_id: string; role: string }>;
+      memberships: Array<{ workspace_id: string; role: string }>;
     };
     expect(meBody.memberships).toContainEqual(
-      expect.objectContaining({ team_id: 'acme', role: 'member' }),
+      expect.objectContaining({ workspace_id: 'acme', role: 'member' }),
     );
 
     // API key still works

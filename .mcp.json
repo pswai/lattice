@@ -4,7 +4,7 @@
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
-        "Authorization": "Bearer ah_aa9d4d24ba3c0092c2bc2582a4d725e0b9a3acb3721f3417",
+        "Authorization": "Bearer lt_b26394a8463acc680b2f2ff8573d087182ae4cf95072ef90",
         "X-Agent-ID": "orchestrator"
       }
     }

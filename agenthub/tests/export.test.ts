@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, setupTeam, type TestContext } from './helpers.js';
-import { exportTeamData, EVENT_EXPORT_LIMIT, REDACTED } from '../src/models/export.js';
+import { createTestContext, authHeaders, request, setupWorkspace, type TestContext } from './helpers.js';
+import { exportWorkspaceData, EVENT_EXPORT_LIMIT, REDACTED } from '../src/models/export.js';
 import { saveContext } from '../src/models/context.js';
 import { broadcastInternal } from '../src/models/event.js';
 import { createTask, updateTask } from '../src/models/task.js';
@@ -21,19 +21,19 @@ describe('Team data export', () => {
   });
 
   async function populateTeam(): Promise<void> {
-    const { db, teamId } = ctx;
+    const { db, workspaceId } = ctx;
     const agent = 'alice';
 
     // context
-    await saveContext(db, teamId, agent, { key: 'k1', value: 'v1', tags: ['a'] });
-    await saveContext(db, teamId, agent, { key: 'k2', value: 'v2', tags: ['b'] });
+    await saveContext(db, workspaceId, agent, { key: 'k1', value: 'v1', tags: ['a'] });
+    await saveContext(db, workspaceId, agent, { key: 'k2', value: 'v2', tags: ['b'] });
 
     // events (via broadcastInternal)
-    await broadcastInternal(db, teamId, 'BROADCAST', 'hello', ['x'], agent);
+    await broadcastInternal(db, workspaceId, 'BROADCAST', 'hello', ['x'], agent);
 
     // tasks with dependency
-    const t1 = await createTask(db, teamId, agent, { description: 'first', status: 'open' });
-    const t2 = await createTask(db, teamId, agent, {
+    const t1 = await createTask(db, workspaceId, agent, { description: 'first', status: 'open' });
+    const t2 = await createTask(db, workspaceId, agent, {
       description: 'second',
       status: 'open',
       depends_on: [t1.task_id],
@@ -41,13 +41,13 @@ describe('Team data export', () => {
     expect(t2.task_id).toBeGreaterThan(0);
 
     // agents
-    await registerAgent(db, teamId, { agent_id: 'bob', capabilities: ['research'] });
+    await registerAgent(db, workspaceId, { agent_id: 'bob', capabilities: ['research'] });
 
     // messages
-    await sendMessage(db, teamId, agent, { to: 'bob', message: 'hey', tags: ['intro'] });
+    await sendMessage(db, workspaceId, agent, { to: 'bob', message: 'hey', tags: ['intro'] });
 
     // artifacts
-    await saveArtifact(db, teamId, agent, {
+    await saveArtifact(db, workspaceId, agent, {
       key: 'report.md',
       content_type: 'text/markdown',
       content: '# hello\n\nworld',
@@ -55,49 +55,49 @@ describe('Team data export', () => {
     });
 
     // playbooks + workflow runs
-    await definePlaybook(db, teamId, agent, {
+    await definePlaybook(db, workspaceId, agent, {
       name: 'pb1',
       description: 'd',
       tasks: [{ description: 'x' }, { description: 'y' }],
     });
-    await runPlaybook(db, teamId, agent, 'pb1');
+    await runPlaybook(db, workspaceId, agent, 'pb1');
 
     // profiles
-    await defineProfile(db, teamId, agent, {
+    await defineProfile(db, workspaceId, agent, {
       name: 'researcher',
       description: 'r',
       system_prompt: 'you are',
     });
 
     // schedules
-    await defineSchedule(db, teamId, agent, {
+    await defineSchedule(db, workspaceId, agent, {
       playbook_name: 'pb1',
       cron_expression: '*/5 * * * *',
     });
 
     // inbound endpoints (with and without hmac_secret)
-    await defineInboundEndpoint(db, teamId, agent, {
+    await defineInboundEndpoint(db, workspaceId, agent, {
       name: 'gh-hook',
       action_type: 'create_task',
       action_config: { description_template: 'Issue: {{title}}' },
       hmac_secret: 'supersecret123',
     });
-    await defineInboundEndpoint(db, teamId, agent, {
+    await defineInboundEndpoint(db, workspaceId, agent, {
       name: 'no-hmac',
       action_type: 'broadcast_event',
       action_config: {},
     });
 
     // webhooks
-    await createWebhook(db, teamId, agent, { url: 'https://example.com/hook' });
+    await createWebhook(db, workspaceId, agent, { url: 'https://example.com/hook' });
   }
 
   it('exports all sections with data when team has data in every table', async () => {
     await populateTeam();
-    const snap = await exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
 
     expect(snap.version).toBe('1');
-    expect(snap.team_id).toBe(ctx.teamId);
+    expect(snap.workspace_id).toBe(ctx.workspaceId);
     expect(typeof snap.exported_at).toBe('string');
     expect(new Date(snap.exported_at).toString()).not.toBe('Invalid Date');
 
@@ -132,7 +132,7 @@ describe('Team data export', () => {
   });
 
   it('returns empty arrays and zero counts for an empty team', async () => {
-    const snap = await exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
 
     expect(snap.context_entries).toEqual([]);
     expect(snap.events).toEqual([]);
@@ -155,7 +155,7 @@ describe('Team data export', () => {
 
   it('redacts webhook secrets and inbound endpoint keys/hmac', async () => {
     await populateTeam();
-    const snap = await exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
 
     for (const w of snap.webhooks) {
       expect(w.secret).toBe(REDACTED);
@@ -171,7 +171,7 @@ describe('Team data export', () => {
 
   it('artifacts include metadata but not content field', async () => {
     await populateTeam();
-    const snap = await exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
     expect(snap.artifacts).toHaveLength(1);
     const a = snap.artifacts[0];
     expect(a.key).toBe('report.md');
@@ -183,12 +183,12 @@ describe('Team data export', () => {
   });
 
   it('limits events to the last 1000', async () => {
-    const { db, teamId } = ctx;
+    const { db, workspaceId } = ctx;
     const total = EVENT_EXPORT_LIMIT + 50;
     for (let i = 0; i < total; i++) {
-      await broadcastInternal(db, teamId, 'BROADCAST', `msg ${i}`, [], 'bot');
+      await broadcastInternal(db, workspaceId, 'BROADCAST', `msg ${i}`, [], 'bot');
     }
-    const snap = await exportTeamData(db, teamId);
+    const snap = await exportWorkspaceData(db, workspaceId);
     expect(snap.events.length).toBe(EVENT_EXPORT_LIMIT);
     // should be the most recent ones, in ascending id order
     const ids = snap.events.map((e) => e.id);
@@ -197,20 +197,20 @@ describe('Team data export', () => {
     }
     // And the last id should be the most recent (highest) event id
     const maxRow = (ctx.rawDb)
-      .prepare('SELECT MAX(id) as m FROM events WHERE team_id = ?')
-      .get(teamId) as { m: number };
+      .prepare('SELECT MAX(id) as m FROM events WHERE workspace_id = ?')
+      .get(workspaceId) as { m: number };
     expect(ids[ids.length - 1]).toBe(maxRow.m);
   });
 
   it('only includes data for the requesting team', async () => {
     await populateTeam();
     // Create a second team with its own data
-    setupTeam(ctx.db, 'other-team', 'ltk_other_key_12345678901234567890');
+    setupWorkspace(ctx.db, 'other-team', 'ltk_other_key_12345678901234567890');
     await saveContext(ctx.db, 'other-team', 'eve', { key: 'secret', value: 'v', tags: [] });
 
-    const snap = await exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
     for (const e of snap.context_entries) {
-      expect(e.teamId).toBe(ctx.teamId);
+      expect(e.workspaceId).toBe(ctx.workspaceId);
     }
     expect(snap.context_entries.find((e) => e.key === 'secret')).toBeUndefined();
   });
@@ -224,7 +224,7 @@ describe('Team data export', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.version).toBe('1');
-      expect(body.team_id).toBe(ctx.teamId);
+      expect(body.workspace_id).toBe(ctx.workspaceId);
       expect(body.counts).toBeDefined();
       expect(Array.isArray(body.tasks)).toBe(true);
     });
@@ -241,7 +241,7 @@ describe('Team data export', () => {
       });
       const body = await res.json();
       for (const t of body.tasks) {
-        expect(t.teamId).toBe(ctx.teamId);
+        expect(t.workspaceId).toBe(ctx.workspaceId);
       }
     });
   });

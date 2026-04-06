@@ -1,18 +1,18 @@
-# AgentHub Market Analysis & Strategy
+# Lattice Market Analysis & Strategy
 
 **Date:** April 5, 2026
 **Status:** Final
-**Prepared by:** 5-agent research team via AgentHub MCP coordination
+**Prepared by:** 5-agent research team via Lattice MCP coordination
 
 ---
 
 ## Executive Summary
 
-The AI agent infrastructure market is a $2B+ space (by combined valuations) with clear winners emerging at each layer of the stack. After analyzing 14+ tools, their technical architectures, adoption metrics, funding, and monetization models, we identify a specific strategic opening for AgentHub:
+The AI agent infrastructure market is a $2B+ space (by combined valuations) with clear winners emerging at each layer of the stack. After analyzing 14+ tools, their technical architectures, adoption metrics, funding, and monetization models, we identify a specific strategic opening for Lattice:
 
-**AgentHub's opportunity is to become the coordination layer for heterogeneous AI agent teams — "Slack for agents" — sitting between the protocol layer (MCP, which won) and the framework layer (LangChain, CrewAI, AutoGen, which are fragmented).**
+**Lattice's opportunity is to become the coordination layer for heterogeneous AI agent teams — "Slack for agents" — sitting between the protocol layer (MCP, which won) and the framework layer (LangChain, CrewAI, AutoGen, which are fragmented).**
 
-No tool currently serves this role well. Every competitor is either a framework (controls agent execution) or a protocol (defines communication). AgentHub is infrastructure (enables coordination without controlling execution). This is the correct positioning.
+No tool currently serves this role well. Every competitor is either a framework (controls agent execution) or a protocol (defines communication). Lattice is infrastructure (enables coordination without controlling execution). This is the correct positioning.
 
 ---
 
@@ -20,16 +20,16 @@ No tool currently serves this role well. Every competitor is either a framework 
 
 ### Layer Map
 
-| Layer | Winner(s) | Status | AgentHub Position |
+| Layer | Winner(s) | Status | Lattice Position |
 |-------|-----------|--------|-------------------|
-| **Protocol** | MCP (97M monthly installs) | Won | AgentHub is MCP-native |
-| **Framework** | LangChain (128k★), CrewAI (46k★), AutoGen (50k★) | Fragmented, competitive | AgentHub is framework-agnostic |
+| **Protocol** | MCP (97M monthly installs) | Won | Lattice is MCP-native |
+| **Framework** | LangChain (128k★), CrewAI (46k★), AutoGen (50k★) | Fragmented, competitive | Lattice is framework-agnostic |
 | **Integration** | Composio (18k★), n8n (178k★) | Growing fast | Not competing here |
 | **Data/RAG** | LlamaIndex (40k★) | Dominant | Not competing here |
 | **Platform** | Dify (131k★), n8n | Visual builders winning | Phase 2 dashboard |
-| **Coding Agents** | OpenHands (70k★), Cursor, Devin | Hot category | Agents can coordinate via AgentHub |
-| **Observability** | LangSmith, Braintrust, Arize | Early | Opportunity for AgentHub |
-| **Coordination** | — | **No clear winner** | **AgentHub's target** |
+| **Coding Agents** | OpenHands (70k★), Cursor, Devin | Hot category | Agents can coordinate via Lattice |
+| **Observability** | LangSmith, Braintrust, Arize | Early | Opportunity for Lattice |
+| **Coordination** | — | **No clear winner** | **Lattice's target** |
 
 The coordination layer — where agents discover each other, share context, delegate tasks, and avoid duplicate work — is the most underserved part of the stack. Every framework has its own internal coordination mechanism, but none work across framework boundaries.
 
@@ -39,9 +39,9 @@ A critical emerging insight from our technical analysis:
 
 - **MCP** = how agents use tools (like HTTP for web content) — **won**
 - **A2A** (Google, April 2025) = how agents discover and talk to each other (like DNS + messaging) — **emerging**
-- **AgentHub** = the hosted coordination service built on top (like Slack built on TCP/IP) — **our position**
+- **Lattice** = the hosted coordination service built on top (like Slack built on TCP/IP) — **our position**
 
-Google's A2A protocol addresses agent-to-agent communication at the protocol level, complementing MCP. But a protocol is not a product. The gap between protocols (MCP/A2A) and frameworks (CrewAI/LangGraph) is a hosted coordination service. That's AgentHub.
+Google's A2A protocol addresses agent-to-agent communication at the protocol level, complementing MCP. But a protocol is not a product. The gap between protocols (MCP/A2A) and frameworks (CrewAI/LangGraph) is a hosted coordination service. That's Lattice.
 
 ### Key Market Data
 
@@ -62,7 +62,7 @@ Google's A2A protocol addresses agent-to-agent communication at the protocol lev
 
 ## Part 2: Problem Analysis — What's Actually Hard
 
-### Problem 1: Agent-to-Agent Coordination (AgentHub's core)
+### Problem 1: Agent-to-Agent Coordination (Lattice's core)
 
 **Current state:** Each framework handles this internally and incompatibly.
 - CrewAI: Role-based delegation within a single Python process
@@ -71,7 +71,7 @@ Google's A2A protocol addresses agent-to-agent communication at the protocol lev
 
 **What's missing:** Cross-framework, cross-process, cross-machine coordination. When a Claude Code agent needs to delegate to a LangChain agent, there's no standard way to do it. MCP defines how agents talk to *tools*, not to *each other*.
 
-**AgentHub fills this gap** with team-scoped context sharing, event bus, task coordination with claim semantics, and now (as of this session) agent registry with capability discovery.
+**Lattice fills this gap** with team-scoped context sharing, event bus, task coordination with claim semantics, and now (as of this session) agent registry with capability discovery.
 
 ### Problem 2: Context & State Sharing
 
@@ -82,7 +82,7 @@ Google's A2A protocol addresses agent-to-agent communication at the protocol lev
 
 **What's missing:** A shared knowledge base that persists across agent sessions and works regardless of framework. An agent that learned something yesterday should be able to share that learning with a different agent today.
 
-**AgentHub fills this** with its append-only context store with FTS5 search and tag-based filtering. It's simpler than RAG but solves the "shared team memory" problem directly.
+**Lattice fills this** with its append-only context store with FTS5 search and tag-based filtering. It's simpler than RAG but solves the "shared team memory" problem directly.
 
 ### Problem 3: Observability for Multi-Agent Systems
 
@@ -90,31 +90,31 @@ Google's A2A protocol addresses agent-to-agent communication at the protocol lev
 - LangSmith is best-in-class for single-agent tracing ($16M ARR proves demand)
 - No tool provides good visibility into multi-agent coordination — who talked to whom, who's blocked, what work is duplicated
 
-**Opportunity for AgentHub:** The event bus + agent registry + task board creates a natural observability surface. A dashboard showing agent status, message flow, task progress, and context growth would be uniquely valuable.
+**Opportunity for Lattice:** The event bus + agent registry + task board creates a natural observability surface. A dashboard showing agent status, message flow, task progress, and context growth would be uniquely valuable.
 
-**Validation signal:** Langfuse (open-source LLM observability) was acquired by ClickHouse for **$400M** in January 2026 — proving massive enterprise demand for AI observability. But Langfuse is per-agent tracing. Cross-agent, task-level observability (what AgentHub can provide) is the next frontier.
+**Validation signal:** Langfuse (open-source LLM observability) was acquired by ClickHouse for **$400M** in January 2026 — proving massive enterprise demand for AI observability. But Langfuse is per-agent tracing. Cross-agent, task-level observability (what Lattice can provide) is the next frontier.
 
 ### Problem 4: Preventing Duplicate Work
 
 **Current state:** No framework addresses this well. If you spin up 5 agents, they may all try to solve the same sub-problem.
 
-**AgentHub's claim-before-work semantics directly solve this.** The optimistic locking on tasks + auto-reaper for abandoned claims is a genuinely novel feature in this space.
+**Lattice's claim-before-work semantics directly solve this.** The optimistic locking on tasks + auto-reaper for abandoned claims is a genuinely novel feature in this space.
 
 ---
 
 ## Part 3: Competitive Positioning
 
-### What AgentHub Gets Right
+### What Lattice Gets Right
 
 1. **MCP-native** — Works with any MCP-compatible agent without code changes. As MCP adoption explodes (97M monthly), this is a massive distribution advantage.
 
-2. **Framework-agnostic** — Not tied to Python, not tied to a specific LLM. A LangChain agent, a Claude Code agent, and a custom Node.js agent can all coordinate through AgentHub.
+2. **Framework-agnostic** — Not tied to Python, not tied to a specific LLM. A LangChain agent, a Claude Code agent, and a custom Node.js agent can all coordinate through Lattice.
 
-3. **Team-scoped** — Designed for multi-human, multi-agent teams. Every competitor is designed for single-developer orchestration. AgentHub is the only tool that treats the "team" as a first-class concept.
+3. **Team-scoped** — Designed for multi-human, multi-agent teams. Every competitor is designed for single-developer orchestration. Lattice is the only tool that treats the "team" as a first-class concept.
 
 4. **Claim-before-work** — Prevents duplicate effort across agents. No competitor does this.
 
-5. **Infrastructure, not framework** — AgentHub doesn't try to control how agents execute. It just provides the coordination layer. This means it complements every framework rather than competing with them.
+5. **Infrastructure, not framework** — Lattice doesn't try to control how agents execute. It just provides the coordination layer. This means it complements every framework rather than competing with them.
 
 ### What Was Missing (Now Addressed)
 
@@ -136,7 +136,7 @@ During this research, we identified and directly implemented several critical ga
 2. **Agent-to-agent direct messaging** — Currently broadcast-only; need targeted request/response
 3. **Dashboard UI** — Visual monitoring of agent teams (wireframe exists)
 4. **Semantic search** — FTS5 is good but embedding-based search would improve context retrieval
-5. **CLI tooling** (`npx agenthub init`) — Reduce time-to-first-use to under 60 seconds
+5. **CLI tooling** (`npx lattice init`) — Reduce time-to-first-use to under 60 seconds
 
 ---
 
@@ -152,7 +152,7 @@ The market has converged on a clear pattern: **open-source core + managed cloud 
 - CrewAI: $3.2M from enterprise platform
 - Every successful AI tool locks SSO behind enterprise pricing
 
-### Recommended Pricing (AgentHub-specific)
+### Recommended Pricing (Lattice-specific)
 
 #### Free Tier (Community)
 - Open-source self-hosted, unlimited everything
@@ -216,7 +216,7 @@ Based on market comps (Composio at $1M ARR with 200 paying companies, CrewAI at 
 
 4. **Template marketplace (future)** — Pre-built agent team configurations (e.g., "code review team", "research team", "customer support team"). Stickiness play, not direct revenue initially.
 
-5. **Embedded/OEM licensing** — Companies building AI products can embed AgentHub as their coordination layer. n8n gets 15% of revenue from this channel.
+5. **Embedded/OEM licensing** — Companies building AI products can embed Lattice as their coordination layer. n8n gets 15% of revenue from this channel.
 
 ---
 
@@ -224,17 +224,17 @@ Based on market comps (Composio at $1M ARR with 200 paying companies, CrewAI at 
 
 ### Go-to-Market
 
-1. **Lead with the "Slack for agents" narrative.** The market understands Slack. Positioning AgentHub as the coordination layer (not another framework) is the clearest differentiator.
+1. **Lead with the "Slack for agents" narrative.** The market understands Slack. Positioning Lattice as the coordination layer (not another framework) is the clearest differentiator.
 
-2. **Target Claude Code and Cursor users first.** These are MCP-native environments. Users can install AgentHub in 60 seconds via MCP config. The adoption path is: developer tries it → shares with team → team needs enterprise features → paid.
+2. **Target Claude Code and Cursor users first.** These are MCP-native environments. Users can install Lattice in 60 seconds via MCP config. The adoption path is: developer tries it → shares with team → team needs enterprise features → paid.
 
-3. **Don't build a framework.** Resist the temptation to add workflow orchestration, agent lifecycle management, or execution control. These are framework concerns. AgentHub's power is that it works with every framework.
+3. **Don't build a framework.** Resist the temptation to add workflow orchestration, agent lifecycle management, or execution control. These are framework concerns. Lattice's power is that it works with every framework.
 
-4. **Publish benchmarks on coordination efficiency.** Show that a 5-agent team using AgentHub completes tasks 40% faster than the same agents working independently (reduced duplicate work, better context sharing).
+4. **Publish benchmarks on coordination efficiency.** Show that a 5-agent team using Lattice completes tasks 40% faster than the same agents working independently (reduced duplicate work, better context sharing).
 
 ### Technical Priorities (in order)
 
-1. **CLI tooling** (`npx agenthub init`) — Reduce time-to-first-use
+1. **CLI tooling** (`npx lattice init`) — Reduce time-to-first-use
 2. **SSE for real-time events** — Remove the polling limitation
 3. **Agent-to-agent direct messaging** — Enable delegation patterns
 4. **Dashboard UI** — Visual monitoring (wireframe already exists)
@@ -245,17 +245,17 @@ Based on market comps (Composio at $1M ARR with 200 paying companies, CrewAI at 
 
 1. **Don't change the license.** Every company that went from permissive to restrictive saw community fracture (HashiCorp, Elastic, Redis). Keep MIT/Apache 2.0 and monetize through value-add cloud features.
 
-2. **Don't compete with MCP.** MCP won the protocol layer. AgentHub is a consumer of MCP, not a competitor. Stay aligned with the Anthropic ecosystem.
+2. **Don't compete with MCP.** MCP won the protocol layer. Lattice is a consumer of MCP, not a competitor. Stay aligned with the Anthropic ecosystem.
 
 3. **Don't try to replace LangChain/CrewAI.** They're frameworks; you're infrastructure. The right strategy is to be the coordination layer that makes every framework better.
 
-4. **Don't over-engineer the data layer.** FTS5 is good enough for now. Adding embeddings/RAG would be feature creep. LlamaIndex exists for that. AgentHub should focus on coordination, not retrieval.
+4. **Don't over-engineer the data layer.** FTS5 is good enough for now. Adding embeddings/RAG would be feature creep. LlamaIndex exists for that. Lattice should focus on coordination, not retrieval.
 
 ---
 
 ## Part 6: What We Built During This Analysis
 
-This research was conducted using AgentHub itself (5 agents coordinating via MCP tools). During the research, we identified and implemented the following improvements:
+This research was conducted using Lattice itself (5 agents coordinating via MCP tools). During the research, we identified and implemented the following improvements:
 
 ### Bug Fixes
 - **Fixed AWS secret key regex** — Was matching any 40-char string (huge false positives). Now requires contextual prefix like `aws_secret_access_key=`.

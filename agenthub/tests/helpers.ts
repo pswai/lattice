@@ -17,7 +17,7 @@ export interface TestContext {
   /** Raw better-sqlite3 handle — for direct SQL in test setup/assertions. */
   rawDb: Database.Database;
   app: Hono;
-  teamId: string;
+  workspaceId: string;
   apiKey: string;
   agentId: string;
 }
@@ -54,24 +54,24 @@ export function createTestDb(): SqliteAdapter {
  * Set up a test team with an API key.
  * Accepts either a DbAdapter or raw Database for backward compat.
  */
-export function setupTeam(
+export function setupWorkspace(
   db: DbAdapter | Database.Database,
-  teamId: string = 'test-team',
+  workspaceId: string = 'test-team',
   apiKey: string = 'ltk_test_key_12345678901234567890',
   scope: 'read' | 'write' | 'admin' = 'write',
-): { teamId: string; apiKey: string; keyHash: string } {
+): { workspaceId: string; apiKey: string; keyHash: string } {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const rawDb = getRawDb(db);
 
-  rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, `Team ${teamId}`);
-  rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
-    teamId,
+  rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(workspaceId, `Team ${workspaceId}`);
+  rawDb.prepare('INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+    workspaceId,
     keyHash,
     'test key',
     scope,
   );
 
-  return { teamId, apiKey, keyHash };
+  return { workspaceId, apiKey, keyHash };
 }
 
 /**
@@ -79,14 +79,14 @@ export function setupTeam(
  */
 export function addApiKey(
   db: DbAdapter | Database.Database,
-  teamId: string,
+  workspaceId: string,
   apiKey: string,
   scope: 'read' | 'write' | 'admin' = 'write',
 ): { apiKey: string; keyHash: string } {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const rawDb = getRawDb(db);
-  rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
-    teamId,
+  rawDb.prepare('INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+    workspaceId,
     keyHash,
     `${scope} key`,
     scope,
@@ -133,13 +133,14 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     appBaseUrl: 'http://localhost:3000',
     corsOrigins: [],
     quotaEnforcement: false,
+    rateLimitPerMinuteWorkspace: 0,
     ...overrides,
   };
 }
 
-export function createTestContext(teamId?: string, apiKey?: string): TestContext {
+export function createTestContext(workspaceId?: string, apiKey?: string): TestContext {
   const adapter = createTestAdapter();
-  const team = setupTeam(adapter, teamId, apiKey);
+  const team = setupWorkspace(adapter, workspaceId, apiKey);
   const config = testConfig();
   const app = createApp(adapter, () => createMcpServer(adapter), config);
 
@@ -147,7 +148,7 @@ export function createTestContext(teamId?: string, apiKey?: string): TestContext
     db: adapter,
     rawDb: adapter.rawDb,
     app,
-    teamId: team.teamId,
+    workspaceId: team.workspaceId,
     apiKey: team.apiKey,
     agentId: 'test-agent',
   };

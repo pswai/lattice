@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
-import { getTeamAnalytics, parseSinceDuration } from '../src/models/analytics.js';
+import { getWorkspaceAnalytics, parseSinceDuration } from '../src/models/analytics.js';
 
 /**
  * Insert a task directly with a specific created_at / updated_at so we can
@@ -8,7 +8,7 @@ import { getTeamAnalytics, parseSinceDuration } from '../src/models/analytics.js
  */
 function insertTask(
   db: import('better-sqlite3').Database,
-  teamId: string,
+  workspaceId: string,
   opts: {
     description?: string;
     status: 'open' | 'claimed' | 'completed' | 'escalated' | 'abandoned';
@@ -19,10 +19,10 @@ function insertTask(
   },
 ): number {
   const result = db.prepare(`
-    INSERT INTO tasks (team_id, description, status, created_by, claimed_by, claimed_at, created_at, updated_at)
+    INSERT INTO tasks (workspace_id, description, status, created_by, claimed_by, claimed_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    teamId,
+    workspaceId,
     opts.description ?? 'test task',
     opts.status,
     opts.createdBy,
@@ -36,46 +36,46 @@ function insertTask(
 
 function insertEvent(
   db: import('better-sqlite3').Database,
-  teamId: string,
+  workspaceId: string,
   opts: { eventType: string; message: string; createdBy: string; createdAt: string; tags?: string[] },
 ): void {
   db.prepare(`
-    INSERT INTO events (team_id, event_type, message, tags, created_by, created_at)
+    INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(teamId, opts.eventType, opts.message, JSON.stringify(opts.tags ?? []), opts.createdBy, opts.createdAt);
+  `).run(workspaceId, opts.eventType, opts.message, JSON.stringify(opts.tags ?? []), opts.createdBy, opts.createdAt);
 }
 
 function insertContext(
   db: import('better-sqlite3').Database,
-  teamId: string,
+  workspaceId: string,
   opts: { key: string; value: string; createdBy: string; createdAt: string },
 ): void {
   db.prepare(`
-    INSERT INTO context_entries (team_id, key, value, tags, created_by, created_at)
+    INSERT INTO context_entries (workspace_id, key, value, tags, created_by, created_at)
     VALUES (?, ?, ?, '[]', ?, ?)
-  `).run(teamId, opts.key, opts.value, opts.createdBy, opts.createdAt);
+  `).run(workspaceId, opts.key, opts.value, opts.createdBy, opts.createdAt);
 }
 
 function insertMessage(
   db: import('better-sqlite3').Database,
-  teamId: string,
+  workspaceId: string,
   opts: { from: string; to: string; message: string; createdAt: string },
 ): void {
   db.prepare(`
-    INSERT INTO messages (team_id, from_agent, to_agent, message, tags, created_at)
+    INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags, created_at)
     VALUES (?, ?, ?, ?, '[]', ?)
-  `).run(teamId, opts.from, opts.to, opts.message, opts.createdAt);
+  `).run(workspaceId, opts.from, opts.to, opts.message, opts.createdAt);
 }
 
 function insertAgent(
   db: import('better-sqlite3').Database,
-  teamId: string,
+  workspaceId: string,
   opts: { id: string; status: 'online' | 'offline' | 'busy' },
 ): void {
   db.prepare(`
-    INSERT INTO agents (id, team_id, capabilities, status, metadata)
+    INSERT INTO agents (id, workspace_id, capabilities, status, metadata)
     VALUES (?, ?, '[]', ?, '{}')
-  `).run(opts.id, teamId, opts.status);
+  `).run(opts.id, workspaceId, opts.status);
 }
 
 describe('parseSinceDuration', () => {
@@ -113,7 +113,7 @@ describe('parseSinceDuration', () => {
   });
 });
 
-describe('getTeamAnalytics', () => {
+describe('getWorkspaceAnalytics', () => {
   let ctx: TestContext;
   const nowIso = () => new Date().toISOString();
   const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
@@ -124,7 +124,7 @@ describe('getTeamAnalytics', () => {
 
   it('returns zero-valued analytics for an empty team', async () => {
     const since = ago(24 * 60 * 60 * 1000);
-    const result = await getTeamAnalytics(ctx.db, ctx.teamId, since);
+    const result = await getWorkspaceAnalytics(ctx.db, ctx.workspaceId, since);
 
     expect(result.tasks.total).toBe(0);
     expect(result.tasks.by_status).toEqual({ open: 0, claimed: 0, completed: 0, escalated: 0, abandoned: 0 });
@@ -144,7 +144,7 @@ describe('getTeamAnalytics', () => {
   });
 
   it('aggregates all sections with seeded data', async () => {
-    const team = ctx.teamId;
+    const team = ctx.workspaceId;
     const rawDb = ctx.rawDb;
 
     // Agents
@@ -187,7 +187,7 @@ describe('getTeamAnalytics', () => {
     insertMessage(rawDb, team, { from: 'carol', to: 'alice', message: 'old', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
 
     const since = ago(24 * 60 * 60 * 1000);
-    const result = await getTeamAnalytics(ctx.db, team, since);
+    const result = await getWorkspaceAnalytics(ctx.db, team, since);
 
     // Tasks
     expect(result.tasks.total).toBe(7);
@@ -233,7 +233,7 @@ describe('getTeamAnalytics', () => {
   });
 
   it('since filter narrows results', async () => {
-    const team = ctx.teamId;
+    const team = ctx.workspaceId;
     const rawDb = ctx.rawDb;
 
     // Events: 2 recent, 3 old
@@ -243,13 +243,13 @@ describe('getTeamAnalytics', () => {
     insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'old2', createdBy: 'b', createdAt: ago(20 * 24 * 60 * 60 * 1000) });
     insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'old3', createdBy: 'b', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
 
-    const narrow = await getTeamAnalytics(ctx.db, team, ago(24 * 60 * 60 * 1000));
+    const narrow = await getWorkspaceAnalytics(ctx.db, team, ago(24 * 60 * 60 * 1000));
     expect(narrow.events.total).toBe(2);
 
-    const wide = await getTeamAnalytics(ctx.db, team, ago(30 * 24 * 60 * 60 * 1000));
+    const wide = await getWorkspaceAnalytics(ctx.db, team, ago(30 * 24 * 60 * 60 * 1000));
     expect(wide.events.total).toBe(4);
 
-    const widest = await getTeamAnalytics(ctx.db, team, ago(60 * 24 * 60 * 60 * 1000));
+    const widest = await getWorkspaceAnalytics(ctx.db, team, ago(60 * 24 * 60 * 60 * 1000));
     expect(widest.events.total).toBe(5);
   });
 });

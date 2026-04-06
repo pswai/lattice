@@ -89,7 +89,7 @@ describe('GET /workspaces/:id/audit', () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
     await writeAudit(db, {
-      teamId: 'ws-alice',
+      workspaceId: 'ws-alice',
       actor: 'agent-1',
       action: 'task.create',
       resourceType: 'tasks',
@@ -113,10 +113,10 @@ describe('GET /workspaces/:id/audit', () => {
   it('filters by actor, action, and resource', async () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
-    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'tasks' });
-    await writeAudit(db, { teamId: 'ws-alice', actor: 'a2', action: 'x', resourceType: 'tasks' });
-    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'y', resourceType: 'tasks' });
-    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'events' });
+    await writeAudit(db, { workspaceId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'tasks' });
+    await writeAudit(db, { workspaceId: 'ws-alice', actor: 'a2', action: 'x', resourceType: 'tasks' });
+    await writeAudit(db, { workspaceId: 'ws-alice', actor: 'a1', action: 'y', resourceType: 'tasks' });
+    await writeAudit(db, { workspaceId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'events' });
 
     const byActor = (await (
       await req(app, 'GET', '/workspaces/ws-alice/audit?actor=a1', { cookie })
@@ -139,7 +139,7 @@ describe('GET /workspaces/:id/audit', () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
     for (let i = 0; i < 5; i++) {
-      await writeAudit(db, { teamId: 'ws-alice', actor: 'a', action: `act-${i}` });
+      await writeAudit(db, { workspaceId: 'ws-alice', actor: 'a', action: `act-${i}` });
     }
     const page1 = (await (
       await req(app, 'GET', '/workspaces/ws-alice/audit?limit=2', { cookie })
@@ -169,13 +169,13 @@ describe('GET /workspaces/:id/audit', () => {
     await createWorkspace(app, cookie, 'ws-alice');
     // Explicit created_at values
     db.prepare(
-      `INSERT INTO audit_log (team_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
+      `INSERT INTO audit_log (workspace_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
     ).run('ws-alice', 'a', 'old', '2024-01-01T00:00:00.000Z');
     db.prepare(
-      `INSERT INTO audit_log (team_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
+      `INSERT INTO audit_log (workspace_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
     ).run('ws-alice', 'a', 'mid', '2025-06-01T00:00:00.000Z');
     db.prepare(
-      `INSERT INTO audit_log (team_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
+      `INSERT INTO audit_log (workspace_id, actor, action, metadata, created_at) VALUES (?, ?, ?, '{}', ?)`,
     ).run('ws-alice', 'a', 'new', '2026-01-01T00:00:00.000Z');
 
     const sinceRes = (await (

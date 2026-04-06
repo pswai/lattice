@@ -9,7 +9,7 @@ const SEARCH_VALUE_TRUNCATE = 10_000;
 
 interface ContextRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   key: string;
   value: string;
   tags: string;
@@ -24,7 +24,7 @@ function rowToEntry(row: ContextRow, truncate = false): ContextEntry {
   }
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     key: row.key,
     value,
     tags: JSON.parse(row.tags) as string[],
@@ -66,14 +66,14 @@ function escapeLikeToken(t: string): string {
 
 export async function saveContext(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: SaveContextInput,
 ): Promise<SaveContextResponse> {
   // Check if key exists for this team to determine created vs replaced
   const existing = await db.get<{ id: number }>(
-    'SELECT id FROM context_entries WHERE team_id = ? AND key = ?',
-    teamId, input.key,
+    'SELECT id FROM context_entries WHERE workspace_id = ? AND key = ?',
+    workspaceId, input.key,
   );
 
   let entryId: number;
@@ -83,20 +83,20 @@ export async function saveContext(
     await db.run(`
       UPDATE context_entries SET value = ?, tags = ?, created_by = ?,
         created_at = ?
-      WHERE team_id = ? AND key = ?
-    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), teamId, input.key);
+      WHERE workspace_id = ? AND key = ?
+    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), workspaceId, input.key);
     entryId = existing.id;
   } else {
     const result = await db.run(`
-      INSERT INTO context_entries (team_id, key, value, tags, created_by)
+      INSERT INTO context_entries (workspace_id, key, value, tags, created_by)
       VALUES (?, ?, ?, ?, ?)
-    `, teamId, input.key, input.value, JSON.stringify(input.tags), agentId);
+    `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId);
     entryId = Number(result.lastInsertRowid);
   }
 
   // Auto-broadcast LEARNING event after successful save
   await broadcastInternal(
-    db, teamId, 'LEARNING',
+    db, workspaceId, 'LEARNING',
     `Context saved: "${input.key}" by ${agentId}`,
     input.tags, agentId,
   );
@@ -110,13 +110,13 @@ export async function saveContext(
 
 export async function getContext(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: GetContextInput,
 ): Promise<GetContextResponse> {
   if (db.dialect === 'pg') {
-    return getContextPg(db, teamId, input);
+    return getContextPg(db, workspaceId, input);
   } else {
-    return getContextSqlite(db, teamId, input);
+    return getContextSqlite(db, workspaceId, input);
   }
 }
 
@@ -126,7 +126,7 @@ export async function getContext(
 
 async function getContextSqlite(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: GetContextInput,
 ): Promise<GetContextResponse> {
   const limit = Math.min(input.limit ?? 20, 100);
@@ -155,7 +155,7 @@ async function getContextSqlite(
     if (useLike) {
       rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND EXISTS (
             SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
@@ -163,13 +163,13 @@ async function getContextSqlite(
           AND ${likeClause}
         ORDER BY ce.created_at DESC
         LIMIT ?
-      `, teamId, ...input.tags!, ...likeParams, limit);
+      `, workspaceId, ...input.tags!, ...likeParams, limit);
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
       rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND EXISTS (
             SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
@@ -177,48 +177,48 @@ async function getContextSqlite(
           AND context_entries_fts MATCH ?
         ORDER BY fts.rank
         LIMIT ?
-      `, teamId, ...input.tags!, ftsQuery, limit);
+      `, workspaceId, ...input.tags!, ftsQuery, limit);
     }
   } else if (hasQuery) {
     if (useLike) {
       rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND ${likeClause}
         ORDER BY ce.created_at DESC
         LIMIT ?
-      `, teamId, ...likeParams, limit);
+      `, workspaceId, ...likeParams, limit);
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
       rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND context_entries_fts MATCH ?
         ORDER BY fts.rank
         LIMIT ?
-      `, teamId, ftsQuery, limit);
+      `, workspaceId, ftsQuery, limit);
     }
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     rows = await db.all<ContextRow>(`
       SELECT ce.* FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
           WHERE t.value IN (${placeholders})
         )
       ORDER BY ce.created_at DESC
       LIMIT ?
-    `, teamId, ...input.tags!, limit);
+    `, workspaceId, ...input.tags!, limit);
   } else {
     // No filters — browse all entries for this team
     rows = await db.all<ContextRow>(`
       SELECT * FROM context_entries
-      WHERE team_id = ?
+      WHERE workspace_id = ?
       ORDER BY created_at DESC
       LIMIT ?
-    `, teamId, limit);
+    `, workspaceId, limit);
   }
 
   // Compute true total (not capped by LIMIT) for proper pagination
@@ -228,61 +228,61 @@ async function getContextSqlite(
     if (useLike) {
       const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND EXISTS (
             SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND ${likeClause}
-      `, teamId, ...input.tags!, ...likeParams);
+      `, workspaceId, ...input.tags!, ...likeParams);
       total = countRow!.cnt;
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
       const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND EXISTS (
             SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND context_entries_fts MATCH ?
-      `, teamId, ...input.tags!, ftsQuery);
+      `, workspaceId, ...input.tags!, ftsQuery);
       total = countRow!.cnt;
     }
   } else if (hasQuery) {
     if (useLike) {
       const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND ${likeClause}
-      `, teamId, ...likeParams);
+      `, workspaceId, ...likeParams);
       total = countRow!.cnt;
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
       const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.team_id = ?
+        WHERE ce.workspace_id = ?
           AND context_entries_fts MATCH ?
-      `, teamId, ftsQuery);
+      `, workspaceId, ftsQuery);
       total = countRow!.cnt;
     }
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
           WHERE t.value IN (${placeholders})
         )
-    `, teamId, ...input.tags!);
+    `, workspaceId, ...input.tags!);
     total = countRow!.cnt;
   } else {
     const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries WHERE team_id = ?
-    `, teamId);
+      SELECT COUNT(*) as cnt FROM context_entries WHERE workspace_id = ?
+    `, workspaceId);
     total = countRow!.cnt;
   }
 
@@ -298,7 +298,7 @@ async function getContextSqlite(
 
 async function getContextPg(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: GetContextInput,
 ): Promise<GetContextResponse> {
   const limit = Math.min(input.limit ?? 20, 100);
@@ -328,7 +328,7 @@ async function getContextPg(
     const placeholders = input.tags!.map(() => '?').join(', ');
     rows = await db.all<ContextRow>(`
       SELECT ce.* FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArr} AS t
           WHERE t IN (${placeholders})
@@ -336,35 +336,35 @@ async function getContextPg(
         AND ${ilikeClause}
       ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
       LIMIT ?
-    `, teamId, ...input.tags!, ...ilikeParams, input.query!, input.query!, limit);
+    `, workspaceId, ...input.tags!, ...ilikeParams, input.query!, input.query!, limit);
   } else if (hasQuery) {
     rows = await db.all<ContextRow>(`
       SELECT ce.* FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND ${ilikeClause}
       ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
       LIMIT ?
-    `, teamId, ...ilikeParams, input.query!, input.query!, limit);
+    `, workspaceId, ...ilikeParams, input.query!, input.query!, limit);
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     rows = await db.all<ContextRow>(`
       SELECT ce.* FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArr} AS t
           WHERE t IN (${placeholders})
         )
       ORDER BY ce.created_at DESC
       LIMIT ?
-    `, teamId, ...input.tags!, limit);
+    `, workspaceId, ...input.tags!, limit);
   } else {
     // No filters — browse all entries for this team
     rows = await db.all<ContextRow>(`
       SELECT * FROM context_entries
-      WHERE team_id = ?
+      WHERE workspace_id = ?
       ORDER BY created_at DESC
       LIMIT ?
-    `, teamId, limit);
+    `, workspaceId, limit);
   }
 
   // Compute true total (not capped by LIMIT) for proper pagination
@@ -373,36 +373,36 @@ async function getContextPg(
     const placeholders = input.tags!.map(() => '?').join(', ');
     const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArr} AS t
           WHERE t IN (${placeholders})
         )
         AND ${ilikeClause}
-    `, teamId, ...input.tags!, ...ilikeParams);
+    `, workspaceId, ...input.tags!, ...ilikeParams);
     total = countRow!.cnt;
   } else if (hasQuery) {
     const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND ${ilikeClause}
-    `, teamId, ...ilikeParams);
+    `, workspaceId, ...ilikeParams);
     total = countRow!.cnt;
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.team_id = ?
+      WHERE ce.workspace_id = ?
         AND EXISTS (
           SELECT 1 FROM ${jsonArr} AS t
           WHERE t IN (${placeholders})
         )
-    `, teamId, ...input.tags!);
+    `, workspaceId, ...input.tags!);
     total = countRow!.cnt;
   } else {
     const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries WHERE team_id = ?
-    `, teamId);
+      SELECT COUNT(*) as cnt FROM context_entries WHERE workspace_id = ?
+    `, workspaceId);
     total = countRow!.cnt;
   }
 

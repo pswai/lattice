@@ -4,7 +4,7 @@ import { getPlaybook } from './playbook.js';
 
 export interface Schedule {
   id: number;
-  teamId: string;
+  workspaceId: string;
   playbookName: string;
   cronExpression: string;
   enabled: boolean;
@@ -18,7 +18,7 @@ export interface Schedule {
 
 interface ScheduleRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   playbook_name: string;
   cron_expression: string;
   enabled: number;
@@ -33,7 +33,7 @@ interface ScheduleRow {
 function rowToSchedule(row: ScheduleRow): Schedule {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     cronExpression: row.cron_expression,
     enabled: row.enabled === 1,
@@ -141,7 +141,7 @@ export interface DefineScheduleInput {
 
 export async function defineSchedule(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: DefineScheduleInput,
 ): Promise<Schedule> {
@@ -153,23 +153,23 @@ export async function defineSchedule(
   }
 
   // Validate playbook exists (throws NotFoundError if missing)
-  await getPlaybook(db, teamId, input.playbook_name);
+  await getPlaybook(db, workspaceId, input.playbook_name);
 
   const enabled = input.enabled === false ? 0 : 1;
   const nextRunAt = computeNextRun(input.cron_expression, new Date()).toISOString();
 
   await db.run(`
-    INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
+    INSERT INTO schedules (workspace_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(team_id, playbook_name, cron_expression) DO UPDATE SET
+    ON CONFLICT(workspace_id, playbook_name, cron_expression) DO UPDATE SET
       enabled = excluded.enabled,
       next_run_at = excluded.next_run_at,
       updated_at = ?
-  `, teamId, input.playbook_name, input.cron_expression, enabled, nextRunAt, agentId, new Date().toISOString());
+  `, workspaceId, input.playbook_name, input.cron_expression, enabled, nextRunAt, agentId, new Date().toISOString());
 
   const row = await db.get<ScheduleRow>(
-    'SELECT * FROM schedules WHERE team_id = ? AND playbook_name = ? AND cron_expression = ?',
-    teamId, input.playbook_name, input.cron_expression,
+    'SELECT * FROM schedules WHERE workspace_id = ? AND playbook_name = ? AND cron_expression = ?',
+    workspaceId, input.playbook_name, input.cron_expression,
   );
 
   return rowToSchedule(row!);
@@ -177,11 +177,11 @@ export async function defineSchedule(
 
 export async function listSchedules(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
 ): Promise<{ schedules: Schedule[]; total: number }> {
   const rows = await db.all<ScheduleRow>(
-    'SELECT * FROM schedules WHERE team_id = ? ORDER BY id ASC',
-    teamId,
+    'SELECT * FROM schedules WHERE workspace_id = ? ORDER BY id ASC',
+    workspaceId,
   );
 
   return {
@@ -192,12 +192,12 @@ export async function listSchedules(
 
 export async function deleteSchedule(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: number,
 ): Promise<{ deleted: boolean }> {
   const result = await db.run(
-    'DELETE FROM schedules WHERE team_id = ? AND id = ?',
-    teamId, id,
+    'DELETE FROM schedules WHERE workspace_id = ? AND id = ?',
+    workspaceId, id,
   );
   return { deleted: result.changes > 0 };
 }

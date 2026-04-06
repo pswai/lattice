@@ -54,13 +54,13 @@ describe('/workspaces routes', () => {
       body: { id: 'acme-corp', name: 'Acme Corp' },
     });
     expect(create.status).toBe(201);
-    const { team_id, api_key, scope, role } = (await create.json()) as {
-      team_id: string;
+    const { workspace_id, api_key, scope, role } = (await create.json()) as {
+      workspace_id: string;
       api_key: string;
       scope: string;
       role: string;
     };
-    expect(team_id).toBe('acme-corp');
+    expect(workspace_id).toBe('acme-corp');
     expect(api_key).toMatch(/^lt_[a-f0-9]{48}$/);
     expect(scope).toBe('write');
     expect(role).toBe('owner');
@@ -83,10 +83,10 @@ describe('/workspaces routes', () => {
     const list = await req(app, 'GET', '/workspaces', { cookie });
     expect(list.status).toBe(200);
     const { workspaces } = (await list.json()) as {
-      workspaces: Array<{ team_id: string; name: string; role: string }>;
+      workspaces: Array<{ workspace_id: string; name: string; role: string }>;
     };
     expect(workspaces).toHaveLength(1);
-    expect(workspaces[0].team_id).toBe('acme-corp');
+    expect(workspaces[0].workspace_id).toBe('acme-corp');
     expect(workspaces[0].role).toBe('owner');
 
     // Delete workspace cascades
@@ -94,16 +94,16 @@ describe('/workspaces routes', () => {
     expect(del.status).toBe(204);
 
     expect(
-      (db.prepare('SELECT COUNT(*) as c FROM teams WHERE id = ?').get('acme-corp') as { c: number })
+      (db.prepare('SELECT COUNT(*) as c FROM workspaces WHERE id = ?').get('acme-corp') as { c: number })
         .c,
     ).toBe(0);
     expect(
-      (db.prepare('SELECT COUNT(*) as c FROM api_keys WHERE team_id = ?').get('acme-corp') as {
+      (db.prepare('SELECT COUNT(*) as c FROM api_keys WHERE workspace_id = ?').get('acme-corp') as {
         c: number;
       }).c,
     ).toBe(0);
     expect(
-      (db.prepare('SELECT COUNT(*) as c FROM team_memberships WHERE team_id = ?').get('acme-corp') as {
+      (db.prepare('SELECT COUNT(*) as c FROM workspace_memberships WHERE workspace_id = ?').get('acme-corp') as {
         c: number;
       }).c,
     ).toBe(0);
@@ -168,7 +168,7 @@ describe('/workspaces routes', () => {
 
     // Add dave as a member (non-owner) and try again
     db.prepare(
-      "INSERT INTO team_memberships (user_id, team_id, role) SELECT id, 'private', 'member' FROM users WHERE email = 'dave2@example.com'",
+      "INSERT INTO workspace_memberships (user_id, workspace_id, role) SELECT id, 'private', 'member' FROM users WHERE email = 'dave2@example.com'",
     ).run();
     const del2 = await req(app, 'DELETE', '/workspaces/private', { cookie: daveCookie });
     expect(del2.status).toBe(403);
@@ -182,10 +182,10 @@ describe('/workspaces routes', () => {
     });
     const me = await req(app, 'GET', '/auth/me', { cookie });
     const body = (await me.json()) as {
-      memberships: Array<{ team_id: string; role: string }>;
+      memberships: Array<{ workspace_id: string; role: string }>;
     };
     expect(body.memberships).toHaveLength(1);
-    expect(body.memberships[0].team_id).toBe('eve-ws');
+    expect(body.memberships[0].workspace_id).toBe('eve-ws');
     expect(body.memberships[0].role).toBe('owner');
   });
 });

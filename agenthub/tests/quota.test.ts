@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTestDb, setupTeam, testConfig, request } from './helpers.js';
+import { createTestDb, setupWorkspace, testConfig, request } from './helpers.js';
 import { seedDefaultPlans, listPlans, getPlan } from '../src/models/plan.js';
-import { getTeamPlan, upsertTeamSubscription } from '../src/models/subscription.js';
+import { getWorkspacePlan, upsertWorkspaceSubscription } from '../src/models/subscription.js';
 import {
   incrementUsage,
   incrementUsageForced,
@@ -22,7 +22,7 @@ describe('quota foundation', () => {
 
   beforeEach(() => {
     db = createTestDb();
-    setupTeam(db, 'test-team');
+    setupWorkspace(db, 'test-team');
   });
 
   afterEach(() => {
@@ -47,17 +47,17 @@ describe('quota foundation', () => {
 
   describe('subscriptions', () => {
     it('should fall back to free plan when no subscription', async () => {
-      const plan = await getTeamPlan(db, 'test-team');
+      const plan = await getWorkspacePlan(db, 'test-team');
       expect(plan.id).toBe('free');
     });
 
     it('should return real plan when subscribed', async () => {
-      await upsertTeamSubscription(db, {
-        teamId: 'test-team',
+      await upsertWorkspaceSubscription(db, {
+        workspaceId: 'test-team',
         planId: 'pro',
         status: 'active',
       });
-      const plan = await getTeamPlan(db, 'test-team');
+      const plan = await getWorkspacePlan(db, 'test-team');
       expect(plan.id).toBe('pro');
       expect(plan.execQuota).toBe(15000);
     });
@@ -114,7 +114,7 @@ describe('quota foundation', () => {
     let apiKey: string;
 
     beforeEach(() => {
-      const team = setupTeam(db, 'quota-team', 'ltk_quota_key_123456789012345678');
+      const team = setupWorkspace(db, 'quota-team', 'ltk_quota_key_123456789012345678');
       apiKey = team.apiKey;
       app = createApp(
         db,
@@ -169,15 +169,15 @@ describe('quota foundation', () => {
       const user = await createUser(db, { email: 'usage@test.com', password: 'password123' });
       const session = await createSession(db, user.id, {});
       sessionCookie = `lt_session=${session.raw}`;
-      db.rawDb.prepare('INSERT INTO teams (id, name, owner_user_id) VALUES (?, ?, ?)').run(
+      db.rawDb.prepare('INSERT INTO workspaces (id, name, owner_user_id) VALUES (?, ?, ?)').run(
         'usage-team',
         'Usage Team',
         user.id,
       );
-      await addMembership(db, { userId: user.id, teamId: 'usage-team', role: 'owner' });
+      await addMembership(db, { userId: user.id, workspaceId: 'usage-team', role: 'owner' });
       // Seed a default API key so the team infra is complete
       const keyHash = require('crypto').createHash('sha256').update('ak_usage').digest('hex');
-      db.rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+      db.rawDb.prepare('INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
         'usage-team',
         keyHash,
         'default',

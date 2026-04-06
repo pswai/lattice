@@ -6,7 +6,7 @@
  * - Levels: silent, error, warn, info, debug (LOG_LEVEL env)
  * - Format override: LOG_FORMAT=json|pretty
  * - Automatic secret redaction (API keys, bearer tokens, etc) on every line
- * - Child loggers carry bound fields (req_id, team_id, agent_id, component…)
+ * - Child loggers carry bound fields (req_id, workspace_id, agent_id, component…)
  * - Auto-silent under vitest to keep test output clean
  */
 

@@ -19,7 +19,7 @@ describe('RBAC scoped API keys', () => {
     let readKey: string;
     beforeEach(() => {
       readKey = 'ltk_read_key_1234567890123456789012';
-      addApiKey(ctx.db, ctx.teamId, readKey, 'read');
+      addApiKey(ctx.db, ctx.workspaceId, readKey, 'read');
     });
 
     it('allows GET /api/v1/context', async () => {
@@ -44,7 +44,7 @@ describe('RBAC scoped API keys', () => {
     it('blocks PATCH with 403', async () => {
       // Need a task to patch — create it with write key first
       const writeKey = 'ltk_write_key_234567890123456789012';
-      addApiKey(ctx.db, ctx.teamId, writeKey, 'write');
+      addApiKey(ctx.db, ctx.workspaceId, writeKey, 'write');
       const createRes = await request(ctx.app, 'POST', '/api/v1/tasks', {
         headers: authHeaders(writeKey),
         body: { description: 'task' },
@@ -137,7 +137,7 @@ describe('RBAC scoped API keys', () => {
     let adminKey: string;
     beforeEach(() => {
       adminKey = 'ltk_admin_key_34567890123456789012';
-      addApiKey(ctx.db, ctx.teamId, adminKey, 'admin');
+      addApiKey(ctx.db, ctx.workspaceId, adminKey, 'admin');
     });
 
     it('allows GET and POST on /api/v1/*', async () => {
@@ -174,7 +174,7 @@ describe('RBAC scoped API keys', () => {
 
   describe('admin endpoint key creation with scope', () => {
     it('POST /admin/teams/:id/keys accepts scope param', async () => {
-      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.teamId}/keys`, {
+      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.workspaceId}/keys`, {
         headers: {
           Authorization: `Bearer ${TEST_ADMIN_KEY}`,
           'Content-Type': 'application/json',
@@ -195,7 +195,7 @@ describe('RBAC scoped API keys', () => {
     });
 
     it('POST /admin/teams/:id/keys defaults scope to write when omitted', async () => {
-      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.teamId}/keys`, {
+      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.workspaceId}/keys`, {
         headers: {
           Authorization: `Bearer ${TEST_ADMIN_KEY}`,
           'Content-Type': 'application/json',
@@ -228,7 +228,7 @@ describe('RBAC scoped API keys', () => {
     });
 
     it('rejects invalid scope value', async () => {
-      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.teamId}/keys`, {
+      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.workspaceId}/keys`, {
         headers: {
           Authorization: `Bearer ${TEST_ADMIN_KEY}`,
           'Content-Type': 'application/json',

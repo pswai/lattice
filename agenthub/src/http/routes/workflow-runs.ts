@@ -10,7 +10,7 @@ export function createWorkflowRunRoutes(db: DbAdapter): Hono {
 
   // GET /workflow-runs — list
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const statusParam = c.req.query('status');
     const limitParam = c.req.query('limit');
 
@@ -23,18 +23,18 @@ export function createWorkflowRunRoutes(db: DbAdapter): Hono {
     }
 
     const limit = limitParam ? Number(limitParam) : undefined;
-    const result = await listWorkflowRuns(db, teamId, { status, limit });
+    const result = await listWorkflowRuns(db, workspaceId, { status, limit });
     return c.json(result);
   });
 
   // GET /workflow-runs/:id — get one
   router.get('/:id', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const id = Number(c.req.param('id'));
     if (!Number.isInteger(id) || id <= 0) {
       throw new ValidationError('Invalid workflow run id');
     }
-    const result = await getWorkflowRun(db, teamId, id);
+    const result = await getWorkflowRun(db, workspaceId, id);
     return c.json(result);
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, createTestDb, setupTeam, authHeaders, request, type TestContext } from './helpers.js';
+import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
 import { createTask, updateTask, getTask } from '../src/models/task.js';
 import { getUpdates } from '../src/models/event.js';
 
@@ -307,11 +307,11 @@ describe('Task Workflow — Escalation Flow', () => {
 
 describe('Task Workflow — Reaping (model-level)', () => {
   let db: ReturnType<typeof createTestDb>;
-  const teamId = 'test-team';
+  const workspaceId = 'test-team';
 
   beforeEach(() => {
     db = createTestDb();
-    setupTeam(db, teamId);
+    setupWorkspace(db, workspaceId);
   });
 
   /**
@@ -320,9 +320,9 @@ describe('Task Workflow — Reaping (model-level)', () => {
   function reapTasks(timeoutMinutes: number): number {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
     const staleTasks = db.rawDb.prepare(`
-      SELECT id, team_id, description, claimed_by, version
+      SELECT id, workspace_id, description, claimed_by, version
       FROM tasks WHERE status = 'claimed' AND claimed_at < ?
-    `).all(cutoff) as Array<{ id: number; team_id: string; description: string; claimed_by: string; version: number }>;
+    `).all(cutoff) as Array<{ id: number; workspace_id: string; description: string; claimed_by: string; version: number }>;
 
     let reaped = 0;
     for (const task of staleTasks) {
@@ -340,7 +340,7 @@ describe('Task Workflow — Reaping (model-level)', () => {
 
   it('should reap stale task and leave it reclaimable', async () => {
     // Create a claimed task and backdate it
-    const task = await createTask(db, teamId, 'agent-slow', { description: 'Slow task' });
+    const task = await createTask(db, workspaceId, 'agent-slow', { description: 'Slow task' });
     const pastTime = new Date(Date.now() - 90 * 60 * 1000).toISOString();
     db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
 
@@ -355,7 +355,7 @@ describe('Task Workflow — Reaping (model-level)', () => {
     expect(row.result).toContain('Auto-released');
 
     // Another agent can now reclaim it
-    const reclaim = await updateTask(db, teamId, 'agent-fast', {
+    const reclaim = await updateTask(db, workspaceId, 'agent-fast', {
       task_id: task.task_id,
       status: 'claimed',
       version: row.version,
@@ -365,8 +365,8 @@ describe('Task Workflow — Reaping (model-level)', () => {
 
   it('should only reap tasks older than the timeout', async () => {
     // Create two tasks: one stale, one fresh
-    const stale = await createTask(db, teamId, 'agent-1', { description: 'Stale' });
-    const fresh = await createTask(db, teamId, 'agent-2', { description: 'Fresh' });
+    const stale = await createTask(db, workspaceId, 'agent-1', { description: 'Stale' });
+    const fresh = await createTask(db, workspaceId, 'agent-2', { description: 'Fresh' });
 
     // Backdate only the stale one
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();

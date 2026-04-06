@@ -25,27 +25,27 @@ export function createScheduleRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await defineSchedule(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await defineSchedule(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /schedules — list
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
-    const result = await listSchedules(db, teamId);
+    const { workspaceId } = c.get('auth');
+    const result = await listSchedules(db, workspaceId);
     return c.json(result);
   });
 
   // DELETE /schedules/:id — delete
   router.delete('/:id', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const idStr = c.req.param('id');
     const id = parseInt(idStr, 10);
     if (!Number.isInteger(id) || id <= 0) {
       throw new ValidationError('Invalid schedule id');
     }
-    const result = await deleteSchedule(db, teamId, id);
+    const result = await deleteSchedule(db, workspaceId, id);
     return c.json(result);
   });
 

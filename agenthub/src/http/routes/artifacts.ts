@@ -25,14 +25,14 @@ export function createArtifactRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
-    const result = await saveArtifact(db, teamId, agentId, parsed.data);
+    const { workspaceId, agentId } = c.get('auth');
+    const result = await saveArtifact(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /artifacts — list_artifacts
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
 
     const contentTypeParam = c.req.query('content_type');
     const limitParam = c.req.query('limit');
@@ -40,23 +40,23 @@ export function createArtifactRoutes(db: DbAdapter): Hono {
     const content_type = contentTypeParam ? (contentTypeParam as ArtifactContentType) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = await listArtifacts(db, teamId, { content_type, limit });
+    const result = await listArtifacts(db, workspaceId, { content_type, limit });
     return c.json(result);
   });
 
   // GET /artifacts/:key — get_artifact
   router.get('/:key', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const key = c.req.param('key');
-    const result = await getArtifact(db, teamId, key);
+    const result = await getArtifact(db, workspaceId, key);
     return c.json(result);
   });
 
   // DELETE /artifacts/:key — delete_artifact
   router.delete('/:key', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const key = c.req.param('key');
-    const result = await deleteArtifact(db, teamId, key);
+    const result = await deleteArtifact(db, workspaceId, key);
     return c.json(result);
   });
 

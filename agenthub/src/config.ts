@@ -27,6 +27,7 @@ export interface AppConfig {
   appBaseUrl: string;
   corsOrigins: string[] | '*';
   quotaEnforcement: boolean;
+  rateLimitPerMinuteWorkspace: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -64,6 +65,7 @@ export function loadConfig(): AppConfig {
     appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
     quotaEnforcement: (process.env.QUOTA_ENFORCEMENT || 'false').toLowerCase() === 'true',
+    rateLimitPerMinuteWorkspace: parseInt(process.env.RATE_LIMIT_PER_MIN_WORKSPACE || '1000', 10),
   };
 }
 

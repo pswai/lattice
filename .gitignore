@@ -13,6 +13,7 @@ dist/
 agenthub/data/*.db
 agenthub/data/*.db-shm
 agenthub/data/*.db-wal
+agenthub/*.db
 
 # Env files
 .env

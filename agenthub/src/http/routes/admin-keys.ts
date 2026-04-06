@@ -54,25 +54,25 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
 
   // GET /teams/:id/keys — list keys for a team (never returns hash/raw key).
   router.get('/teams/:id/keys', async (c) => {
-    const teamId = c.req.param('id');
-    const team = await db.get('SELECT id FROM teams WHERE id = ?', teamId);
+    const workspaceId = c.req.param('id');
+    const team = await db.get('SELECT id FROM workspaces WHERE id = ?', workspaceId);
     if (!team) {
-      return c.json({ error: 'NOT_FOUND', message: `Team "${teamId}" not found` }, 404);
+      return c.json({ error: 'NOT_FOUND', message: `Team "${workspaceId}" not found` }, 404);
     }
     const keys = await db.all<ApiKeyRow>(
       `SELECT id, label, scope, created_at, last_used_at, expires_at, revoked_at
-       FROM api_keys WHERE team_id = ? ORDER BY id`,
-      teamId,
+       FROM api_keys WHERE workspace_id = ? ORDER BY id`,
+      workspaceId,
     );
     return c.json({ keys });
   });
 
   // POST /teams/:id/keys — create a new key (with optional expiry).
   router.post('/teams/:id/keys', async (c) => {
-    const teamId = c.req.param('id');
-    const team = await db.get('SELECT id FROM teams WHERE id = ?', teamId);
+    const workspaceId = c.req.param('id');
+    const team = await db.get('SELECT id FROM workspaces WHERE id = ?', workspaceId);
     if (!team) {
-      return c.json({ error: 'NOT_FOUND', message: `Team "${teamId}" not found` }, 404);
+      return c.json({ error: 'NOT_FOUND', message: `Team "${workspaceId}" not found` }, 404);
     }
     const body = await c.req.json().catch(() => ({}));
     const parsed = CreateKeySchema.safeParse(body);
@@ -93,14 +93,14 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
     const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
     const info = await db.run(
-      'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
-      teamId, keyHash, label, scope, expiresAt,
+      'INSERT INTO api_keys (workspace_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
+      workspaceId, keyHash, label, scope, expiresAt,
     );
 
     return c.json(
       {
         id: info.lastInsertRowid,
-        team_id: teamId,
+        workspace_id: workspaceId,
         api_key: rawKey,
         label,
         scope,
@@ -112,7 +112,7 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
 
   // POST /teams/:id/keys/:keyId/rotate — issue new key, revoke old.
   router.post('/teams/:id/keys/:keyId/rotate', async (c) => {
-    const teamId = c.req.param('id');
+    const workspaceId = c.req.param('id');
     const keyId = Number(c.req.param('keyId'));
     if (!Number.isFinite(keyId)) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
@@ -124,8 +124,8 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
       expires_at: string | null;
       revoked_at: string | null;
     }>(
-      'SELECT id, label, scope, expires_at, revoked_at FROM api_keys WHERE id = ? AND team_id = ?',
-      keyId, teamId,
+      'SELECT id, label, scope, expires_at, revoked_at FROM api_keys WHERE id = ? AND workspace_id = ?',
+      keyId, workspaceId,
     );
     if (!existing) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
@@ -141,8 +141,8 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
     const newId = await db.transaction(async (tx) => {
       await tx.run('UPDATE api_keys SET revoked_at = ? WHERE id = ?', revokedAt, keyId);
       const info = await tx.run(
-        'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
-        teamId, keyHash, existing.label, existing.scope, existing.expires_at,
+        'INSERT INTO api_keys (workspace_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
+        workspaceId, keyHash, existing.label, existing.scope, existing.expires_at,
       );
       return info.lastInsertRowid;
     });
@@ -150,7 +150,7 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
     return c.json(
       {
         id: newId,
-        team_id: teamId,
+        workspace_id: workspaceId,
         api_key: rawKey,
         label: existing.label,
         scope: existing.scope,

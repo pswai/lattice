@@ -3,7 +3,7 @@ import { createTestDb } from './helpers.js';
 import {
   createInvitation,
   getInvitationByToken,
-  listTeamInvitations,
+  listWorkspaceInvitations,
   revokeInvitation,
   acceptInvitation,
 } from '../src/models/invitation.js';
@@ -11,7 +11,7 @@ import { createUser } from '../src/models/user.js';
 import { addMembership, getMembership } from '../src/models/membership.js';
 
 function makeTeam(db: ReturnType<typeof createTestDb>, id: string): void {
-  db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(id, `Team ${id}`);
+  db.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(id, `Team ${id}`);
 }
 
 describe('invitations model', () => {
@@ -25,7 +25,7 @@ describe('invitations model', () => {
   it('createInvitation + getInvitationByToken round-trip', async () => {
     const user = await createUser(db, { email: 'owner@example.com', password: 'longenough' });
     const { raw, invitationId } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'invitee@example.com',
       role: 'member',
       invitedBy: user.id,
@@ -34,20 +34,20 @@ describe('invitations model', () => {
     const looked = await getInvitationByToken(db, raw);
     expect(looked).not.toBeNull();
     expect(looked!.id).toBe(invitationId);
-    expect(looked!.teamId).toBe('team-a');
+    expect(looked!.workspaceId).toBe('team-a');
     expect(looked!.role).toBe('member');
   });
 
   it('rejects expired invitations', async () => {
     const user = await createUser(db, { email: 'owner@example.com', password: 'longenough' });
     const { raw, invitationId } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'a@example.com',
       role: 'viewer',
       invitedBy: user.id,
     });
     // Force expiry into the past
-    db.rawDb.prepare('UPDATE team_invitations SET expires_at = ? WHERE id = ?').run(
+    db.rawDb.prepare('UPDATE workspace_invitations SET expires_at = ? WHERE id = ?').run(
       '2000-01-01T00:00:00.000Z',
       invitationId,
     );
@@ -57,7 +57,7 @@ describe('invitations model', () => {
   it('rejects revoked invitations', async () => {
     const user = await createUser(db, { email: 'owner@example.com', password: 'longenough' });
     const { raw, invitationId } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'a@example.com',
       role: 'viewer',
       invitedBy: user.id,
@@ -70,7 +70,7 @@ describe('invitations model', () => {
     const inviter = await createUser(db, { email: 'o@example.com', password: 'longenough' });
     const invitee = await createUser(db, { email: 'i@example.com', password: 'longenough' });
     const { raw } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'i@example.com',
       role: 'member',
       invitedBy: inviter.id,
@@ -79,31 +79,31 @@ describe('invitations model', () => {
     expect(await getInvitationByToken(db, raw)).toBeNull();
   });
 
-  it('listTeamInvitations returns only pending', async () => {
+  it('listWorkspaceInvitations returns only pending', async () => {
     const inviter = await createUser(db, { email: 'o@example.com', password: 'longenough' });
     const invitee = await createUser(db, { email: 'i@example.com', password: 'longenough' });
     const inv1 = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'pending@example.com',
       role: 'member',
       invitedBy: inviter.id,
     });
     const inv2 = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'revoked@example.com',
       role: 'member',
       invitedBy: inviter.id,
     });
     await revokeInvitation(db, inv2.invitationId);
     const inv3 = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'i@example.com',
       role: 'member',
       invitedBy: inviter.id,
     });
     await acceptInvitation(db, inv3.raw, invitee.id);
 
-    const pending = await listTeamInvitations(db, 'team-a');
+    const pending = await listWorkspaceInvitations(db, 'team-a');
     expect(pending).toHaveLength(1);
     expect(pending[0].id).toBe(inv1.invitationId);
     expect(pending[0].email).toBe('pending@example.com');
@@ -113,13 +113,13 @@ describe('invitations model', () => {
     const inviter = await createUser(db, { email: 'o@example.com', password: 'longenough' });
     const invitee = await createUser(db, { email: 'i@example.com', password: 'longenough' });
     const { raw } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'i@example.com',
       role: 'admin',
       invitedBy: inviter.id,
     });
     const result = await acceptInvitation(db, raw, invitee.id);
-    expect(result).toEqual({ teamId: 'team-a', role: 'admin' });
+    expect(result).toEqual({ workspaceId: 'team-a', role: 'admin' });
     const m = await getMembership(db, invitee.id, 'team-a');
     expect(m).not.toBeNull();
     expect(m!.role).toBe('admin');
@@ -130,7 +130,7 @@ describe('invitations model', () => {
     const inviter = await createUser(db, { email: 'o@example.com', password: 'longenough' });
     const invitee = await createUser(db, { email: 'i@example.com', password: 'longenough' });
     const { raw } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'i@example.com',
       role: 'member',
       invitedBy: inviter.id,
@@ -142,9 +142,9 @@ describe('invitations model', () => {
   it('cannot accept for a user already a member', async () => {
     const inviter = await createUser(db, { email: 'o@example.com', password: 'longenough' });
     const invitee = await createUser(db, { email: 'i@example.com', password: 'longenough' });
-    await addMembership(db, { userId: invitee.id, teamId: 'team-a', role: 'member' });
+    await addMembership(db, { userId: invitee.id, workspaceId: 'team-a', role: 'member' });
     const { raw } = await createInvitation(db, {
-      teamId: 'team-a',
+      workspaceId: 'team-a',
       email: 'i@example.com',
       role: 'admin',
       invitedBy: inviter.id,

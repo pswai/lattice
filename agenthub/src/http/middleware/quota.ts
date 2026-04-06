@@ -36,7 +36,7 @@ export function createQuotaMiddleware(
     const isMutating = MUTATING_METHODS.has(method);
 
     if (isMutating) {
-      const state = await getCurrentUsageWithLimits(db, auth.teamId);
+      const state = await getCurrentUsageWithLimits(db, auth.workspaceId);
       if (state.hard) {
         c.header('Retry-After', String(secondsToNextPeriod()));
         return c.json(
@@ -69,7 +69,7 @@ export function createQuotaMiddleware(
     if (isMutating) {
       const status = c.res.status;
       if (status >= 200 && status < 300) {
-        incrementUsageForced(db, auth.teamId, { apiCall: 1 }).catch((err) => {
+        incrementUsageForced(db, auth.workspaceId, { apiCall: 1 }).catch((err) => {
           getLogger().error('quota_counter_bump_failed', {
             error: err instanceof Error ? err.message : String(err),
           });

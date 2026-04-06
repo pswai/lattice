@@ -25,7 +25,7 @@ export function createEventRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
+    const { workspaceId, agentId } = c.get('auth');
 
     // Secret scan on message
     const scan = scanForSecrets(parsed.data.message);
@@ -33,13 +33,13 @@ export function createEventRoutes(db: DbAdapter): Hono {
       throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
     }
 
-    const result = await broadcastEvent(db, teamId, agentId, parsed.data);
+    const result = await broadcastEvent(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /events/wait — long-poll for matching events
   router.get('/wait', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
 
     const sinceIdParam = c.req.query('since_id');
     if (sinceIdParam === undefined) {
@@ -65,13 +65,13 @@ export function createEventRoutes(db: DbAdapter): Hono {
     }
     const event_type = eventTypeParam as EventType | undefined;
 
-    const result = await waitForEvent(db, teamId, { since_id, timeout_sec, topics, event_type });
+    const result = await waitForEvent(db, workspaceId, { since_id, timeout_sec, topics, event_type });
     return c.json(result);
   });
 
   // GET /events — get_updates
   router.get('/', async (c) => {
-    const { teamId, agentId } = c.get('auth');
+    const { workspaceId, agentId } = c.get('auth');
 
     const sinceIdParam = c.req.query('since_id');
     const sinceTimestamp = c.req.query('since_timestamp');
@@ -84,7 +84,7 @@ export function createEventRoutes(db: DbAdapter): Hono {
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
     const include_context = includeContextParam === 'false' ? false : true;
 
-    const result = await getUpdates(db, teamId, {
+    const result = await getUpdates(db, workspaceId, {
       since_id,
       since_timestamp: sinceTimestamp,
       topics,

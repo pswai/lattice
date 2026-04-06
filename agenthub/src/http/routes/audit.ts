@@ -24,13 +24,13 @@ export function createAuditRoutes(db: DbAdapter, config: AppConfig): Hono {
     await next();
   });
 
-  // GET /audit-log?team_id=...&actor=...&action=...&resource_type=...
+  // GET /audit-log?workspace_id=...&actor=...&action=...&resource_type=...
   //              &since=...&until=...&limit=...&before_id=...
   router.get('/audit-log', async (c) => {
-    const teamId = c.req.query('team_id');
-    if (!teamId) {
+    const workspaceId = c.req.query('workspace_id');
+    if (!workspaceId) {
       return c.json(
-        { error: 'VALIDATION_ERROR', message: 'team_id query param is required' },
+        { error: 'VALIDATION_ERROR', message: 'workspace_id query param is required' },
         400,
       );
     }
@@ -63,7 +63,7 @@ export function createAuditRoutes(db: DbAdapter, config: AppConfig): Hono {
     }
 
     const items = await queryAudit(db, {
-      teamId,
+      workspaceId,
       actor: c.req.query('actor'),
       action: c.req.query('action'),
       resourceType: c.req.query('resource_type'),

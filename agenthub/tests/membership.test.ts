@@ -4,12 +4,12 @@ import { createUser } from '../src/models/user.js';
 import {
   addMembership,
   listUserMemberships,
-  listTeamMembers,
+  listWorkspaceMembers,
   getMembership,
 } from '../src/models/membership.js';
 
 function makeTeam(db: ReturnType<typeof createTestDb>, id: string, name: string): void {
-  db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(id, name);
+  db.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(id, name);
 }
 
 describe('Membership model', () => {
@@ -24,7 +24,7 @@ describe('Membership model', () => {
   });
 
   it('adds and fetches memberships', async () => {
-    const m = await addMembership(db, { userId, teamId: 'team-a', role: 'owner' });
+    const m = await addMembership(db, { userId, workspaceId: 'team-a', role: 'owner' });
     expect(m.role).toBe('owner');
     const fetched = await getMembership(db, userId, 'team-a');
     expect(fetched).not.toBeNull();
@@ -33,32 +33,32 @@ describe('Membership model', () => {
   });
 
   it('lists memberships by user, joined with team name', async () => {
-    await addMembership(db, { userId, teamId: 'team-a', role: 'owner' });
-    await addMembership(db, { userId, teamId: 'team-b', role: 'member' });
+    await addMembership(db, { userId, workspaceId: 'team-a', role: 'owner' });
+    await addMembership(db, { userId, workspaceId: 'team-b', role: 'member' });
     const list = await listUserMemberships(db, userId);
     expect(list).toHaveLength(2);
-    expect(list.map((m) => m.teamId).sort()).toEqual(['team-a', 'team-b']);
-    expect(list.find((m) => m.teamId === 'team-a')!.teamName).toBe('Team A');
-    expect(list.find((m) => m.teamId === 'team-a')!.role).toBe('owner');
+    expect(list.map((m) => m.workspaceId).sort()).toEqual(['team-a', 'team-b']);
+    expect(list.find((m) => m.workspaceId === 'team-a')!.workspaceName).toBe('Team A');
+    expect(list.find((m) => m.workspaceId === 'team-a')!.role).toBe('owner');
   });
 
   it('lists team members, joined with user email', async () => {
     const other = (await createUser(db, { email: 'other@example.com', password: 'longenough-pass' })).id;
-    await addMembership(db, { userId, teamId: 'team-a', role: 'owner' });
-    await addMembership(db, { userId: other, teamId: 'team-a', role: 'member' });
-    const members = await listTeamMembers(db, 'team-a');
+    await addMembership(db, { userId, workspaceId: 'team-a', role: 'owner' });
+    await addMembership(db, { userId: other, workspaceId: 'team-a', role: 'member' });
+    const members = await listWorkspaceMembers(db, 'team-a');
     expect(members).toHaveLength(2);
     expect(members.map((m) => m.email).sort()).toEqual(['other@example.com', 'owner@example.com']);
   });
 
   it('enforces role CHECK constraint', async () => {
     await expect(
-      addMembership(db, { userId, teamId: 'team-a', role: 'superlord' as never }),
+      addMembership(db, { userId, workspaceId: 'team-a', role: 'superlord' as never }),
     ).rejects.toThrow();
   });
 
-  it('enforces PK uniqueness on (user_id, team_id)', async () => {
-    await addMembership(db, { userId, teamId: 'team-a', role: 'owner' });
-    await expect(addMembership(db, { userId, teamId: 'team-a', role: 'member' })).rejects.toThrow();
+  it('enforces PK uniqueness on (user_id, workspace_id)', async () => {
+    await addMembership(db, { userId, workspaceId: 'team-a', role: 'owner' });
+    await expect(addMembership(db, { userId, workspaceId: 'team-a', role: 'member' })).rejects.toThrow();
   });
 });

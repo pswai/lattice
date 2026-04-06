@@ -24,7 +24,7 @@ describe('Admin API', () => {
 
       expect(res.status).toBe(201);
       const data = await res.json();
-      expect(data.team_id).toBe('new-team');
+      expect(data.workspace_id).toBe('new-team');
       expect(data.api_key).toMatch(/^lt_/);
     });
 
@@ -76,7 +76,7 @@ describe('Admin API', () => {
 
   describe('POST /admin/teams/:id/keys', () => {
     it('should create a new API key for an existing team', async () => {
-      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.teamId}/keys`, {
+      const res = await request(ctx.app, 'POST', `/admin/teams/${ctx.workspaceId}/keys`, {
         headers: adminHeaders(),
         body: { label: 'ci-key' },
       });

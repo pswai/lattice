@@ -29,19 +29,19 @@ export async function refreshGaugesFromDb(db: DbAdapter, opts: { force?: boolean
 
   try {
     activeAgentsGauge.reset();
-    const agentRows = await db.all<{ team_id: string; n: number }>(
-      "SELECT team_id, COUNT(*) as n FROM agents WHERE status = 'online' GROUP BY team_id",
+    const agentRows = await db.all<{ workspace_id: string; n: number }>(
+      "SELECT workspace_id, COUNT(*) as n FROM agents WHERE status = 'online' GROUP BY workspace_id",
     );
     for (const row of agentRows) {
-      activeAgentsGauge.set({ team: row.team_id }, row.n);
+      activeAgentsGauge.set({workspace: row.workspace_id }, row.n);
     }
 
     tasksGauge.reset();
-    const taskRows = await db.all<{ team_id: string; status: string; n: number }>(
-      'SELECT team_id, status, COUNT(*) as n FROM tasks GROUP BY team_id, status',
+    const taskRows = await db.all<{ workspace_id: string; status: string; n: number }>(
+      'SELECT workspace_id, status, COUNT(*) as n FROM tasks GROUP BY workspace_id, status',
     );
     for (const row of taskRows) {
-      tasksGauge.set({ team: row.team_id, status: row.status }, row.n);
+      tasksGauge.set({workspace: row.workspace_id, status: row.status }, row.n);
     }
   } catch {
     // If DB is unavailable, leave previous gauge values intact. /readyz

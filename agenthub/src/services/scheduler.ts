@@ -29,7 +29,7 @@ export async function runDueSchedules(db: DbAdapter): Promise<number> {
     try {
       const run = await runPlaybook(
         db,
-        schedule.teamId,
+        schedule.workspaceId,
         SCHEDULER_AGENT_ID,
         schedule.playbookName,
       );
@@ -38,7 +38,7 @@ export async function runDueSchedules(db: DbAdapter): Promise<number> {
 
       await broadcastInternal(
         db,
-        schedule.teamId,
+        schedule.workspaceId,
         'BROADCAST',
         `Schedule #${schedule.id} fired: ran playbook "${schedule.playbookName}" (workflow_run ${run.workflow_run_id})`,
         ['schedule_fired', 'scheduler'],
@@ -49,7 +49,7 @@ export async function runDueSchedules(db: DbAdapter): Promise<number> {
       const message = err instanceof Error ? err.message : String(err);
       await broadcastInternal(
         db,
-        schedule.teamId,
+        schedule.workspaceId,
         'ERROR',
         `Schedule #${schedule.id} failed: ${message}`,
         ['schedule_fired', 'scheduler', 'error'],

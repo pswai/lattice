@@ -26,29 +26,29 @@ export function createAgentRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId } = c.get('auth');
-    const result = await registerAgent(db, teamId, parsed.data);
+    const { workspaceId } = c.get('auth');
+    const result = await registerAgent(db, workspaceId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /agents — list agents with optional filters
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const capability = c.req.query('capability');
     const status = c.req.query('status') as 'online' | 'offline' | 'busy' | undefined;
 
-    const result = await listAgents(db, teamId, { capability, status });
+    const result = await listAgents(db, workspaceId, { capability, status });
     return c.json(result);
   });
 
   // POST /agents/:id/heartbeat — keep agent alive
   router.post('/:id/heartbeat', async (c) => {
     const agentId = c.req.param('id');
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
     const body = await c.req.json().catch(() => ({}));
     const parsed = HeartbeatSchema.safeParse(body);
 
-    const result = await heartbeat(db, teamId, agentId, parsed.success ? parsed.data.status : undefined);
+    const result = await heartbeat(db, workspaceId, agentId, parsed.success ? parsed.data.status : undefined);
     return c.json(result);
   });
 

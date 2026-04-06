@@ -54,9 +54,9 @@ describe('PATCH /workspaces/:id', () => {
       body: { name: 'New Name' },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { team_id: string; name: string };
-    expect(body).toEqual({ team_id: 'ws', name: 'New Name' });
-    const row = db.prepare('SELECT name FROM teams WHERE id = ?').get('ws') as { name: string };
+    const body = (await res.json()) as { workspace_id: string; name: string };
+    expect(body).toEqual({ workspace_id: 'ws', name: 'New Name' });
+    const row = db.prepare('SELECT name FROM workspaces WHERE id = ?').get('ws') as { name: string };
     expect(row.name).toBe('New Name');
   });
 
@@ -68,7 +68,7 @@ describe('PATCH /workspaces/:id', () => {
     });
     const adminCookie = await signup(app, 'a@example.com');
     db.prepare(
-      "INSERT INTO team_memberships (user_id, team_id, role) SELECT id, 'ws', 'admin' FROM users WHERE email = 'a@example.com'",
+      "INSERT INTO workspace_memberships (user_id, workspace_id, role) SELECT id, 'ws', 'admin' FROM users WHERE email = 'a@example.com'",
     ).run();
     const res = await req(app, 'PATCH', '/workspaces/ws', {
       cookie: adminCookie,
@@ -85,7 +85,7 @@ describe('PATCH /workspaces/:id', () => {
     });
     const memberCookie = await signup(app, 'm@example.com');
     db.prepare(
-      "INSERT INTO team_memberships (user_id, team_id, role) SELECT id, 'ws', 'member' FROM users WHERE email = 'm@example.com'",
+      "INSERT INTO workspace_memberships (user_id, workspace_id, role) SELECT id, 'ws', 'member' FROM users WHERE email = 'm@example.com'",
     ).run();
     const res = await req(app, 'PATCH', '/workspaces/ws', {
       cookie: memberCookie,

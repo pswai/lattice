@@ -69,7 +69,7 @@ curl -X POST http://localhost:3000/admin/teams \
 Response:
 
 ```json
-{ "team_id": "my-team", "api_key": "ah_<64-hex-chars>" }
+{ "team_id": "my-team", "api_key": "lt_<64-hex-chars>" }
 ```
 
 **Save the `api_key`** — it is shown only once. If you lose it, mint a new one:
@@ -87,7 +87,7 @@ Every `/api/v1/*` request needs the team API key:
 
 ```bash
 curl http://localhost:3000/api/v1/tasks \
-  -H "Authorization: Bearer ah_<your-key>"
+  -H "Authorization: Bearer lt_<your-key>"
 ```
 
 Point your MCP clients at `http://localhost:3000/mcp` with the same bearer

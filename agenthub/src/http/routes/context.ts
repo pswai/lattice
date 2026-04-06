@@ -22,7 +22,7 @@ export function createContextRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const { teamId, agentId } = c.get('auth');
+    const { workspaceId, agentId } = c.get('auth');
 
     // Secret scan on both key and value
     for (const field of [parsed.data.key, parsed.data.value]) {
@@ -33,14 +33,14 @@ export function createContextRoutes(db: DbAdapter): Hono {
     }
 
     // saveContext handles both DB write and auto-broadcast of LEARNING event
-    const result = await saveContext(db, teamId, agentId, parsed.data);
+    const result = await saveContext(db, workspaceId, agentId, parsed.data);
 
     return c.json(result, 201);
   });
 
   // GET /context — get_context
   router.get('/', async (c) => {
-    const { teamId } = c.get('auth');
+    const { workspaceId } = c.get('auth');
 
     const query = c.req.query('query') || '';
     const tagsParam = c.req.query('tags');
@@ -49,7 +49,7 @@ export function createContextRoutes(db: DbAdapter): Hono {
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = await getContext(db, teamId, { query, tags, limit });
+    const result = await getContext(db, workspaceId, { query, tags, limit });
     return c.json(result);
   });
 

@@ -5,7 +5,7 @@ import { assertPublicUrl } from '../services/ssrf-guard.js';
 
 export interface Webhook {
   id: string;
-  teamId: string;
+  workspaceId: string;
   url: string;
   secret: string;
   eventTypes: string[];
@@ -31,7 +31,7 @@ export interface WebhookDelivery {
 
 interface WebhookRow {
   id: string;
-  team_id: string;
+  workspace_id: string;
   url: string;
   secret: string;
   event_types: string;
@@ -58,7 +58,7 @@ interface DeliveryRow {
 function rowToWebhook(row: WebhookRow): Webhook {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     url: row.url,
     secret: row.secret,
     eventTypes: JSON.parse(row.event_types) as string[],
@@ -106,7 +106,7 @@ export interface CreateWebhookInput {
 
 export async function createWebhook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: CreateWebhookInput,
 ): Promise<Webhook> {
@@ -145,42 +145,42 @@ export async function createWebhook(
   const secret = generateSecret();
 
   await db.run(`
-    INSERT INTO webhooks (id, team_id, url, secret, event_types, created_by)
+    INSERT INTO webhooks (id, workspace_id, url, secret, event_types, created_by)
     VALUES (?, ?, ?, ?, ?, ?)
-  `, id, teamId, input.url, secret, JSON.stringify(eventTypes), agentId);
+  `, id, workspaceId, input.url, secret, JSON.stringify(eventTypes), agentId);
 
-  return getWebhook(db, teamId, id);
+  return getWebhook(db, workspaceId, id);
 }
 
 export async function getWebhook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: string,
 ): Promise<Webhook> {
   const row = await db.get<WebhookRow>(
-    'SELECT * FROM webhooks WHERE id = ? AND team_id = ?',
-    id, teamId,
+    'SELECT * FROM webhooks WHERE id = ? AND workspace_id = ?',
+    id, workspaceId,
   );
   if (!row) throw new NotFoundError('Webhook', id);
   return rowToWebhook(row);
 }
 
-export async function listWebhooks(db: DbAdapter, teamId: string): Promise<Webhook[]> {
+export async function listWebhooks(db: DbAdapter, workspaceId: string): Promise<Webhook[]> {
   const rows = await db.all<WebhookRow>(
-    'SELECT * FROM webhooks WHERE team_id = ? ORDER BY created_at DESC',
-    teamId,
+    'SELECT * FROM webhooks WHERE workspace_id = ? ORDER BY created_at DESC',
+    workspaceId,
   );
   return rows.map(rowToWebhook);
 }
 
 export async function deleteWebhook(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   id: string,
 ): Promise<{ deleted: boolean }> {
   const result = await db.run(
-    'DELETE FROM webhooks WHERE id = ? AND team_id = ?',
-    id, teamId,
+    'DELETE FROM webhooks WHERE id = ? AND workspace_id = ?',
+    id, workspaceId,
   );
   if (result.changes === 0) throw new NotFoundError('Webhook', id);
   return { deleted: true };
@@ -188,12 +188,12 @@ export async function deleteWebhook(
 
 export async function listActiveWebhooksForEvent(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   eventType: string,
 ): Promise<Webhook[]> {
   const rows = await db.all<WebhookRow>(
-    'SELECT * FROM webhooks WHERE team_id = ? AND active = 1',
-    teamId,
+    'SELECT * FROM webhooks WHERE workspace_id = ? AND active = 1',
+    workspaceId,
   );
   return rows
     .map(rowToWebhook)
@@ -219,12 +219,12 @@ export async function createDelivery(
 
 export async function listDeliveries(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   webhookId: string,
   limit = 100,
 ): Promise<WebhookDelivery[]> {
   // Verify the webhook belongs to this team before exposing deliveries
-  await getWebhook(db, teamId, webhookId);
+  await getWebhook(db, workspaceId, webhookId);
   const rows = await db.all<DeliveryRow>(
     'SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?',
     webhookId, Math.min(limit, 200),
@@ -235,14 +235,14 @@ export async function listDeliveries(
 export async function getPendingDeliveries(
   db: DbAdapter,
   limit = 50,
-): Promise<Array<WebhookDelivery & { teamId: string; url: string; secret: string; failureCount: number }>> {
+): Promise<Array<WebhookDelivery & { workspaceId: string; url: string; secret: string; failureCount: number }>> {
   const rows = await db.all<DeliveryRow & {
-    team_id: string;
+    workspace_id: string;
     url: string;
     secret: string;
     failure_count: number;
   }>(`
-    SELECT d.*, w.team_id, w.url, w.secret, w.failure_count
+    SELECT d.*, w.workspace_id, w.url, w.secret, w.failure_count
     FROM webhook_deliveries d
     JOIN webhooks w ON w.id = d.webhook_id
     WHERE d.status = 'pending'
@@ -253,7 +253,7 @@ export async function getPendingDeliveries(
   `, new Date().toISOString(), limit);
   return rows.map((row) => ({
     ...rowToDelivery(row),
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     url: row.url,
     secret: row.secret,
     failureCount: row.failure_count,

@@ -8,7 +8,7 @@ import {
   addMembership,
   listUserMemberships,
   getMembership,
-  listTeamMembers,
+  listWorkspaceMembers,
   changeRole,
   removeMembership,
   countOwners,
@@ -17,7 +17,7 @@ import {
 import { getCurrentUsageWithLimits } from '../../models/usage.js';
 import {
   createInvitation,
-  listTeamInvitations,
+  listWorkspaceInvitations,
   getInvitationById,
   revokeInvitation,
   acceptInvitation,
@@ -60,11 +60,11 @@ const ChangeRoleSchema = z.object({
 async function assertMembership(
   db: DbAdapter,
   userId: string,
-  teamId: string,
+  workspaceId: string,
 ): Promise<MembershipRole> {
-  const membership = await getMembership(db, userId, teamId);
+  const membership = await getMembership(db, userId, workspaceId);
   if (!membership) {
-    throw new NotFoundError('Workspace', teamId);
+    throw new NotFoundError('Workspace', workspaceId);
   }
   return membership.role;
 }
@@ -72,10 +72,10 @@ async function assertMembership(
 async function assertRole(
   db: DbAdapter,
   userId: string,
-  teamId: string,
+  workspaceId: string,
   allowed: MembershipRole[],
 ): Promise<MembershipRole> {
-  const role = await assertMembership(db, userId, teamId);
+  const role = await assertMembership(db, userId, workspaceId);
   if (!allowed.includes(role)) {
     throw new ForbiddenError(
       `This action requires one of roles: ${allowed.join(', ')}`,
@@ -101,7 +101,7 @@ export function createWorkspaceRoutes(
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
     const result = await acceptInvitation(db, parsed.data.token, session.userId);
-    return c.json({ team_id: result.teamId, role: result.role }, 201);
+    return c.json({ workspace_id: result.workspaceId, role: result.role }, 201);
   });
 
   router.post('/', requireSession, async (c) => {
@@ -119,7 +119,7 @@ export function createWorkspaceRoutes(
     await db.transaction(async (tx) => {
       try {
         await tx.run(
-          'INSERT INTO teams (id, name, owner_user_id, slug) VALUES (?, ?, ?, ?)',
+          'INSERT INTO workspaces (id, name, owner_user_id, slug) VALUES (?, ?, ?, ?)',
           id, name, session.userId, id,
         );
       } catch (err: unknown) {
@@ -128,15 +128,15 @@ export function createWorkspaceRoutes(
         }
         throw err;
       }
-      await addMembership(tx, { userId: session.userId, teamId: id, role: 'owner' });
+      await addMembership(tx, { userId: session.userId, workspaceId: id, role: 'owner' });
       await tx.run(
-        'INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
+        'INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
         id, keyHash, 'default', 'write',
       );
     });
 
     return c.json(
-      { team_id: id, name, api_key: rawKey, scope: 'write' as const, role: 'owner' as const },
+      { workspace_id: id, name, api_key: rawKey, scope: 'write' as const, role: 'owner' as const },
       201,
     );
   });
@@ -146,8 +146,8 @@ export function createWorkspaceRoutes(
     const memberships = await listUserMemberships(db, session.userId);
     return c.json({
       workspaces: memberships.map((m) => ({
-        team_id: m.teamId,
-        name: m.teamName,
+        workspace_id: m.workspaceId,
+        name: m.workspaceName,
         role: m.role,
         joined_at: m.joinedAt,
       })),
@@ -156,21 +156,21 @@ export function createWorkspaceRoutes(
 
   router.patch('/:id', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    const workspaceId = c.req.param('id');
+    await assertRole(db, session.userId, workspaceId, ['owner', 'admin']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = RenameWorkspaceSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    await db.run('UPDATE teams SET name = ? WHERE id = ?', parsed.data.name, teamId);
-    return c.json({ team_id: teamId, name: parsed.data.name });
+    await db.run('UPDATE workspaces SET name = ? WHERE id = ?', parsed.data.name, workspaceId);
+    return c.json({ workspace_id: workspaceId, name: parsed.data.name });
   });
 
   router.delete('/:id', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    const membership = await getMembership(db, session.userId, teamId);
+    const workspaceId = c.req.param('id');
+    const membership = await getMembership(db, session.userId, workspaceId);
     if (!membership) {
       return c.json({ error: 'NOT_FOUND', message: 'Workspace not found' }, 404);
     }
@@ -179,10 +179,10 @@ export function createWorkspaceRoutes(
     }
 
     await db.transaction(async (tx) => {
-      await tx.run('DELETE FROM api_keys WHERE team_id = ?', teamId);
-      await tx.run('DELETE FROM team_memberships WHERE team_id = ?', teamId);
-      await tx.run('DELETE FROM team_invitations WHERE team_id = ?', teamId);
-      await tx.run('DELETE FROM teams WHERE id = ?', teamId);
+      await tx.run('DELETE FROM api_keys WHERE workspace_id = ?', workspaceId);
+      await tx.run('DELETE FROM workspace_memberships WHERE workspace_id = ?', workspaceId);
+      await tx.run('DELETE FROM workspace_invitations WHERE workspace_id = ?', workspaceId);
+      await tx.run('DELETE FROM workspaces WHERE id = ?', workspaceId);
     });
 
     return c.body(null, 204);
@@ -192,15 +192,15 @@ export function createWorkspaceRoutes(
 
   router.post('/:id/invites', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    const workspaceId = c.req.param('id');
+    await assertRole(db, session.userId, workspaceId, ['owner', 'admin']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = InviteSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
     const { raw, invitationId, expiresAt } = await createInvitation(db, {
-      teamId,
+      workspaceId,
       email: parsed.data.email,
       role: parsed.data.role,
       invitedBy: session.userId,
@@ -208,9 +208,9 @@ export function createWorkspaceRoutes(
 
     if (emailSender && config) {
       const acceptUrl = `${config.appBaseUrl}/workspaces/invites/accept?token=${raw}`;
-      const emailBody = `You've been invited to join workspace "${teamId}" on Lattice as ${parsed.data.role}.\n\nAccept the invitation by clicking the link below:\n\n${acceptUrl}\n\nThis invite expires on ${expiresAt}.`;
+      const emailBody = `You've been invited to join workspace "${workspaceId}" on Lattice as ${parsed.data.role}.\n\nAccept the invitation by clicking the link below:\n\n${acceptUrl}\n\nThis invite expires on ${expiresAt}.`;
       emailSender
-        .send(parsed.data.email, `You're invited to ${teamId} on Lattice`, emailBody)
+        .send(parsed.data.email, `You're invited to ${workspaceId} on Lattice`, emailBody)
         .catch((err: unknown) => {
           getLogger().error('email_send_failed', {
             to: parsed.data.email,
@@ -232,9 +232,9 @@ export function createWorkspaceRoutes(
 
   router.get('/:id/invites', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
-    const invitations = await listTeamInvitations(db, teamId);
+    const workspaceId = c.req.param('id');
+    await assertRole(db, session.userId, workspaceId, ['owner', 'admin']);
+    const invitations = await listWorkspaceInvitations(db, workspaceId);
     return c.json(
       invitations.map((inv) => ({
         id: inv.id,
@@ -249,11 +249,11 @@ export function createWorkspaceRoutes(
 
   router.delete('/:id/invites/:invId', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
+    const workspaceId = c.req.param('id');
     const invId = c.req.param('invId');
-    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    await assertRole(db, session.userId, workspaceId, ['owner', 'admin']);
     const inv = await getInvitationById(db, invId);
-    if (!inv || inv.teamId !== teamId) {
+    if (!inv || inv.workspaceId !== workspaceId) {
       return c.json({ error: 'NOT_FOUND', message: 'Invitation not found' }, 404);
     }
     await revokeInvitation(db, invId);
@@ -264,9 +264,9 @@ export function createWorkspaceRoutes(
 
   router.get('/:id/members', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    await assertMembership(db, session.userId, teamId);
-    const members = await listTeamMembers(db, teamId);
+    const workspaceId = c.req.param('id');
+    await assertMembership(db, session.userId, workspaceId);
+    const members = await listWorkspaceMembers(db, workspaceId);
     return c.json(
       members.map((m) => ({
         user_id: m.userId,
@@ -280,20 +280,20 @@ export function createWorkspaceRoutes(
 
   router.patch('/:id/members/:userId', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
+    const workspaceId = c.req.param('id');
     const targetUserId = c.req.param('userId');
-    await assertRole(db, session.userId, teamId, ['owner']);
+    await assertRole(db, session.userId, workspaceId, ['owner']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = ChangeRoleSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const target = await getMembership(db, targetUserId, teamId);
+    const target = await getMembership(db, targetUserId, workspaceId);
     if (!target) {
       return c.json({ error: 'NOT_FOUND', message: 'Member not found' }, 404);
     }
     const newRole = parsed.data.role;
-    if (target.role === 'owner' && newRole !== 'owner' && await countOwners(db, teamId) === 1) {
+    if (target.role === 'owner' && newRole !== 'owner' && await countOwners(db, workspaceId) === 1) {
       return c.json(
         {
           error: 'LAST_OWNER_DEMOTION',
@@ -302,29 +302,29 @@ export function createWorkspaceRoutes(
         409,
       );
     }
-    await changeRole(db, targetUserId, teamId, newRole);
-    const refreshed = (await getMembership(db, targetUserId, teamId))!;
+    await changeRole(db, targetUserId, workspaceId, newRole);
+    const refreshed = (await getMembership(db, targetUserId, workspaceId))!;
     return c.json({
       user_id: refreshed.userId,
-      team_id: refreshed.teamId,
+      workspace_id: refreshed.workspaceId,
       role: refreshed.role,
     });
   });
 
   router.delete('/:id/members/:userId', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
+    const workspaceId = c.req.param('id');
     const targetUserId = c.req.param('userId');
-    const selfRole = await assertMembership(db, session.userId, teamId);
+    const selfRole = await assertMembership(db, session.userId, workspaceId);
     const isSelf = session.userId === targetUserId;
     if (!isSelf && selfRole !== 'owner') {
       throw new ForbiddenError('Only the workspace owner can remove other members');
     }
-    const target = await getMembership(db, targetUserId, teamId);
+    const target = await getMembership(db, targetUserId, workspaceId);
     if (!target) {
       return c.json({ error: 'NOT_FOUND', message: 'Member not found' }, 404);
     }
-    if (target.role === 'owner' && await countOwners(db, teamId) === 1) {
+    if (target.role === 'owner' && await countOwners(db, workspaceId) === 1) {
       return c.json(
         {
           error: 'LAST_OWNER_REMOVAL',
@@ -333,7 +333,7 @@ export function createWorkspaceRoutes(
         409,
       );
     }
-    await removeMembership(db, targetUserId, teamId);
+    await removeMembership(db, targetUserId, workspaceId);
     return c.body(null, 204);
   });
 
@@ -341,8 +341,8 @@ export function createWorkspaceRoutes(
 
   router.get('/:id/audit', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    const membership = await getMembership(db, session.userId, teamId);
+    const workspaceId = c.req.param('id');
+    const membership = await getMembership(db, session.userId, workspaceId);
     if (!membership) {
       return c.json({ error: 'FORBIDDEN', message: 'Not a member of this workspace' }, 403);
     }
@@ -365,7 +365,7 @@ export function createWorkspaceRoutes(
       beforeId = decoded;
     }
 
-    const rows = await queryAuditLog(db, teamId, {
+    const rows = await queryAuditLog(db, workspaceId, {
       actor: q.actor,
       action: q.action,
       resource: q.resource,
@@ -409,10 +409,10 @@ export function createWorkspaceRoutes(
   // ─── Usage ────────────────────────────────────────────────────────
   router.get('/:id/usage', requireSession, async (c) => {
     const session = c.get('session')!;
-    const teamId = c.req.param('id');
-    await assertMembership(db, session.userId, teamId);
+    const workspaceId = c.req.param('id');
+    await assertMembership(db, session.userId, workspaceId);
 
-    const result = await getCurrentUsageWithLimits(db, teamId);
+    const result = await getCurrentUsageWithLimits(db, workspaceId);
     return c.json({
       period: result.period,
       usage: {

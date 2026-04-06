@@ -47,8 +47,8 @@ export function createMetricsMiddleware() {
       const route = normalizeRoute(rawRoute);
       const method = c.req.method;
       const status = threw ? 500 : c.res.status;
-      const auth = c.get('auth' as never) as { teamId?: string } | undefined;
-      const team = auth?.teamId ?? 'unknown';
+      const auth = c.get('auth' as never) as { workspaceId?: string } | undefined;
+      const team = auth?.workspaceId ?? 'unknown';
 
       httpRequestDurationMs.observe({ method, route }, dur);
       httpRequestsTotal.inc({ method, route, status, team }, 1);

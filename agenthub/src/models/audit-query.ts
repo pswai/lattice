@@ -12,7 +12,7 @@ export interface AuditQueryFilters {
 
 export interface AuditEntryRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   actor: string;
   action: string;
   resource_type: string | null;
@@ -33,11 +33,11 @@ export const MAX_AUDIT_LIMIT = 500;
  */
 export async function queryAuditLog(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   filters: AuditQueryFilters,
 ): Promise<AuditEntryRow[]> {
-  const where: string[] = ['team_id = ?'];
-  const params: unknown[] = [teamId];
+  const where: string[] = ['workspace_id = ?'];
+  const params: unknown[] = [workspaceId];
 
   if (filters.actor) {
     where.push('actor = ?');
@@ -68,7 +68,7 @@ export async function queryAuditLog(
   const limit = Math.min(Math.max(1, Math.floor(requested)), MAX_AUDIT_LIMIT);
   params.push(limit);
 
-  const sql = `SELECT id, team_id, actor, action, resource_type, resource_id,
+  const sql = `SELECT id, workspace_id, actor, action, resource_type, resource_id,
                       metadata, ip, request_id, created_at
                FROM audit_log
                WHERE ${where.join(' AND ')}

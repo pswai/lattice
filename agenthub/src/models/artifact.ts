@@ -26,7 +26,7 @@ export const ALLOWED_CONTENT_TYPES: readonly ArtifactContentType[] = [
 
 interface ArtifactRow {
   id: number;
-  team_id: string;
+  workspace_id: string;
   key: string;
   content_type: string;
   content: string;
@@ -40,7 +40,7 @@ interface ArtifactRow {
 function rowToArtifact(row: ArtifactRow): Artifact {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     key: row.key,
     contentType: row.content_type as ArtifactContentType,
     content: row.content,
@@ -55,7 +55,7 @@ function rowToArtifact(row: ArtifactRow): Artifact {
 function rowToSummary(row: Omit<ArtifactRow, 'content'>): ArtifactSummary {
   return {
     id: row.id,
-    teamId: row.team_id,
+    workspaceId: row.workspace_id,
     key: row.key,
     contentType: row.content_type as ArtifactContentType,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
@@ -72,7 +72,7 @@ function isAllowedContentType(ct: string): ct is ArtifactContentType {
 
 export async function saveArtifact(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   agentId: string,
   input: SaveArtifactInput,
 ): Promise<SaveArtifactResponse> {
@@ -99,8 +99,8 @@ export async function saveArtifact(
   const metadataJson = JSON.stringify(input.metadata ?? {});
 
   const existing = await db.get<{ id: number }>(
-    'SELECT id FROM artifacts WHERE team_id = ? AND key = ?',
-    teamId, input.key,
+    'SELECT id FROM artifacts WHERE workspace_id = ? AND key = ?',
+    workspaceId, input.key,
   );
 
   let artifactId: number;
@@ -109,14 +109,14 @@ export async function saveArtifact(
       UPDATE artifacts
       SET content_type = ?, content = ?, metadata = ?, size = ?, created_by = ?,
           updated_at = ?
-      WHERE team_id = ? AND key = ?
-    `, input.content_type, input.content, metadataJson, size, agentId, new Date().toISOString(), teamId, input.key);
+      WHERE workspace_id = ? AND key = ?
+    `, input.content_type, input.content, metadataJson, size, agentId, new Date().toISOString(), workspaceId, input.key);
     artifactId = existing.id;
   } else {
     const result = await db.run(`
-      INSERT INTO artifacts (team_id, key, content_type, content, metadata, size, created_by)
+      INSERT INTO artifacts (workspace_id, key, content_type, content, metadata, size, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, teamId, input.key, input.content_type, input.content, metadataJson, size, agentId);
+    `, workspaceId, input.key, input.content_type, input.content, metadataJson, size, agentId);
     artifactId = Number(result.lastInsertRowid);
   }
 
@@ -130,12 +130,12 @@ export async function saveArtifact(
 
 export async function getArtifact(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   key: string,
 ): Promise<Artifact> {
   const row = await db.get<ArtifactRow>(
-    'SELECT * FROM artifacts WHERE team_id = ? AND key = ?',
-    teamId, key,
+    'SELECT * FROM artifacts WHERE workspace_id = ? AND key = ?',
+    workspaceId, key,
   );
   if (!row) {
     throw new NotFoundError('Artifact', key);
@@ -145,7 +145,7 @@ export async function getArtifact(
 
 export async function listArtifacts(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   input: ListArtifactsInput,
 ): Promise<ListArtifactsResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
@@ -161,28 +161,28 @@ export async function listArtifacts(
       );
     }
     rows = await db.all<Omit<ArtifactRow, 'content'>>(`
-      SELECT id, team_id, key, content_type, metadata, size, created_by, created_at, updated_at
+      SELECT id, workspace_id, key, content_type, metadata, size, created_by, created_at, updated_at
       FROM artifacts
-      WHERE team_id = ? AND content_type = ?
+      WHERE workspace_id = ? AND content_type = ?
       ORDER BY updated_at DESC
       LIMIT ?
-    `, teamId, input.content_type, limit);
+    `, workspaceId, input.content_type, limit);
     const countRow = await db.get<{ cnt: number }>(
-      'SELECT COUNT(*) as cnt FROM artifacts WHERE team_id = ? AND content_type = ?',
-      teamId, input.content_type,
+      'SELECT COUNT(*) as cnt FROM artifacts WHERE workspace_id = ? AND content_type = ?',
+      workspaceId, input.content_type,
     );
     total = countRow!.cnt;
   } else {
     rows = await db.all<Omit<ArtifactRow, 'content'>>(`
-      SELECT id, team_id, key, content_type, metadata, size, created_by, created_at, updated_at
+      SELECT id, workspace_id, key, content_type, metadata, size, created_by, created_at, updated_at
       FROM artifacts
-      WHERE team_id = ?
+      WHERE workspace_id = ?
       ORDER BY updated_at DESC
       LIMIT ?
-    `, teamId, limit);
+    `, workspaceId, limit);
     const countRow = await db.get<{ cnt: number }>(
-      'SELECT COUNT(*) as cnt FROM artifacts WHERE team_id = ?',
-      teamId,
+      'SELECT COUNT(*) as cnt FROM artifacts WHERE workspace_id = ?',
+      workspaceId,
     );
     total = countRow!.cnt;
   }
@@ -195,12 +195,12 @@ export async function listArtifacts(
 
 export async function deleteArtifact(
   db: DbAdapter,
-  teamId: string,
+  workspaceId: string,
   key: string,
 ): Promise<{ deleted: boolean }> {
   const result = await db.run(
-    'DELETE FROM artifacts WHERE team_id = ? AND key = ?',
-    teamId, key,
+    'DELETE FROM artifacts WHERE workspace_id = ? AND key = ?',
+    workspaceId, key,
   );
   if (result.changes === 0) {
     throw new NotFoundError('Artifact', key);

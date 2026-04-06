@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
-import { setupTeam } from './helpers.js';
+import { setupWorkspace } from './helpers.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { testConfig } from './helpers.js';
@@ -195,7 +195,7 @@ describe('Agent Profiles API', () => {
       });
 
       // create team B on the same DB, own app instance
-      const teamB = setupTeam(ctx.db, 'team-b', 'ltk_team_b_key_1234567890abcdef');
+      const teamB = setupWorkspace(ctx.db, 'team-b', 'ltk_team_b_key_1234567890abcdef');
       const appB = createApp(ctx.db, () => createMcpServer(ctx.db), testConfig());
       const headersB = authHeaders(teamB.apiKey);
 

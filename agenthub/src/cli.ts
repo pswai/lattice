@@ -80,14 +80,14 @@ async function initCommand(): Promise<void> {
   console.log(bold('\n  Lattice Setup\n'));
 
   // 1. Team name
-  const teamName = await ask(rl, 'Team name', 'My Team');
-  const defaultId = teamName
+  const workspaceName = await ask(rl, 'Team name', 'My Team');
+  const defaultId = workspaceName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || `team-${randomBytes(4).toString('hex')}`;
-  const teamId = await ask(rl, 'Team ID (lowercase, hyphens ok)', defaultId);
+  const workspaceId = await ask(rl, 'Team ID (lowercase, hyphens ok)', defaultId);
 
-  if (!/^[a-z0-9_-]+$/.test(teamId)) {
+  if (!/^[a-z0-9_-]+$/.test(workspaceId)) {
     console.error(red('\n  Team ID must be lowercase letters, numbers, hyphens, or underscores.\n'));
     rl.close();
     process.exit(1);
@@ -113,17 +113,17 @@ async function initCommand(): Promise<void> {
   const { createSqliteAdapter } = await import('./db/connection.js');
   const adapter = createSqliteAdapter(resolvedDbPath);
 
-  const existing = await adapter.get<{ id: string }>('SELECT id FROM teams WHERE id = ?', teamId);
+  const existing = await adapter.get<{ id: string }>('SELECT id FROM workspaces WHERE id = ?', workspaceId);
   if (existing) {
-    console.log(yellow(`  Team "${teamId}" already exists — generating a new API key.\n`));
+    console.log(yellow(`  Team "${workspaceId}" already exists — generating a new API key.\n`));
   } else {
-    await adapter.run('INSERT INTO teams (id, name) VALUES (?, ?)', teamId, teamName);
-    console.log(green(`  Team "${teamId}" created.`));
+    await adapter.run('INSERT INTO workspaces (id, name) VALUES (?, ?)', workspaceId, workspaceName);
+    console.log(green(`  Team "${workspaceId}" created.`));
   }
 
   const rawKey = `lt_${randomBytes(24).toString('hex')}`;
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
-  await adapter.run('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)', teamId, keyHash, 'cli-init', 'write');
+  await adapter.run('INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)', workspaceId, keyHash, 'cli-init', 'write');
   await adapter.close();
 
   console.log(green('  API key generated.\n'));

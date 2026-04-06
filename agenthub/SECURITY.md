@@ -24,7 +24,7 @@ asset: context entries, messages, artifacts, tasks, events. The main threats:
 
 Two separate key systems:
 
-- **Team API keys** (`ah_…`, 24 random bytes). Required on every `/api/v1/*`
+- **Team API keys** (`lt_…`, 24 random bytes). Required on every `/api/v1/*`
   and `/mcp` request as `Authorization: Bearer <key>`. Stored as SHA-256
   hashes — the raw key is only returned at creation/rotation.
 - **Admin key** (`ADMIN_KEY` env var). Gates `/admin/*` routes: team CRUD,

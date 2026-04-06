@@ -148,7 +148,7 @@ All five problem areas share a common structural gap: **they assume a single-age
 | Orchestration | LangGraph (single runtime) | No cross-process task coordination |
 | Observability | LangSmith, Langfuse (per-agent traces) | No cross-agent trace correlation |
 
-**This is the exact gap AgentHub occupies: the coordination layer for teams of agents, not individual agents.**
+**This is the exact gap Lattice occupies: the coordination layer for teams of agents, not individual agents.**
 
 ---
 
@@ -158,17 +158,17 @@ Google's A2A protocol addresses agent-to-agent communication at the protocol lev
 
 - **MCP** = how agents use tools (like HTTP for web content)
 - **A2A** = how agents discover and talk to each other (like DNS + messaging)
-- **AgentHub** = the hosted coordination service built on top (like Slack built on TCP/IP)
+- **Lattice** = the hosted coordination service built on top (like Slack built on TCP/IP)
 
-The missing piece between protocols (MCP/A2A) and frameworks (CrewAI/LangGraph) is the **hosted coordination service**. This is AgentHub's strategic position.
+The missing piece between protocols (MCP/A2A) and frameworks (CrewAI/LangGraph) is the **hosted coordination service**. This is Lattice's strategic position.
 
 ---
 
-## Three Highest-Value Gaps for AgentHub
+## Three Highest-Value Gaps for Lattice
 
-1. **Cross-machine agent coordination with claim-based task semantics** — Exactly what AgentHub Phase 1 delivers. No competitor touches this.
+1. **Cross-machine agent coordination with claim-based task semantics** — Exactly what Lattice Phase 1 delivers. No competitor touches this.
 
-2. **Team-scoped persistent memory with conflict detection** — Mem0 for individuals, AgentHub for teams. The Phase 2 knowledge engine with conflict markers is differentiated.
+2. **Team-scoped persistent memory with conflict detection** — Mem0 for individuals, Lattice for teams. The Phase 2 knowledge engine with conflict markers is differentiated.
 
 3. **Cross-agent observability with task-level cost attribution** — Dashboard showing "what are my agents doing across all machines and what is it costing me per task." Neither LangSmith nor Langfuse provide this view.
 
