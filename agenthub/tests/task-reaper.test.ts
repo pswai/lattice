@@ -2,16 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setupTeam } from './helpers.js';
 import { createTask, updateTask } from '../src/models/task.js';
 import { getUpdates } from '../src/models/event.js';
-import type Database from 'better-sqlite3';
 
 /**
  * Simulate the reaper logic directly (since it's private and runs on interval).
  * We reproduce the reaper's SQL queries to test the behavior.
  */
-function reapAbandonedTasks(db: Database.Database, timeoutMinutes: number): number {
+function reapAbandonedTasks(db: ReturnType<typeof createTestDb>, timeoutMinutes: number): number {
   const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
 
-  const staleTasks = db.prepare(`
+  const staleTasks = db.rawDb.prepare(`
     SELECT id, team_id, description, claimed_by, version
     FROM tasks
     WHERE status = 'claimed'
@@ -26,7 +25,7 @@ function reapAbandonedTasks(db: Database.Database, timeoutMinutes: number): numb
 
   let reaped = 0;
   for (const task of staleTasks) {
-    const result = db.prepare(`
+    const result = db.rawDb.prepare(`
       UPDATE tasks
       SET status = 'abandoned',
           claimed_by = NULL,
@@ -38,7 +37,7 @@ function reapAbandonedTasks(db: Database.Database, timeoutMinutes: number): numb
     `).run(task.id, task.version);
 
     if (result.changes > 0) {
-      db.prepare(`
+      db.rawDb.prepare(`
         INSERT INTO events (team_id, event_type, message, tags, created_by)
         VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
       `).run(task.team_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
@@ -49,7 +48,7 @@ function reapAbandonedTasks(db: Database.Database, timeoutMinutes: number): numb
 }
 
 describe('Task Reaper', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof createTestDb>;
   const teamId = 'test-team';
   const agentId = 'test-agent';
 
@@ -58,46 +57,46 @@ describe('Task Reaper', () => {
     setupTeam(db, teamId);
   });
 
-  it('should reap tasks claimed longer than timeout', () => {
+  it('should reap tasks claimed longer than timeout', async () => {
     // Create and claim a task
-    const task = createTask(db, teamId, agentId, { description: 'Stale task' });
+    const task = await createTask(db, teamId, agentId, { description: 'Stale task' });
 
     // Manually backdate the claimed_at to 60 minutes ago
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
+    db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
 
     // Run reaper with 30 minute timeout
     const reaped = reapAbandonedTasks(db, 30);
     expect(reaped).toBe(1);
 
     // Verify the task was abandoned
-    const row = db.prepare('SELECT status, claimed_by, result FROM tasks WHERE id = ?').get(task.task_id) as any;
+    const row = db.rawDb.prepare('SELECT status, claimed_by, result FROM tasks WHERE id = ?').get(task.task_id) as any;
     expect(row.status).toBe('abandoned');
     expect(row.claimed_by).toBeNull();
     expect(row.result).toContain('Auto-released');
   });
 
-  it('should not reap recently claimed tasks', () => {
+  it('should not reap recently claimed tasks', async () => {
     // Create and claim a task (just now)
-    createTask(db, teamId, agentId, { description: 'Fresh task' });
+    await createTask(db, teamId, agentId, { description: 'Fresh task' });
 
     // Run reaper with 30 minute timeout
     const reaped = reapAbandonedTasks(db, 30);
     expect(reaped).toBe(0);
   });
 
-  it('should not reap open tasks', () => {
+  it('should not reap open tasks', async () => {
     // Create open task
-    createTask(db, teamId, agentId, { description: 'Open task', status: 'open' });
+    await createTask(db, teamId, agentId, { description: 'Open task', status: 'open' });
 
     // Run reaper
     const reaped = reapAbandonedTasks(db, 0); // 0 minute timeout = reap everything claimed
     expect(reaped).toBe(0);
   });
 
-  it('should not reap completed tasks', () => {
-    const task = createTask(db, teamId, agentId, { description: 'Completed task' });
-    updateTask(db, teamId, agentId, {
+  it('should not reap completed tasks', async () => {
+    const task = await createTask(db, teamId, agentId, { description: 'Completed task' });
+    await updateTask(db, teamId, agentId, {
       task_id: task.task_id,
       status: 'completed',
       result: 'Done',
@@ -108,17 +107,17 @@ describe('Task Reaper', () => {
     expect(reaped).toBe(0);
   });
 
-  it('should broadcast TASK_UPDATE event on reap', () => {
-    const task = createTask(db, teamId, agentId, { description: 'Reapable task' });
+  it('should broadcast TASK_UPDATE event on reap', async () => {
+    const task = await createTask(db, teamId, agentId, { description: 'Reapable task' });
 
     // Backdate
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
+    db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
 
     reapAbandonedTasks(db, 30);
 
     // Check for reaper event
-    const updates = getUpdates(db, teamId, {});
+    const updates = await getUpdates(db, teamId, {});
     const reaperEvents = updates.events.filter(
       (e) => e.createdBy === 'system:reaper' && e.tags.includes('task-reaper'),
     );
@@ -126,22 +125,22 @@ describe('Task Reaper', () => {
     expect(reaperEvents[0].message).toContain('auto-released');
   });
 
-  it('should use optimistic locking during reap', () => {
-    const task = createTask(db, teamId, agentId, { description: 'Race condition task' });
+  it('should use optimistic locking during reap', async () => {
+    const task = await createTask(db, teamId, agentId, { description: 'Race condition task' });
 
     // Backdate
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
+    db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
 
     // Read the stale task version (simulating the reaper's SELECT)
-    const staleRow = db.prepare('SELECT version FROM tasks WHERE id = ?').get(task.task_id) as any;
+    const staleRow = db.rawDb.prepare('SELECT version FROM tasks WHERE id = ?').get(task.task_id) as any;
     const staleVersion = staleRow.version;
 
     // Simulate concurrent update by bumping version (another agent completed the task)
-    db.prepare('UPDATE tasks SET version = version + 1, status = \'completed\' WHERE id = ?').run(task.task_id);
+    db.rawDb.prepare('UPDATE tasks SET version = version + 1, status = \'completed\' WHERE id = ?').run(task.task_id);
 
     // Now try to reap with the stale version — should fail
-    const result = db.prepare(`
+    const result = db.rawDb.prepare(`
       UPDATE tasks
       SET status = 'abandoned',
           claimed_by = NULL,
@@ -155,16 +154,16 @@ describe('Task Reaper', () => {
     expect(result.changes).toBe(0);
 
     // Task should still be completed (not abandoned)
-    const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(task.task_id) as any;
+    const row = db.rawDb.prepare('SELECT status FROM tasks WHERE id = ?').get(task.task_id) as any;
     expect(row.status).toBe('completed');
   });
 
-  it('should handle multiple stale tasks', () => {
+  it('should handle multiple stale tasks', async () => {
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
     for (let i = 0; i < 3; i++) {
-      const task = createTask(db, teamId, agentId, { description: `Stale task ${i}` });
-      db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
+      const task = await createTask(db, teamId, agentId, { description: `Stale task ${i}` });
+      db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
     }
 
     const reaped = reapAbandonedTasks(db, 30);

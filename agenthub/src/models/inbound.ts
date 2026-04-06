@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { randomBytes, createHmac, timingSafeEqual } from 'crypto';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { createTask } from './task.js';
@@ -70,12 +70,12 @@ export interface DefineInboundEndpointInput {
   hmac_secret?: string;
 }
 
-export function defineInboundEndpoint(
-  db: Database.Database,
+export async function defineInboundEndpoint(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: DefineInboundEndpointInput,
-): InboundEndpoint {
+): Promise<InboundEndpoint> {
   if (!input.name || input.name.length === 0) {
     throw new ValidationError('name is required');
   }
@@ -91,71 +91,71 @@ export function defineInboundEndpoint(
 
   const endpointKey = randomBytes(16).toString('hex');
 
-  const result = db
-    .prepare(
-      `INSERT INTO inbound_endpoints (team_id, endpoint_key, name, action_type, action_config, hmac_secret, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      teamId,
-      endpointKey,
-      input.name,
-      input.action_type,
-      JSON.stringify(config),
-      input.hmac_secret ?? null,
-      agentId,
-    );
+  const result = await db.run(
+    `INSERT INTO inbound_endpoints (team_id, endpoint_key, name, action_type, action_config, hmac_secret, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    teamId,
+    endpointKey,
+    input.name,
+    input.action_type,
+    JSON.stringify(config),
+    input.hmac_secret ?? null,
+    agentId,
+  );
 
-  const row = db
-    .prepare('SELECT * FROM inbound_endpoints WHERE id = ?')
-    .get(Number(result.lastInsertRowid)) as EndpointRow;
-  return rowToEndpoint(row);
+  const row = await db.get<EndpointRow>(
+    'SELECT * FROM inbound_endpoints WHERE id = ?',
+    Number(result.lastInsertRowid),
+  );
+  return rowToEndpoint(row!);
 }
 
-export function listInboundEndpoints(
-  db: Database.Database,
+export async function listInboundEndpoints(
+  db: DbAdapter,
   teamId: string,
-): { endpoints: InboundEndpoint[]; total: number } {
-  const rows = db
-    .prepare(
-      'SELECT * FROM inbound_endpoints WHERE team_id = ? ORDER BY created_at DESC',
-    )
-    .all(teamId) as EndpointRow[];
+): Promise<{ endpoints: InboundEndpoint[]; total: number }> {
+  const rows = await db.all<EndpointRow>(
+    'SELECT * FROM inbound_endpoints WHERE team_id = ? ORDER BY created_at DESC',
+    teamId,
+  );
   const endpoints = rows.map(rowToEndpoint);
   return { endpoints, total: endpoints.length };
 }
 
-export function getInboundEndpointByKey(
-  db: Database.Database,
+export async function getInboundEndpointByKey(
+  db: DbAdapter,
   endpointKey: string,
-): InboundEndpoint | null {
-  const row = db
-    .prepare('SELECT * FROM inbound_endpoints WHERE endpoint_key = ?')
-    .get(endpointKey) as EndpointRow | undefined;
+): Promise<InboundEndpoint | null> {
+  const row = await db.get<EndpointRow>(
+    'SELECT * FROM inbound_endpoints WHERE endpoint_key = ?',
+    endpointKey,
+  );
   if (!row) return null;
   return rowToEndpoint(row);
 }
 
-export function getInboundEndpoint(
-  db: Database.Database,
+export async function getInboundEndpoint(
+  db: DbAdapter,
   teamId: string,
   id: number,
-): InboundEndpoint {
-  const row = db
-    .prepare('SELECT * FROM inbound_endpoints WHERE id = ? AND team_id = ?')
-    .get(id, teamId) as EndpointRow | undefined;
+): Promise<InboundEndpoint> {
+  const row = await db.get<EndpointRow>(
+    'SELECT * FROM inbound_endpoints WHERE id = ? AND team_id = ?',
+    id, teamId,
+  );
   if (!row) throw new NotFoundError('InboundEndpoint', id);
   return rowToEndpoint(row);
 }
 
-export function deleteInboundEndpoint(
-  db: Database.Database,
+export async function deleteInboundEndpoint(
+  db: DbAdapter,
   teamId: string,
   id: number,
-): { deleted: boolean } {
-  const result = db
-    .prepare('DELETE FROM inbound_endpoints WHERE id = ? AND team_id = ?')
-    .run(id, teamId);
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
+    'DELETE FROM inbound_endpoints WHERE id = ? AND team_id = ?',
+    id, teamId,
+  );
   if (result.changes === 0) throw new NotFoundError('InboundEndpoint', id);
   return { deleted: true };
 }
@@ -201,11 +201,11 @@ export interface ProcessInboundResult {
   [key: string]: unknown;
 }
 
-export function processInboundWebhook(
-  db: Database.Database,
+export async function processInboundWebhook(
+  db: DbAdapter,
   endpoint: InboundEndpoint,
   payload: Record<string, unknown>,
-): ProcessInboundResult {
+): Promise<ProcessInboundResult> {
   const agentId = `inbound:${endpoint.name}`;
   const cfg = endpoint.actionConfig;
 
@@ -228,7 +228,7 @@ export function processInboundWebhook(
       | 'P3';
     const assignedTo =
       typeof cfg.assigned_to === 'string' ? cfg.assigned_to : undefined;
-    const result = createTask(db, endpoint.teamId, agentId, {
+    const result = await createTask(db, endpoint.teamId, agentId, {
       description,
       status: 'open',
       priority,
@@ -253,7 +253,7 @@ export function processInboundWebhook(
     const tags = Array.isArray(cfg.tags)
       ? (cfg.tags as unknown[]).filter((t): t is string => typeof t === 'string')
       : ['inbound'];
-    const result = broadcastEvent(db, endpoint.teamId, agentId, {
+    const result = await broadcastEvent(db, endpoint.teamId, agentId, {
       event_type: eventType,
       message,
       tags,
@@ -273,7 +273,7 @@ export function processInboundWebhook(
     const tags = Array.isArray(cfg.tags)
       ? (cfg.tags as unknown[]).filter((t): t is string => typeof t === 'string')
       : ['inbound'];
-    const result = saveContext(db, endpoint.teamId, agentId, {
+    const result = await saveContext(db, endpoint.teamId, agentId, {
       key,
       value,
       tags,
@@ -296,7 +296,7 @@ export function processInboundWebhook(
         vars[key] = typeof value === 'string' ? value : JSON.stringify(value);
       }
     }
-    const result = runPlaybook(db, endpoint.teamId, agentId, playbookName, vars);
+    const result = await runPlaybook(db, endpoint.teamId, agentId, playbookName, vars);
     return {
       action: 'run_playbook',
       workflow_run_id: result.workflow_run_id,

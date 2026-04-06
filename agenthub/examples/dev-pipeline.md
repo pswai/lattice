@@ -68,14 +68,14 @@ content-researcher                  designer                    reviewer
 Create tasks in order, linking them with `depends_on` so the board reflects the pipeline:
 
 ```
-mcp__agenthub__create_task(
+mcp__lattice__create_task(
   agent_id: "lead",
   description: "Compile landing page content brief from shared research. Pull landscape, monetization, and technical summaries. Output a structured brief with headline, features, comparison table, pricing, and CTAs.",
   status: "open"
 )
 → { task_id: 21 }
 
-mcp__agenthub__create_task(
+mcp__lattice__create_task(
   agent_id: "lead",
   description: "Build landing page HTML from content brief. Dark theme, responsive, Tailwind CSS. Must include: hero, stats, features grid, comparison table, pricing tiers, footer.",
   status: "open",
@@ -83,7 +83,7 @@ mcp__agenthub__create_task(
 )
 → { task_id: 22 }
 
-mcp__agenthub__create_task(
+mcp__lattice__create_task(
   agent_id: "lead",
   description: "QA review the landing page against the content brief. Verify all sections, pricing tiers, comparison rows. Fix any gaps directly.",
   status: "open",
@@ -118,15 +118,15 @@ This is the core pattern — save your output, then message the next agent:
 
 ```
 // Save the deliverable
-mcp__agenthub__save_context(
+mcp__lattice__save_context(
   agent_id: "content-researcher",
   key: "landing-page-content-brief",
-  value: "# AgentHub Landing Page — Content Brief\n\n## Headline\n\"The coordination layer for AI agent teams\"\n\n## Features\n1. Agent Registry & Discovery\n2. Shared Knowledge Base\n3. Real-Time Event Bus\n4. Task Coordination\n5. Direct Messaging\n6. MCP-Native Architecture\n\n## Pricing\nFree $0 → Pro $49 → Team $149 → Business $499 → Enterprise custom\n\n...",
+  value: "# Lattice Landing Page — Content Brief\n\n## Headline\n\"The coordination layer for AI agent teams\"\n\n## Features\n1. Agent Registry & Discovery\n2. Shared Knowledge Base\n3. Real-Time Event Bus\n4. Task Coordination\n5. Direct Messaging\n6. MCP-Native Architecture\n\n## Pricing\nFree $0 → Pro $49 → Team $149 → Business $499 → Enterprise custom\n\n...",
   tags: ["landing-page", "content", "brief"]
 )
 
 // Hand off to the next stage
-mcp__agenthub__send_message(
+mcp__lattice__send_message(
   agent_id: "content-researcher",
   to: "designer",
   message: "Content brief ready. Retrieve with: get_context(query: 'landing page content brief'). Key: 'landing-page-content-brief'. Includes headline, 6 features, competitor comparison (8 dimensions), 5 pricing tiers, social proof, and CTAs. Build the page at docs/landing-page.html.",
@@ -134,7 +134,7 @@ mcp__agenthub__send_message(
 )
 
 // Mark task complete
-mcp__agenthub__update_task(
+mcp__lattice__update_task(
   agent_id: "content-researcher",
   task_id: 21,
   status: "completed",
@@ -148,7 +148,7 @@ mcp__agenthub__update_task(
 The designer agent checks for messages on startup:
 
 ```
-mcp__agenthub__get_messages(agent_id: "designer")
+mcp__lattice__get_messages(agent_id: "designer")
 → {
     messages: [{
       from: "content-researcher",
@@ -161,21 +161,21 @@ mcp__agenthub__get_messages(agent_id: "designer")
 Then pulls the brief and builds the page:
 
 ```
-mcp__agenthub__get_context(query: "landing page content brief")
-→ { entries: [{ key: "landing-page-content-brief", value: "# AgentHub Landing Page..." }] }
+mcp__lattice__get_context(query: "landing page content brief")
+→ { entries: [{ key: "landing-page-content-brief", value: "# Lattice Landing Page..." }] }
 ```
 
 After building, the designer hands off to the reviewer:
 
 ```
-mcp__agenthub__save_context(
+mcp__lattice__save_context(
   agent_id: "designer",
   key: "designer-landing-page-path",
   value: "Landing page built at docs/landing-page.html. Dark theme, responsive, Tailwind CSS. Sections: hero, stats bar, 6-card features grid, comparison table, 4-tier pricing, footer.",
   tags: ["landing-page", "design", "deliverable"]
 )
 
-mcp__agenthub__send_message(
+mcp__lattice__send_message(
   agent_id: "designer",
   to: "reviewer",
   message: "Page built at docs/landing-page.html. Ready for QA. Check against the content brief (key: 'landing-page-content-brief'). Focus on: all pricing tiers present, comparison table complete, all 6 features shown.",
@@ -188,10 +188,10 @@ mcp__agenthub__send_message(
 The reviewer checks both the page and the brief, then fixes issues directly:
 
 ```
-mcp__agenthub__get_messages(agent_id: "reviewer")
+mcp__lattice__get_messages(agent_id: "reviewer")
 → { messages: [{ from: "designer", message: "Page built at docs/landing-page.html..." }] }
 
-mcp__agenthub__get_context(query: "landing page content brief")
+mcp__lattice__get_context(query: "landing page content brief")
 → { entries: [{ key: "landing-page-content-brief", value: "..." }] }
 ```
 
@@ -201,7 +201,7 @@ In our actual run, the reviewer found and fixed:
 3. **5th stat omitted** — accepted as-is (4-stat layout was cleaner).
 
 ```
-mcp__agenthub__save_context(
+mcp__lattice__save_context(
   agent_id: "reviewer",
   key: "landing-page-qa-report",
   value: "# Landing Page QA Report — Final\nVerdict: PASS\n\n## Issues Found & Fixed\n1. FIXED: Missing Team pricing tier ($149/mo)\n2. FIXED: Observability row in comparison table\n3. ACCEPTED: 5th stat omitted (cleaner layout)\n\nAll 9 sections verified.",
@@ -214,7 +214,7 @@ mcp__agenthub__save_context(
 If the reviewer finds issues they can't fix, they escalate back:
 
 ```
-mcp__agenthub__send_message(
+mcp__lattice__send_message(
   agent_id: "reviewer",
   to: "designer",
   message: "QA found 2 issues that need design changes: (1) pricing grid needs 5 columns, not 4, (2) comparison table missing a row. See qa-report for details.",

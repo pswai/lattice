@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { randomBytes } from 'crypto';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { findOrCreateOAuthUser } from '../../models/oauth.js';
 import { createSession, type CreateSessionResult } from '../../models/session.js';
@@ -88,7 +88,7 @@ interface GitHubEmail {
   verified: boolean;
 }
 
-export function createOAuthRoutes(db: Database.Database, config: AppConfig): Hono {
+export function createOAuthRoutes(db: DbAdapter, config: AppConfig): Hono {
   const router = new Hono();
 
   router.get('/github', (c) => {
@@ -184,14 +184,14 @@ export function createOAuthRoutes(db: Database.Database, config: AppConfig): Hon
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'AgentHub',
+            'User-Agent': 'Lattice',
           },
         }),
         fetch('https://api.github.com/user/emails', {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'AgentHub',
+            'User-Agent': 'Lattice',
           },
         }),
       ]);
@@ -218,7 +218,7 @@ export function createOAuthRoutes(db: Database.Database, config: AppConfig): Hon
     const email =
       primaryVerified?.email ?? anyVerified?.email ?? ghUser.email ?? null;
 
-    const user = findOrCreateOAuthUser(db, {
+    const user = await findOrCreateOAuthUser(db, {
       provider: 'github',
       providerUid: String(ghUser.id),
       email,
@@ -226,7 +226,7 @@ export function createOAuthRoutes(db: Database.Database, config: AppConfig): Hon
     });
 
     const { ip, userAgent } = requestMeta(c);
-    const session = createSession(db, user.id, {
+    const session = await createSession(db, user.id, {
       ip,
       userAgent,
       ttlDays: SESSION_TTL_DAYS,

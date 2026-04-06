@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { getUpdates } from '../../models/event.js';
 import { eventBus } from '../../services/event-emitter.js';
 import type { Event } from '../../models/types.js';
@@ -8,13 +8,22 @@ function formatSSE(event: Event): string {
   return `id: ${event.id}\nevent: message\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-export function createSseRoutes(db: Database.Database): Hono {
+export function createSseRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // GET /stream — SSE endpoint for real-time event streaming
-  router.get('/stream', (c) => {
+  router.get('/stream', async (c) => {
     const { teamId } = c.get('auth');
     const lastEventId = c.req.header('Last-Event-ID');
+
+    // Backfill: send events since Last-Event-ID
+    const sinceId = lastEventId ? parseInt(lastEventId, 10) : 0;
+    const backfill = await getUpdates(db, teamId, { since_id: sinceId, limit: 200 });
+
+    // Track the latest ID we've sent to avoid duplicates
+    let lastSentId = backfill.events.length > 0
+      ? backfill.events[backfill.events.length - 1].id
+      : sinceId;
 
     const stream = new ReadableStream({
       start(controller) {
@@ -28,29 +37,25 @@ export function createSseRoutes(db: Database.Database): Hono {
           }
         }
 
-        // Backfill: send events since Last-Event-ID
-        const sinceId = lastEventId ? parseInt(lastEventId, 10) : 0;
-        const backfill = getUpdates(db, teamId, { since_id: sinceId, limit: 200 });
+        // Send backfilled events
         for (const event of backfill.events) {
           send(formatSSE(event));
         }
-
-        // Track the latest ID we've sent to avoid duplicates
-        let lastSentId = backfill.events.length > 0
-          ? backfill.events[backfill.events.length - 1].id
-          : sinceId;
 
         // Subscribe to new events
         const onEvent = (payload: { teamId: string; eventId: number }) => {
           if (payload.teamId !== teamId) return;
           // Fetch events since our last sent ID to get the full event data
-          const updates = getUpdates(db, teamId, { since_id: lastSentId, limit: 200 });
-          for (const event of updates.events) {
-            send(formatSSE(event));
-          }
-          if (updates.events.length > 0) {
-            lastSentId = updates.events[updates.events.length - 1].id;
-          }
+          getUpdates(db, teamId, { since_id: lastSentId, limit: 200 }).then((updates) => {
+            for (const event of updates.events) {
+              send(formatSSE(event));
+            }
+            if (updates.events.length > 0) {
+              lastSentId = updates.events[updates.events.length - 1].id;
+            }
+          }).catch(() => {
+            // swallow errors in SSE polling
+          });
         };
 
         eventBus.on('event', onEvent);

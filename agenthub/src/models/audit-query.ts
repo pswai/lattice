@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 
 export interface AuditQueryFilters {
   actor?: string;
@@ -31,11 +31,11 @@ export const MAX_AUDIT_LIMIT = 500;
  * using id as a stable cursor. Uses existing indexes:
  *   idx_audit_team_time, idx_audit_team_actor, idx_audit_team_action.
  */
-export function queryAuditLog(
-  db: Database.Database,
+export async function queryAuditLog(
+  db: DbAdapter,
   teamId: string,
   filters: AuditQueryFilters,
-): AuditEntryRow[] {
+): Promise<AuditEntryRow[]> {
   const where: string[] = ['team_id = ?'];
   const params: unknown[] = [teamId];
 
@@ -74,7 +74,7 @@ export function queryAuditLog(
                WHERE ${where.join(' AND ')}
                ORDER BY id DESC
                LIMIT ?`;
-  return db.prepare(sql).all(...params) as AuditEntryRow[];
+  return await db.all<AuditEntryRow>(sql, ...params);
 }
 
 export function encodeAuditCursor(id: number): string {

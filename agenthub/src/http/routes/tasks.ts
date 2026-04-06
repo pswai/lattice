@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { createTask, updateTask, listTasks, getTask, getTaskGraph } from '../../models/task.js';
 import { ValidationError } from '../../errors.js';
 
@@ -20,11 +20,11 @@ const UpdateTaskSchema = z.object({
   assigned_to: z.string().max(100).nullable().optional(),
 });
 
-export function createTaskRoutes(db: Database.Database): Hono {
+export function createTaskRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // GET /tasks — list tasks
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
 
     const status = c.req.query('status');
@@ -33,12 +33,12 @@ export function createTaskRoutes(db: Database.Database): Hono {
     const limitParam = c.req.query('limit');
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = listTasks(db, teamId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
+    const result = await listTasks(db, teamId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
     return c.json(result);
   });
 
   // GET /tasks/graph — task DAG for visualization (declared before /:id)
-  router.get('/graph', (c) => {
+  router.get('/graph', async (c) => {
     const { teamId } = c.get('auth');
     const status = c.req.query('status');
     const workflowRunIdStr = c.req.query('workflow_run_id');
@@ -62,7 +62,7 @@ export function createTaskRoutes(db: Database.Database): Hono {
       limit = parsed;
     }
 
-    const result = getTaskGraph(db, teamId, {
+    const result = await getTaskGraph(db, teamId, {
       status,
       workflow_run_id: workflowRunId,
       limit,
@@ -71,14 +71,14 @@ export function createTaskRoutes(db: Database.Database): Hono {
   });
 
   // GET /tasks/:id — get single task
-  router.get('/:id', (c) => {
+  router.get('/:id', async (c) => {
     const { teamId } = c.get('auth');
     const taskId = parseInt(c.req.param('id'), 10);
     if (isNaN(taskId)) {
       throw new ValidationError('Invalid task ID');
     }
 
-    const task = getTask(db, teamId, taskId);
+    const task = await getTask(db, teamId, taskId);
     return c.json(task);
   });
 
@@ -91,7 +91,7 @@ export function createTaskRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = createTask(db, teamId, agentId, parsed.data);
+    const result = await createTask(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
@@ -109,7 +109,7 @@ export function createTaskRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = updateTask(db, teamId, agentId, {
+    const result = await updateTask(db, teamId, agentId, {
       task_id: taskId,
       ...parsed.data,
     });

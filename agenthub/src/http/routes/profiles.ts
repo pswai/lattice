@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import {
   defineProfile,
   listProfiles,
@@ -17,7 +17,7 @@ const DefineProfileSchema = z.object({
   default_tags: z.array(z.string().max(50)).max(20).optional(),
 });
 
-export function createProfileRoutes(db: Database.Database): Hono {
+export function createProfileRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /profiles — define (upsert)
@@ -29,30 +29,30 @@ export function createProfileRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = defineProfile(db, teamId, agentId, parsed.data);
+    const result = await defineProfile(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /profiles — list
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const result = listProfiles(db, teamId);
+    const result = await listProfiles(db, teamId);
     return c.json(result);
   });
 
   // GET /profiles/:name — get one
-  router.get('/:name', (c) => {
+  router.get('/:name', async (c) => {
     const { teamId } = c.get('auth');
     const name = c.req.param('name');
-    const result = getProfile(db, teamId, name);
+    const result = await getProfile(db, teamId, name);
     return c.json(result);
   });
 
   // DELETE /profiles/:name — delete
-  router.delete('/:name', (c) => {
+  router.delete('/:name', async (c) => {
     const { teamId } = c.get('auth');
     const name = c.req.param('name');
-    const result = deleteProfile(db, teamId, name);
+    const result = await deleteProfile(db, teamId, name);
     return c.json(result);
   });
 

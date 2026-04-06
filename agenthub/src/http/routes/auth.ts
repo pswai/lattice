@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { ValidationError } from '../../errors.js';
 import {
@@ -79,7 +79,7 @@ function requestMeta(c: {
 }
 
 export function createAuthRoutes(
-  db: Database.Database,
+  db: DbAdapter,
   config: AppConfig,
   emailSender: EmailSender | null = null,
 ): Hono {
@@ -92,25 +92,26 @@ export function createAuthRoutes(
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
 
-    const user = createUser(db, parsed.data);
+    const user = await createUser(db, parsed.data);
     const { ip, userAgent } = requestMeta(c);
-    const session = createSession(db, user.id, { ip, userAgent, ttlDays: SIGNUP_TTL_DAYS });
+    const session = await createSession(db, user.id, { ip, userAgent, ttlDays: SIGNUP_TTL_DAYS });
 
     // Issue an email verification token (one-shot, hashed at rest).
     const verifyRaw = randomBytes(24).toString('base64url');
     const verifyHash = createHash('sha256').update(verifyRaw).digest('hex');
     const verifyExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    db.prepare(
+    await db.run(
       'INSERT INTO email_verifications (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
-    ).run(verifyHash, user.id, verifyExpiresAt);
+      verifyHash, user.id, verifyExpiresAt,
+    );
 
     c.header('Set-Cookie', sessionCookieHeader(session, config.cookieSecure));
 
     if (emailSender) {
       const verifyUrl = `${config.appBaseUrl}/auth/verify-email?token=${verifyRaw}`;
-      const emailBody = `Welcome to AgentHub!\n\nPlease verify your email by clicking the link below:\n\n${verifyUrl}\n\nThis link expires in 7 days.`;
+      const emailBody = `Welcome to Lattice!\n\nPlease verify your email by clicking the link below:\n\n${verifyUrl}\n\nThis link expires in 7 days.`;
       emailSender
-        .send(user.email, 'Verify your AgentHub email', emailBody)
+        .send(user.email, 'Verify your Lattice email', emailBody)
         .catch((err: unknown) => {
           getLogger().error('email_send_failed', {
             to: user.email,
@@ -135,12 +136,12 @@ export function createAuthRoutes(
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const user = authenticateUser(db, parsed.data.email, parsed.data.password);
+    const user = await authenticateUser(db, parsed.data.email, parsed.data.password);
     if (!user) {
       return c.json({ error: 'INVALID_CREDENTIALS', message: 'Email or password incorrect' }, 401);
     }
     const { ip, userAgent } = requestMeta(c);
-    const session = createSession(db, user.id, { ip, userAgent, ttlDays: SIGNUP_TTL_DAYS });
+    const session = await createSession(db, user.id, { ip, userAgent, ttlDays: SIGNUP_TTL_DAYS });
     c.header('Set-Cookie', sessionCookieHeader(session, config.cookieSecure));
     return c.json({ user: { id: user.id, email: user.email, name: user.name } });
   });
@@ -148,19 +149,19 @@ export function createAuthRoutes(
   router.post('/logout', async (c) => {
     const session = c.get('session');
     if (session) {
-      revokeSession(db, session.sessionId);
+      await revokeSession(db, session.sessionId);
     }
     c.header('Set-Cookie', clearCookieHeader(config.cookieSecure));
     return c.body(null, 204);
   });
 
-  router.get('/me', requireSession, (c) => {
+  router.get('/me', requireSession, async (c) => {
     const session = c.get('session')!;
-    const user = getUserById(db, session.userId);
+    const user = await getUserById(db, session.userId);
     if (!user) {
       return c.json({ error: 'NOT_FOUND', message: 'User not found' }, 404);
     }
-    const memberships = listUserMemberships(db, user.id);
+    const memberships = await listUserMemberships(db, user.id);
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, email_verified_at: user.emailVerifiedAt },
       memberships: memberships.map((m) => ({
@@ -172,9 +173,9 @@ export function createAuthRoutes(
     });
   });
 
-  router.get('/sessions', requireSession, (c) => {
+  router.get('/sessions', requireSession, async (c) => {
     const session = c.get('session')!;
-    const sessions = listUserSessions(db, session.userId);
+    const sessions = await listUserSessions(db, session.userId);
     return c.json(
       sessions.map((s) => ({
         id: s.id,
@@ -187,23 +188,24 @@ export function createAuthRoutes(
     );
   });
 
-  router.delete('/sessions/:id', requireSession, (c) => {
+  router.delete('/sessions/:id', requireSession, async (c) => {
     const session = c.get('session')!;
     const targetId = c.req.param('id');
     // Verify the target session belongs to the current user (don't leak existence).
-    const row = db
-      .prepare('SELECT user_id FROM sessions WHERE id = ?')
-      .get(targetId) as { user_id: string } | undefined;
+    const row = await db.get<{ user_id: string }>(
+      'SELECT user_id FROM sessions WHERE id = ?',
+      targetId,
+    );
     if (!row || row.user_id !== session.userId) {
       return c.json({ error: 'NOT_FOUND', message: 'Session not found' }, 404);
     }
-    revokeSession(db, targetId);
+    await revokeSession(db, targetId);
     return c.body(null, 204);
   });
 
-  router.delete('/sessions', requireSession, (c) => {
+  router.delete('/sessions', requireSession, async (c) => {
     const session = c.get('session')!;
-    const result = revokeUserSessionsExcept(db, session.userId, session.sessionId);
+    const result = await revokeUserSessionsExcept(db, session.userId, session.sessionId);
     return c.json({ revoked: result.revoked });
   });
 
@@ -214,16 +216,18 @@ export function createAuthRoutes(
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
     const tokenHash = createHash('sha256').update(parsed.data.token).digest('hex');
-    const row = db
-      .prepare('SELECT user_id, expires_at, used_at FROM email_verifications WHERE token_hash = ?')
-      .get(tokenHash) as { user_id: string; expires_at: string; used_at: string | null } | undefined;
+    const row = await db.get<{ user_id: string; expires_at: string; used_at: string | null }>(
+      'SELECT user_id, expires_at, used_at FROM email_verifications WHERE token_hash = ?',
+      tokenHash,
+    );
     if (!row || row.used_at || new Date(row.expires_at).getTime() <= Date.now()) {
       return c.json({ error: 'INVALID_TOKEN', message: 'Token invalid or expired' }, 400);
     }
-    db.prepare(
+    await db.run(
       "UPDATE email_verifications SET used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE token_hash = ?",
-    ).run(tokenHash);
-    setEmailVerified(db, row.user_id);
+      tokenHash,
+    );
+    await setEmailVerified(db, row.user_id);
     return c.body(null, 204);
   });
 

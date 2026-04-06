@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { saveArtifact, getArtifact, listArtifacts, deleteArtifact, ALLOWED_CONTENT_TYPES } from '../../models/artifact.js';
 import { ValidationError } from '../../errors.js';
 import type { ArtifactContentType } from '../../models/types.js';
@@ -14,7 +14,7 @@ const SaveArtifactSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-export function createArtifactRoutes(db: Database.Database): Hono {
+export function createArtifactRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /artifacts — save_artifact
@@ -26,12 +26,12 @@ export function createArtifactRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = saveArtifact(db, teamId, agentId, parsed.data);
+    const result = await saveArtifact(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /artifacts — list_artifacts
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
 
     const contentTypeParam = c.req.query('content_type');
@@ -40,23 +40,23 @@ export function createArtifactRoutes(db: Database.Database): Hono {
     const content_type = contentTypeParam ? (contentTypeParam as ArtifactContentType) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = listArtifacts(db, teamId, { content_type, limit });
+    const result = await listArtifacts(db, teamId, { content_type, limit });
     return c.json(result);
   });
 
   // GET /artifacts/:key — get_artifact
-  router.get('/:key', (c) => {
+  router.get('/:key', async (c) => {
     const { teamId } = c.get('auth');
     const key = c.req.param('key');
-    const result = getArtifact(db, teamId, key);
+    const result = await getArtifact(db, teamId, key);
     return c.json(result);
   });
 
   // DELETE /artifacts/:key — delete_artifact
-  router.delete('/:key', (c) => {
+  router.delete('/:key', async (c) => {
     const { teamId } = c.get('auth');
     const key = c.req.param('key');
-    const result = deleteArtifact(db, teamId, key);
+    const result = await deleteArtifact(db, teamId, key);
     return c.json(result);
   });
 

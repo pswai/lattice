@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * AgentHub CLI — `npx agenthub <command>`
+ * Lattice CLI — `npx lattice <command>`
  *
  * Subcommands:
  *   init     Set up a new team (created by cli-dev-1)
@@ -77,7 +77,7 @@ function ask(rl: ReturnType<typeof createInterface>, question: string, defaultVa
 async function initCommand(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log(bold('\n  AgentHub Setup\n'));
+  console.log(bold('\n  Lattice Setup\n'));
 
   // 1. Team name
   const teamName = await ask(rl, 'Team name', 'My Team');
@@ -94,7 +94,7 @@ async function initCommand(): Promise<void> {
   }
 
   // 2. DB path
-  const dbPath = await ask(rl, 'Database path', './data/agenthub.db');
+  const dbPath = await ask(rl, 'Database path', './data/lattice.db');
   const resolvedDbPath = resolvePath(dbPath);
 
   // 3. Port
@@ -110,28 +110,28 @@ async function initCommand(): Promise<void> {
 
   // 4. Create DB + team + API key
   console.log(dim('\n  Initializing database...'));
-  const { initDatabase } = await import('./db/connection.js');
-  const db = initDatabase(resolvedDbPath);
+  const { createSqliteAdapter } = await import('./db/connection.js');
+  const adapter = createSqliteAdapter(resolvedDbPath);
 
-  const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(teamId) as { id: string } | undefined;
+  const existing = await adapter.get<{ id: string }>('SELECT id FROM teams WHERE id = ?', teamId);
   if (existing) {
     console.log(yellow(`  Team "${teamId}" already exists — generating a new API key.\n`));
   } else {
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, teamName);
+    await adapter.run('INSERT INTO teams (id, name) VALUES (?, ?)', teamId, teamName);
     console.log(green(`  Team "${teamId}" created.`));
   }
 
-  const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+  const rawKey = `lt_${randomBytes(24).toString('hex')}`;
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
-  db.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(teamId, keyHash, 'cli-init', 'write');
-  db.close();
+  await adapter.run('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)', teamId, keyHash, 'cli-init', 'write');
+  await adapter.close();
 
   console.log(green('  API key generated.\n'));
 
   // 5. Output .mcp.json snippet
   const mcpSnippet = {
     mcpServers: {
-      agenthub: {
+      lattice: {
         type: 'sse',
         url: `http://localhost:${port}/mcp`,
         headers: {
@@ -154,16 +154,16 @@ async function initCommand(): Promise<void> {
   ${bold('Getting Started')}
 
   1. Start the server:
-     ${cyan(`DB_PATH=${dbPath} PORT=${port} npx agenthub start`)}
+     ${cyan(`DB_PATH=${dbPath} PORT=${port} npx lattice start`)}
 
   2. Add the .mcp.json snippet above to your project.
 
-  3. Your agents can now use AgentHub MCP tools:
+  3. Your agents can now use Lattice MCP tools:
      ${dim('register_agent, broadcast, save_context, get_context,')}
      ${dim('create_task, update_task, send_message, get_messages')}
 
   4. See the agent preamble template at:
-     ${dim('.claude/agents/agenthub-agent.md')}
+     ${dim('.claude/agents/lattice-agent.md')}
 `);
 }
 
@@ -176,15 +176,15 @@ async function startCommand(): Promise<void> {
 // ── status command ────────────────────────────────────────────────────────────
 
 function resolveBaseUrl(): string {
-  return process.env.AGENTHUB_URL || 'http://localhost:3000';
+  return process.env.LATTICE_URL || 'http://localhost:3000';
 }
 
 async function statusCommand(): Promise<void> {
   const baseUrl = resolveBaseUrl();
   const adminKey = process.env.ADMIN_KEY;
-  const apiKey = process.env.AGENTHUB_API_KEY;
+  const apiKey = process.env.LATTICE_API_KEY;
 
-  console.log(bold('\n  AgentHub Status\n'));
+  console.log(bold('\n  Lattice Status\n'));
 
   // 1. Health check
   let healthy = false;
@@ -201,7 +201,7 @@ async function statusCommand(): Promise<void> {
   console.log(`  Server:  ${badge}  ${dim(baseUrl)}`);
 
   if (!healthy) {
-    console.log(red('\n  Server is not reachable. Is AgentHub running?\n'));
+    console.log(red('\n  Server is not reachable. Is Lattice running?\n'));
     process.exit(1);
   }
 
@@ -247,7 +247,7 @@ async function statusCommand(): Promise<void> {
     console.log(dim('\n  Set ADMIN_KEY to see server stats'));
   }
 
-  // 3. Recent events (optional — only if AGENTHUB_API_KEY is set)
+  // 3. Recent events (optional — only if LATTICE_API_KEY is set)
   if (apiKey) {
     try {
       const res = await fetch(`${baseUrl}/api/v1/events?limit=5`, { Authorization: `Bearer ${apiKey}` });
@@ -278,13 +278,13 @@ async function statusCommand(): Promise<void> {
           console.log(dim('\n  No recent events'));
         }
       } else {
-        console.log(yellow(`\n  ⚠ Events: HTTP ${res.status} (check AGENTHUB_API_KEY)`));
+        console.log(yellow(`\n  ⚠ Events: HTTP ${res.status} (check LATTICE_API_KEY)`));
       }
     } catch (err) {
       console.log(yellow(`\n  ⚠ Could not fetch events: ${(err as Error).message}`));
     }
   } else {
-    console.log(dim('  Set AGENTHUB_API_KEY to see recent events'));
+    console.log(dim('  Set LATTICE_API_KEY to see recent events'));
   }
 
   console.log('');
@@ -293,17 +293,17 @@ async function statusCommand(): Promise<void> {
 // ── CLI router ────────────────────────────────────────────────────────────────
 
 const USAGE = `
-  ${bold('Usage:')} npx agenthub <command>
+  ${bold('Usage:')} npx lattice <command>
 
   ${bold('Commands:')}
     init      Create a new team and get API keys
-    start     Start the AgentHub server
+    start     Start the Lattice server
     status    Show server health, stats, and recent events
 
   ${bold('Environment variables:')}
-    AGENTHUB_URL       Server URL (default: http://localhost:3000)
+    LATTICE_URL       Server URL (default: http://localhost:3000)
     ADMIN_KEY          Admin key for server stats
-    AGENTHUB_API_KEY   Team API key for events
+    LATTICE_API_KEY   Team API key for events
 `;
 
 async function main(): Promise<void> {

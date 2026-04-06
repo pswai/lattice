@@ -1,16 +1,21 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { SCHEMA_SQL } from '../src/db/schema.js';
-import { seedDefaultPlans } from '../src/models/plan.js';
+import { DEFAULT_PLANS } from '../src/models/plan.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
+import { SqliteAdapter } from '../src/db/adapter.js';
+import type { DbAdapter } from '../src/db/adapter.js';
 import type { AppConfig } from '../src/config.js';
 import type { Hono } from 'hono';
 
 export const TEST_ADMIN_KEY = 'test-admin-key-secret';
 
 export interface TestContext {
-  db: Database.Database;
+  /** DbAdapter — pass to model functions and createApp. */
+  db: DbAdapter;
+  /** Raw better-sqlite3 handle — for direct SQL in test setup/assertions. */
+  rawDb: Database.Database;
   app: Hono;
   teamId: string;
   apiKey: string;
@@ -18,30 +23,48 @@ export interface TestContext {
 }
 
 /**
- * Create an in-memory SQLite database with the full schema
+ * Create an in-memory SQLite adapter with the full schema.
  */
-export function createTestDb(): Database.Database {
+export function createTestAdapter(): SqliteAdapter {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  seedDefaultPlans(db);
-  return db;
+  // Seed default plans synchronously via raw SQL (seedDefaultPlans is async now)
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO subscription_plans
+      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const p of DEFAULT_PLANS) {
+    stmt.run(p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays);
+  }
+  return new SqliteAdapter(db);
 }
 
 /**
- * Set up a test team with an API key
+ * Legacy alias — returns a SqliteAdapter (which satisfies DbAdapter).
+ * Tests that need raw DB access can use `.rawDb` on the returned adapter.
+ */
+export function createTestDb(): SqliteAdapter {
+  return createTestAdapter();
+}
+
+/**
+ * Set up a test team with an API key.
+ * Accepts either a DbAdapter or raw Database for backward compat.
  */
 export function setupTeam(
-  db: Database.Database,
+  db: DbAdapter | Database.Database,
   teamId: string = 'test-team',
-  apiKey: string = 'ahk_test_key_12345678901234567890',
+  apiKey: string = 'ltk_test_key_12345678901234567890',
   scope: 'read' | 'write' | 'admin' = 'write',
 ): { teamId: string; apiKey: string; keyHash: string } {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
+  const rawDb = getRawDb(db);
 
-  db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, `Team ${teamId}`);
-  db.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+  rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, `Team ${teamId}`);
+  rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
     teamId,
     keyHash,
     'test key',
@@ -55,19 +78,26 @@ export function setupTeam(
  * Add an additional API key with a specific scope to an existing team.
  */
 export function addApiKey(
-  db: Database.Database,
+  db: DbAdapter | Database.Database,
   teamId: string,
   apiKey: string,
   scope: 'read' | 'write' | 'admin' = 'write',
 ): { apiKey: string; keyHash: string } {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
-  db.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+  const rawDb = getRawDb(db);
+  rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
     teamId,
     keyHash,
     `${scope} key`,
     scope,
   );
   return { apiKey, keyHash };
+}
+
+/** Extract raw better-sqlite3 Database from either a DbAdapter or raw Database. */
+function getRawDb(db: DbAdapter | Database.Database): Database.Database {
+  if ('rawDb' in db && db.rawDb) return (db as SqliteAdapter).rawDb;
+  return db as Database.Database;
 }
 
 /**
@@ -77,6 +107,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
   return {
     port: 3000,
     dbPath: ':memory:',
+    databaseUrl: '',
     pollIntervalMs: 5000,
     taskReapTimeoutMinutes: 30,
     taskReapIntervalMs: 60000,
@@ -98,7 +129,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     githubOAuthRedirectUri: '',
     emailProvider: 'stub',
     emailResendApiKey: '',
-    emailFromAddress: 'noreply@agenthub.local',
+    emailFromAddress: 'noreply@lattice.local',
     appBaseUrl: 'http://localhost:3000',
     corsOrigins: [],
     quotaEnforcement: false,
@@ -107,13 +138,14 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
 }
 
 export function createTestContext(teamId?: string, apiKey?: string): TestContext {
-  const db = createTestDb();
-  const team = setupTeam(db, teamId, apiKey);
+  const adapter = createTestAdapter();
+  const team = setupTeam(adapter, teamId, apiKey);
   const config = testConfig();
-  const app = createApp(db, () => createMcpServer(db), config);
+  const app = createApp(adapter, () => createMcpServer(adapter), config);
 
   return {
-    db,
+    db: adapter,
+    rawDb: adapter.rawDb,
     app,
     teamId: team.teamId,
     apiKey: team.apiKey,

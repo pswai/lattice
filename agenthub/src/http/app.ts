@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createAuthMiddleware, resolveTeamFromRequest } from './middleware/auth.js';
@@ -46,7 +46,7 @@ import { DASHBOARD_HTML } from '../dashboard.js';
 import { getLogger } from '../logger.js';
 
 export function createApp(
-  db: Database.Database,
+  db: DbAdapter,
   createMcpServer: () => McpServer,
   config?: AppConfig,
   emailSender: EmailSender | null = null,
@@ -113,7 +113,7 @@ export function createApp(
   app.all('/mcp', async (c) => {
     // Authenticate the MCP request using the same scheme as REST routes,
     // including X-Team-Override support so a single session can switch teams.
-    const result = resolveTeamFromRequest(db, c);
+    const result = await resolveTeamFromRequest(db, c);
     if (!result.ok) {
       return c.json({ error: result.error, message: result.message }, result.status);
     }
@@ -130,7 +130,7 @@ export function createApp(
     });
   });
 
-  // Session middleware — attaches c.var.session if ah_session cookie is valid.
+  // Session middleware — attaches c.var.session if lt_session cookie is valid.
   // Mounted globally so /auth/me and /workspaces can see the session.
   app.use('*', createSessionMiddleware(db));
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { saveContext, getContext } from '../../models/context.js';
 import { scanForSecrets } from '../../services/secret-scanner.js';
 import { SecretDetectedError, ValidationError } from '../../errors.js';
@@ -11,7 +11,7 @@ const SaveContextSchema = z.object({
   tags: z.array(z.string().max(50)).max(20),
 });
 
-export function createContextRoutes(db: Database.Database): Hono {
+export function createContextRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /context — save_context
@@ -33,13 +33,13 @@ export function createContextRoutes(db: Database.Database): Hono {
     }
 
     // saveContext handles both DB write and auto-broadcast of LEARNING event
-    const result = saveContext(db, teamId, agentId, parsed.data);
+    const result = await saveContext(db, teamId, agentId, parsed.data);
 
     return c.json(result, 201);
   });
 
   // GET /context — get_context
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
 
     const query = c.req.query('query') || '';
@@ -49,7 +49,7 @@ export function createContextRoutes(db: Database.Database): Hono {
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = getContext(db, teamId, { query, tags, limit });
+    const result = await getContext(db, teamId, { query, tags, limit });
     return c.json(result);
   });
 

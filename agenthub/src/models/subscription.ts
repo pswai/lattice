@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { FREE_PLAN_FALLBACK, type Plan } from './plan.js';
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
@@ -41,13 +41,14 @@ function rowToSub(row: SubRow): TeamSubscription {
   };
 }
 
-export function getTeamSubscription(
-  db: Database.Database,
+export async function getTeamSubscription(
+  db: DbAdapter,
   teamId: string,
-): TeamSubscription | null {
-  const row = db
-    .prepare('SELECT * FROM team_subscriptions WHERE team_id = ?')
-    .get(teamId) as SubRow | undefined;
+): Promise<TeamSubscription | null> {
+  const row = await db.get<SubRow>(
+    'SELECT * FROM team_subscriptions WHERE team_id = ?',
+    teamId,
+  );
   return row ? rowToSub(row) : null;
 }
 
@@ -61,12 +62,12 @@ export interface UpsertSubscriptionInput {
   periodEnd?: string | null;
 }
 
-export function upsertTeamSubscription(
-  db: Database.Database,
+export async function upsertTeamSubscription(
+  db: DbAdapter,
   input: UpsertSubscriptionInput,
-): TeamSubscription {
+): Promise<TeamSubscription> {
   const status = input.status ?? 'active';
-  db.prepare(`
+  await db.run(`
     INSERT INTO team_subscriptions
       (team_id, plan_id, stripe_customer_id, stripe_subscription_id,
        current_period_start, current_period_end, status)
@@ -78,8 +79,8 @@ export function upsertTeamSubscription(
       current_period_start = excluded.current_period_start,
       current_period_end = excluded.current_period_end,
       status = excluded.status,
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(
+      updated_at = ?
+  `,
     input.teamId,
     input.planId,
     input.stripeCustomerId ?? null,
@@ -87,35 +88,32 @@ export function upsertTeamSubscription(
     input.periodStart ?? null,
     input.periodEnd ?? null,
     status,
+    new Date().toISOString(),
   );
-  return getTeamSubscription(db, input.teamId)!;
+  return (await getTeamSubscription(db, input.teamId))!;
 }
 
 /**
  * Return the team's plan. If no subscription row exists, fall back to the
  * `free` plan (from the DB if seeded, else the in-memory default).
  */
-export function getTeamPlan(db: Database.Database, teamId: string): Plan {
-  const row = db
-    .prepare(`
-      SELECT p.*
-      FROM team_subscriptions s
-      JOIN subscription_plans p ON p.id = s.plan_id
-      WHERE s.team_id = ?
-    `)
-    .get(teamId) as
-    | {
-        id: string;
-        name: string;
-        price_cents: number;
-        exec_quota: number;
-        api_call_quota: number;
-        storage_bytes_quota: number;
-        seat_quota: number;
-        retention_days: number;
-        created_at: string;
-      }
-    | undefined;
+export async function getTeamPlan(db: DbAdapter, teamId: string): Promise<Plan> {
+  const row = await db.get<{
+    id: string;
+    name: string;
+    price_cents: number;
+    exec_quota: number;
+    api_call_quota: number;
+    storage_bytes_quota: number;
+    seat_quota: number;
+    retention_days: number;
+    created_at: string;
+  }>(`
+    SELECT p.*
+    FROM team_subscriptions s
+    JOIN subscription_plans p ON p.id = s.plan_id
+    WHERE s.team_id = ?
+  `, teamId);
 
   if (row) {
     return {
@@ -132,21 +130,17 @@ export function getTeamPlan(db: Database.Database, teamId: string): Plan {
   }
 
   // No subscription — return free plan from DB if seeded.
-  const free = db
-    .prepare('SELECT * FROM subscription_plans WHERE id = ?')
-    .get('free') as
-    | {
-        id: string;
-        name: string;
-        price_cents: number;
-        exec_quota: number;
-        api_call_quota: number;
-        storage_bytes_quota: number;
-        seat_quota: number;
-        retention_days: number;
-        created_at: string;
-      }
-    | undefined;
+  const free = await db.get<{
+    id: string;
+    name: string;
+    price_cents: number;
+    exec_quota: number;
+    api_call_quota: number;
+    storage_bytes_quota: number;
+    seat_quota: number;
+    retention_days: number;
+    created_at: string;
+  }>('SELECT * FROM subscription_plans WHERE id = ?', 'free');
 
   if (free) {
     return {

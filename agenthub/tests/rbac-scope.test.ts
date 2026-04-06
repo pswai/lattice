@@ -18,7 +18,7 @@ describe('RBAC scoped API keys', () => {
   describe('read-scoped key', () => {
     let readKey: string;
     beforeEach(() => {
-      readKey = 'ahk_read_key_1234567890123456789012';
+      readKey = 'ltk_read_key_1234567890123456789012';
       addApiKey(ctx.db, ctx.teamId, readKey, 'read');
     });
 
@@ -43,7 +43,7 @@ describe('RBAC scoped API keys', () => {
 
     it('blocks PATCH with 403', async () => {
       // Need a task to patch — create it with write key first
-      const writeKey = 'ahk_write_key_234567890123456789012';
+      const writeKey = 'ltk_write_key_234567890123456789012';
       addApiKey(ctx.db, ctx.teamId, writeKey, 'write');
       const createRes = await request(ctx.app, 'POST', '/api/v1/tasks', {
         headers: authHeaders(writeKey),
@@ -136,7 +136,7 @@ describe('RBAC scoped API keys', () => {
   describe('admin-scoped key', () => {
     let adminKey: string;
     beforeEach(() => {
-      adminKey = 'ahk_admin_key_34567890123456789012';
+      adminKey = 'ltk_admin_key_34567890123456789012';
       addApiKey(ctx.db, ctx.teamId, adminKey, 'admin');
     });
 
@@ -184,7 +184,7 @@ describe('RBAC scoped API keys', () => {
       expect(res.status).toBe(201);
       const body = await res.json();
       expect(body.scope).toBe('read');
-      expect(body.api_key).toMatch(/^ah_/);
+      expect(body.api_key).toMatch(/^lt_/);
 
       // The new key should only allow GET
       const postRes = await request(ctx.app, 'POST', '/api/v1/context', {

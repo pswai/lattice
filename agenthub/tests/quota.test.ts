@@ -15,11 +15,10 @@ import { createMcpServer } from '../src/mcp/server.js';
 import { createUser } from '../src/models/user.js';
 import { createSession } from '../src/models/session.js';
 import { addMembership } from '../src/models/membership.js';
-import type Database from 'better-sqlite3';
 import type { Hono } from 'hono';
 
 describe('quota foundation', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof createTestDb>;
 
   beforeEach(() => {
     db = createTestDb();
@@ -31,15 +30,15 @@ describe('quota foundation', () => {
   });
 
   describe('plans', () => {
-    it('should seed 3 default plans idempotently', () => {
-      seedDefaultPlans(db); // already called in createTestDb
-      const plans = listPlans(db);
+    it('should seed 3 default plans idempotently', async () => {
+      await seedDefaultPlans(db); // already called in createTestDb
+      const plans = await listPlans(db);
       expect(plans).toHaveLength(3);
       expect(plans.map((p) => p.id)).toEqual(['free', 'pro', 'business']);
     });
 
-    it('should return correct free plan values', () => {
-      const plan = getPlan(db, 'free')!;
+    it('should return correct free plan values', async () => {
+      const plan = (await getPlan(db, 'free'))!;
       expect(plan.priceCents).toBe(0);
       expect(plan.execQuota).toBe(1000);
       expect(plan.seatQuota).toBe(3);
@@ -47,65 +46,65 @@ describe('quota foundation', () => {
   });
 
   describe('subscriptions', () => {
-    it('should fall back to free plan when no subscription', () => {
-      const plan = getTeamPlan(db, 'test-team');
+    it('should fall back to free plan when no subscription', async () => {
+      const plan = await getTeamPlan(db, 'test-team');
       expect(plan.id).toBe('free');
     });
 
-    it('should return real plan when subscribed', () => {
-      upsertTeamSubscription(db, {
+    it('should return real plan when subscribed', async () => {
+      await upsertTeamSubscription(db, {
         teamId: 'test-team',
         planId: 'pro',
         status: 'active',
       });
-      const plan = getTeamPlan(db, 'test-team');
+      const plan = await getTeamPlan(db, 'test-team');
       expect(plan.id).toBe('pro');
       expect(plan.execQuota).toBe(15000);
     });
   });
 
   describe('usage counters', () => {
-    it('should return zeros for empty period', () => {
-      const usage = getUsage(db, 'test-team');
+    it('should return zeros for empty period', async () => {
+      const usage = await getUsage(db, 'test-team');
       expect(usage.execCount).toBe(0);
       expect(usage.apiCallCount).toBe(0);
     });
 
-    it('should not track when disabled (default)', () => {
-      incrementUsage(db, 'test-team', { exec: 1 });
-      expect(getUsage(db, 'test-team').execCount).toBe(0);
+    it('should not track when disabled (default)', async () => {
+      await incrementUsage(db, 'test-team', { exec: 1 });
+      expect((await getUsage(db, 'test-team')).execCount).toBe(0);
     });
 
-    it('should track when enabled', () => {
+    it('should track when enabled', async () => {
       setUsageTracking(true);
-      incrementUsage(db, 'test-team', { exec: 5 });
-      expect(getUsage(db, 'test-team').execCount).toBe(5);
+      await incrementUsage(db, 'test-team', { exec: 5 });
+      expect((await getUsage(db, 'test-team')).execCount).toBe(5);
     });
 
-    it('should increment additively', () => {
+    it('should increment additively', async () => {
       setUsageTracking(true);
-      incrementUsage(db, 'test-team', { exec: 3 });
-      incrementUsage(db, 'test-team', { exec: 2, apiCall: 10 });
-      const u = getUsage(db, 'test-team');
+      await incrementUsage(db, 'test-team', { exec: 3 });
+      await incrementUsage(db, 'test-team', { exec: 2, apiCall: 10 });
+      const u = await getUsage(db, 'test-team');
       expect(u.execCount).toBe(5);
       expect(u.apiCallCount).toBe(10);
     });
 
-    it('incrementUsageForced works regardless of flag', () => {
-      incrementUsageForced(db, 'test-team', { exec: 1 });
-      expect(getUsage(db, 'test-team').execCount).toBe(1);
+    it('incrementUsageForced works regardless of flag', async () => {
+      await incrementUsageForced(db, 'test-team', { exec: 1 });
+      expect((await getUsage(db, 'test-team')).execCount).toBe(1);
     });
 
-    it('should detect soft/hard thresholds', () => {
-      incrementUsageForced(db, 'test-team', { exec: 800 }); // 80% of free 1000
-      const result = getCurrentUsageWithLimits(db, 'test-team');
+    it('should detect soft/hard thresholds', async () => {
+      await incrementUsageForced(db, 'test-team', { exec: 800 }); // 80% of free 1000
+      const result = await getCurrentUsageWithLimits(db, 'test-team');
       expect(result.soft).toBe(true);
       expect(result.hard).toBe(false);
     });
 
-    it('should detect hard exceeded', () => {
-      incrementUsageForced(db, 'test-team', { exec: 1000 }); // 100%
-      const result = getCurrentUsageWithLimits(db, 'test-team');
+    it('should detect hard exceeded', async () => {
+      await incrementUsageForced(db, 'test-team', { exec: 1000 }); // 100%
+      const result = await getCurrentUsageWithLimits(db, 'test-team');
       expect(result.hard).toBe(true);
     });
   });
@@ -115,7 +114,7 @@ describe('quota foundation', () => {
     let apiKey: string;
 
     beforeEach(() => {
-      const team = setupTeam(db, 'quota-team', 'ahk_quota_key_123456789012345678');
+      const team = setupTeam(db, 'quota-team', 'ltk_quota_key_123456789012345678');
       apiKey = team.apiKey;
       app = createApp(
         db,
@@ -125,7 +124,7 @@ describe('quota foundation', () => {
     });
 
     it('should return 429 when hard exceeded', async () => {
-      incrementUsageForced(db, 'quota-team', { exec: 1001 });
+      await incrementUsageForced(db, 'quota-team', { exec: 1001 });
       const res = await request(app, 'POST', '/api/v1/context', {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -140,7 +139,7 @@ describe('quota foundation', () => {
     });
 
     it('should add X-Quota-Warning at 80%', async () => {
-      incrementUsageForced(db, 'quota-team', { exec: 801 });
+      await incrementUsageForced(db, 'quota-team', { exec: 801 });
       const res = await request(app, 'POST', '/api/v1/context', {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -154,7 +153,7 @@ describe('quota foundation', () => {
     });
 
     it('should not block GET even at hard cap', async () => {
-      incrementUsageForced(db, 'quota-team', { exec: 2000 });
+      await incrementUsageForced(db, 'quota-team', { exec: 2000 });
       const res = await request(app, 'GET', '/api/v1/agents', {
         headers: { Authorization: `Bearer ${apiKey}`, 'X-Agent-ID': 'test' },
       });
@@ -166,19 +165,19 @@ describe('quota foundation', () => {
     let app: Hono;
     let sessionCookie: string;
 
-    beforeEach(() => {
-      const user = createUser(db, { email: 'usage@test.com', password: 'password123' });
-      const session = createSession(db, user.id, {});
-      sessionCookie = `ah_session=${session.raw}`;
-      db.prepare('INSERT INTO teams (id, name, owner_user_id) VALUES (?, ?, ?)').run(
+    beforeEach(async () => {
+      const user = await createUser(db, { email: 'usage@test.com', password: 'password123' });
+      const session = await createSession(db, user.id, {});
+      sessionCookie = `lt_session=${session.raw}`;
+      db.rawDb.prepare('INSERT INTO teams (id, name, owner_user_id) VALUES (?, ?, ?)').run(
         'usage-team',
         'Usage Team',
         user.id,
       );
-      addMembership(db, { userId: user.id, teamId: 'usage-team', role: 'owner' });
+      await addMembership(db, { userId: user.id, teamId: 'usage-team', role: 'owner' });
       // Seed a default API key so the team infra is complete
       const keyHash = require('crypto').createHash('sha256').update('ak_usage').digest('hex');
-      db.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
+      db.rawDb.prepare('INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)').run(
         'usage-team',
         keyHash,
         'default',
@@ -205,10 +204,10 @@ describe('quota foundation', () => {
     });
 
     it('should require membership', async () => {
-      const other = createUser(db, { email: 'other@test.com', password: 'password123' });
-      const otherSession = createSession(db, other.id, {});
+      const other = await createUser(db, { email: 'other@test.com', password: 'password123' });
+      const otherSession = await createSession(db, other.id, {});
       const res = await app.request('/workspaces/usage-team/usage', {
-        headers: { Cookie: `ah_session=${otherSession.raw}` },
+        headers: { Cookie: `lt_session=${otherSession.raw}` },
       });
       expect(res.status).toBe(404);
     });

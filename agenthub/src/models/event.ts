@@ -1,5 +1,6 @@
-import type Database from 'better-sqlite3';
-import type { Event, EventType, BroadcastInput, GetUpdatesInput, BroadcastResponse, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
+import type { DbAdapter } from '../db/adapter.js';
+import { jsonArrayTable } from '../db/adapter.js';
+import type { Event, EventType, BroadcastInput, GetUpdatesInput, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
 import { eventBus } from '../services/event-emitter.js';
 import { incrementUsage } from './usage.js';
 
@@ -31,18 +32,18 @@ function rowToRecommended(row: ContextEntryRow): RecommendedContextEntry {
 }
 
 /** Compute top 2-3 context entries relevant to the caller's recent activity. */
-function computeRecommendedContext(
-  db: Database.Database,
+async function computeRecommendedContext(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
-): RecommendedContextEntry[] {
+): Promise<RecommendedContextEntry[]> {
   // Look at the caller's recent broadcasts/context-save LEARNING events to extract active tags.
-  const recentEventRows = db.prepare(`
+  const recentEventRows = await db.all<{ tags: string }>(`
     SELECT tags FROM events
     WHERE team_id = ? AND created_by = ?
     ORDER BY id DESC
     LIMIT ?
-  `).all(teamId, agentId, RECOMMENDED_ACTIVITY_LOOKBACK) as Array<{ tags: string }>;
+  `, teamId, agentId, RECOMMENDED_ACTIVITY_LOOKBACK);
 
   const activeTags = new Set<string>();
   for (const row of recentEventRows) {
@@ -54,27 +55,27 @@ function computeRecommendedContext(
   if (activeTags.size > 0) {
     const tagList = Array.from(activeTags);
     const placeholders = tagList.map(() => '?').join(', ');
-    rows = db.prepare(`
+    rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
       WHERE team_id = ?
         AND created_by != ?
         AND EXISTS (
-          SELECT 1 FROM json_each(tags) AS t
+          SELECT 1 FROM ${jsonArrayTable(db.dialect, 'tags', 't')}
           WHERE t.value IN (${placeholders})
         )
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `).all(teamId, agentId, ...tagList, RECOMMENDED_CONTEXT_LIMIT) as ContextEntryRow[];
+    `, teamId, agentId, ...tagList, RECOMMENDED_CONTEXT_LIMIT);
   } else {
     // No recent activity from this agent — return most-recent team entries (still excluding self).
-    rows = db.prepare(`
+    rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
       WHERE team_id = ? AND created_by != ?
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `).all(teamId, agentId, RECOMMENDED_CONTEXT_LIMIT) as ContextEntryRow[];
+    `, teamId, agentId, RECOMMENDED_CONTEXT_LIMIT);
   }
 
   return rows.map(rowToRecommended);
@@ -102,28 +103,28 @@ function rowToEvent(row: EventRow): Event {
   };
 }
 
-export function broadcastEvent(
-  db: Database.Database,
+export async function broadcastEvent(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: BroadcastInput,
-): BroadcastResponse {
-  const result = db.prepare(`
+): Promise<BroadcastResponse> {
+  const result = await db.run(`
     INSERT INTO events (team_id, event_type, message, tags, created_by)
     VALUES (?, ?, ?, ?, ?)
-  `).run(teamId, input.event_type, input.message, JSON.stringify(input.tags), agentId);
+  `, teamId, input.event_type, input.message, JSON.stringify(input.tags), agentId);
 
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { teamId, eventId });
-  incrementUsage(db, teamId, { exec: 1 });
+  await incrementUsage(db, teamId, { exec: 1 });
   return { eventId };
 }
 
-export function getUpdates(
-  db: Database.Database,
+export async function getUpdates(
+  db: DbAdapter,
   teamId: string,
   input: GetUpdatesInput,
-): GetUpdatesResponse {
+): Promise<GetUpdatesResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
   const hasTopics = input.topics && input.topics.length > 0;
   const hasEventType = !!input.event_type;
@@ -132,11 +133,11 @@ export function getUpdates(
 
   // If since_timestamp is provided and since_id is not, find the corresponding event ID
   if (!input.since_id && input.since_timestamp) {
-    const row = db.prepare(`
+    const row = await db.get<{ max_id: number }>(`
       SELECT COALESCE(MAX(id), 0) as max_id FROM events
       WHERE team_id = ? AND created_at <= ?
-    `).get(teamId, input.since_timestamp) as { max_id: number };
-    sinceId = row.max_id;
+    `, teamId, input.since_timestamp);
+    sinceId = row!.max_id;
   }
 
   const clauses = ['team_id = ?', 'id > ?'];
@@ -149,25 +150,25 @@ export function getUpdates(
 
   if (hasTopics) {
     const placeholders = input.topics!.map(() => '?').join(', ');
-    clauses.push(`EXISTS (SELECT 1 FROM json_each(tags) AS t WHERE t.value IN (${placeholders}))`);
+    clauses.push(`EXISTS (SELECT 1 FROM ${jsonArrayTable(db.dialect, 'tags', 't')} WHERE t.value IN (${placeholders}))`);
     params.push(...input.topics!);
   }
 
   params.push(limit);
 
-  const rows = db.prepare(`
+  const rows = await db.all<EventRow>(`
     SELECT * FROM events
     WHERE ${clauses.join(' AND ')}
     ORDER BY id ASC
     LIMIT ?
-  `).all(...params) as EventRow[];
+  `, ...params);
 
   const events = rows.map(rowToEvent);
   const cursor = events.length > 0 ? events[events.length - 1].id : sinceId;
 
   const includeContext = input.include_context !== false;
   if (input.agent_id && includeContext) {
-    const recommended_context = computeRecommendedContext(db, teamId, input.agent_id);
+    const recommended_context = await computeRecommendedContext(db, teamId, input.agent_id);
     return { events, cursor, recommended_context };
   }
 
@@ -176,14 +177,14 @@ export function getUpdates(
 
 /** Long-poll wait for matching events. Resolves immediately if any exist, else subscribes
  *  to the eventBus and waits up to timeout_sec for a match. */
-export function waitForEvent(
-  db: Database.Database,
+export async function waitForEvent(
+  db: DbAdapter,
   teamId: string,
   input: WaitForEventInput,
 ): Promise<WaitForEventResponse> {
   const timeoutSec = Math.min(Math.max(input.timeout_sec ?? 30, 0), 60);
 
-  const query = (): WaitForEventResponse =>
+  const query = (): Promise<WaitForEventResponse> =>
     getUpdates(db, teamId, {
       since_id: input.since_id,
       topics: input.topics,
@@ -191,14 +192,14 @@ export function waitForEvent(
     });
 
   // Fast path: already have matching events
-  const initial = query();
+  const initial = await query();
   if (initial.events.length > 0) {
-    return Promise.resolve(initial);
+    return initial;
   }
 
   // Zero timeout — return empty immediately
   if (timeoutSec === 0) {
-    return Promise.resolve(initial);
+    return initial;
   }
 
   return new Promise<WaitForEventResponse>((resolve) => {
@@ -219,10 +220,11 @@ export function waitForEvent(
     const onEvent = (payload: { teamId: string; eventId: number }) => {
       if (payload.teamId !== teamId) return;
       if (payload.eventId <= input.since_id) return;
-      const result = query();
-      if (result.events.length > 0) {
-        finish(result);
-      }
+      query().then((result) => {
+        if (result.events.length > 0) {
+          finish(result);
+        }
+      });
     };
 
     const timer = setTimeout(() => {
@@ -234,19 +236,23 @@ export function waitForEvent(
 }
 
 /** Internal helper — broadcast an event without going through HTTP validation */
-export function broadcastInternal(
-  db: Database.Database,
+export async function broadcastInternal(
+  db: DbAdapter,
   teamId: string,
   eventType: EventType,
   message: string,
   tags: string[],
   createdBy: string,
-): number {
-  const result = db.prepare(`
+): Promise<number> {
+  const result = await db.run(`
     INSERT INTO events (team_id, event_type, message, tags, created_by)
     VALUES (?, ?, ?, ?, ?)
-  `).run(teamId, eventType, message, JSON.stringify(tags), createdBy);
+  `, teamId, eventType, message, JSON.stringify(tags), createdBy);
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { teamId, eventId });
   return eventId;
+}
+
+interface BroadcastResponse {
+  eventId: number;
 }

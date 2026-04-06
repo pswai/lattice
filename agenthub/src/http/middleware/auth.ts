@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { createHash } from 'crypto';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { Context } from 'hono';
 import type { AuthContext, ApiKeyScope } from '../../models/types.js';
 import { getLogger } from '../../logger.js';
@@ -11,13 +11,13 @@ import { getLogger } from '../../logger.js';
 const LAST_USED_THROTTLE_MS = 60_000;
 const lastUsedThrottle = new Map<string, number>();
 
-function touchLastUsed(db: Database.Database, keyHash: string): void {
+async function touchLastUsed(db: DbAdapter, keyHash: string): Promise<void> {
   const now = Date.now();
   const prev = lastUsedThrottle.get(keyHash);
   if (prev !== undefined && now - prev < LAST_USED_THROTTLE_MS) return;
   lastUsedThrottle.set(keyHash, now);
   try {
-    db.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?').run(
+    await db.run('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?',
       new Date(now).toISOString(),
       keyHash,
     );
@@ -61,31 +61,20 @@ function hashKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
 }
 
-function lookupTeamId(db: Database.Database, apiKey: string): string | null {
-  const keyHash = hashKey(apiKey);
-  const row = db
-    .prepare('SELECT team_id FROM api_keys WHERE key_hash = ?')
-    .get(keyHash) as { team_id: string } | undefined;
-  return row?.team_id ?? null;
-}
-
-function lookupKey(
-  db: Database.Database,
+async function lookupKey(
+  db: DbAdapter,
   apiKey: string,
-): { teamId: string; scope: ApiKeyScope } | null {
+): Promise<{ teamId: string; scope: ApiKeyScope } | null> {
   const keyHash = hashKey(apiKey);
-  const row = db
-    .prepare(
-      'SELECT team_id, scope, expires_at, revoked_at FROM api_keys WHERE key_hash = ?',
-    )
-    .get(keyHash) as
-    | {
-        team_id: string;
-        scope: ApiKeyScope;
-        expires_at: string | null;
-        revoked_at: string | null;
-      }
-    | undefined;
+  const row = await db.get<{
+    team_id: string;
+    scope: ApiKeyScope;
+    expires_at: string | null;
+    revoked_at: string | null;
+  }>(
+    'SELECT team_id, scope, expires_at, revoked_at FROM api_keys WHERE key_hash = ?',
+    keyHash,
+  );
   if (!row) return null;
   if (row.revoked_at) return null;
   if (row.expires_at) {
@@ -93,7 +82,7 @@ function lookupKey(
     if (row.expires_at <= nowIso) return null;
   }
   // Fire-and-forget throttled update of last_used_at.
-  touchLastUsed(db, keyHash);
+  touchLastUsed(db, keyHash).catch(() => {});
   return { teamId: row.team_id, scope: row.scope };
 }
 
@@ -104,11 +93,11 @@ function lookupKey(
  * - If X-Team-Override is present, it must be a valid API key for the
  *   target team; the request then operates on that team.
  */
-export function resolveTeamFromRequest(
-  db: Database.Database,
+export async function resolveTeamFromRequest(
+  db: DbAdapter,
   c: Context,
   { allowQueryToken = false }: { allowQueryToken?: boolean } = {},
-): AuthResolution {
+): Promise<AuthResolution> {
   const authHeader = c.req.header('Authorization');
   let apiKey: string | undefined;
   if (authHeader?.startsWith('Bearer ')) {
@@ -125,14 +114,14 @@ export function resolveTeamFromRequest(
     };
   }
 
-  const base = lookupKey(db, apiKey);
+  const base = await lookupKey(db, apiKey);
   if (!base) {
     return { ok: false, status: 401, error: 'UNAUTHORIZED', message: 'Invalid API key' };
   }
 
   const overrideKey = c.req.header('X-Team-Override');
   if (overrideKey && overrideKey.length > 0) {
-    const override = lookupKey(db, overrideKey);
+    const override = await lookupKey(db, overrideKey);
     if (!override) {
       return {
         ok: false,
@@ -178,9 +167,9 @@ export function requiredScopeForMethod(method: string): ApiKeyScope {
   return method === 'GET' || method === 'HEAD' ? 'read' : 'write';
 }
 
-export function createAuthMiddleware(db: Database.Database) {
+export function createAuthMiddleware(db: DbAdapter) {
   return createMiddleware(async (c, next) => {
-    const result = resolveTeamFromRequest(db, c, { allowQueryToken: true });
+    const result = await resolveTeamFromRequest(db, c, { allowQueryToken: true });
     if (!result.ok) {
       return c.json({ error: result.error, message: result.message }, result.status);
     }

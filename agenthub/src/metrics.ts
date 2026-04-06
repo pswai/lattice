@@ -5,7 +5,7 @@
  * primitive metric types with label dimensions: Counter, Histogram, Gauge.
  *
  * Designed for a single-process server — not distributed / multi-proc safe.
- * Good enough for AgentHub's single-instance footprint.
+ * Good enough for Lattice's single-instance footprint.
  */
 
 export type LabelValues = Record<string, string | number>;
@@ -293,13 +293,13 @@ export class Registry {
   }
 }
 
-// ---- Singleton registry with AgentHub's standard metrics ----
+// ---- Singleton registry with Lattice's standard metrics ----
 
 export const metricsRegistry = new Registry();
 
 export const httpRequestsTotal = metricsRegistry.register(
   new Counter({
-    name: 'agenthub_http_requests_total',
+    name: 'lattice_http_requests_total',
     help: 'Total number of HTTP requests processed.',
     labelNames: ['method', 'route', 'status', 'team'],
   }),
@@ -307,7 +307,7 @@ export const httpRequestsTotal = metricsRegistry.register(
 
 export const httpRequestDurationMs = metricsRegistry.register(
   new Histogram({
-    name: 'agenthub_http_request_duration_ms',
+    name: 'lattice_http_request_duration_ms',
     help: 'HTTP request duration in milliseconds.',
     labelNames: ['method', 'route'],
     buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
@@ -316,7 +316,7 @@ export const httpRequestDurationMs = metricsRegistry.register(
 
 export const activeAgentsGauge = metricsRegistry.register(
   new Gauge({
-    name: 'agenthub_active_agents',
+    name: 'lattice_active_agents',
     help: 'Number of agents currently online per team.',
     labelNames: ['team'],
   }),
@@ -324,7 +324,7 @@ export const activeAgentsGauge = metricsRegistry.register(
 
 export const tasksGauge = metricsRegistry.register(
   new Gauge({
-    name: 'agenthub_tasks',
+    name: 'lattice_tasks',
     help: 'Number of tasks by team and status.',
     labelNames: ['team', 'status'],
   }),
@@ -332,7 +332,7 @@ export const tasksGauge = metricsRegistry.register(
 
 export const eventsTotal = metricsRegistry.register(
   new Counter({
-    name: 'agenthub_events_total',
+    name: 'lattice_events_total',
     help: 'Total number of events emitted.',
     labelNames: ['team', 'event_type'],
   }),
@@ -340,8 +340,8 @@ export const eventsTotal = metricsRegistry.register(
 
 export const upGauge = metricsRegistry.register(
   new Gauge({
-    name: 'agenthub_up',
-    help: 'AgentHub process liveness (1 = up).',
+    name: 'lattice_up',
+    help: 'Lattice process liveness (1 = up).',
     labelNames: [],
   }),
 );

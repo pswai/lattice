@@ -3,12 +3,11 @@ import { createTestDb, testConfig } from './helpers.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { writeAudit } from '../src/models/audit.js';
-import type Database from 'better-sqlite3';
 import type { Hono } from 'hono';
 
 function extractSessionCookie(res: Response): string {
   const h = res.headers.get('set-cookie') || '';
-  const m = h.match(/ah_session=([^;]*)/);
+  const m = h.match(/lt_session=([^;]*)/);
   return m ? m[1] : '';
 }
 
@@ -19,7 +18,7 @@ async function req(
   opts: { body?: unknown; cookie?: string } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (opts.cookie) headers['Cookie'] = `ah_session=${opts.cookie}`;
+  if (opts.cookie) headers['Cookie'] = `lt_session=${opts.cookie}`;
   return app.request(path, {
     method,
     headers,
@@ -64,7 +63,7 @@ interface AuditResponse {
 }
 
 describe('GET /workspaces/:id/audit', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof createTestDb>;
   let app: Hono;
 
   beforeEach(() => {
@@ -89,7 +88,7 @@ describe('GET /workspaces/:id/audit', () => {
   it('returns entries for own workspace with parsed metadata and composed resource', async () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
-    writeAudit(db, {
+    await writeAudit(db, {
       teamId: 'ws-alice',
       actor: 'agent-1',
       action: 'task.create',
@@ -114,10 +113,10 @@ describe('GET /workspaces/:id/audit', () => {
   it('filters by actor, action, and resource', async () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
-    writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'tasks' });
-    writeAudit(db, { teamId: 'ws-alice', actor: 'a2', action: 'x', resourceType: 'tasks' });
-    writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'y', resourceType: 'tasks' });
-    writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'events' });
+    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'tasks' });
+    await writeAudit(db, { teamId: 'ws-alice', actor: 'a2', action: 'x', resourceType: 'tasks' });
+    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'y', resourceType: 'tasks' });
+    await writeAudit(db, { teamId: 'ws-alice', actor: 'a1', action: 'x', resourceType: 'events' });
 
     const byActor = (await (
       await req(app, 'GET', '/workspaces/ws-alice/audit?actor=a1', { cookie })
@@ -140,7 +139,7 @@ describe('GET /workspaces/:id/audit', () => {
     const cookie = await signup(app, 'alice@example.com');
     await createWorkspace(app, cookie, 'ws-alice');
     for (let i = 0; i < 5; i++) {
-      writeAudit(db, { teamId: 'ws-alice', actor: 'a', action: `act-${i}` });
+      await writeAudit(db, { teamId: 'ws-alice', actor: 'a', action: `act-${i}` });
     }
     const page1 = (await (
       await req(app, 'GET', '/workspaces/ws-alice/audit?limit=2', { cookie })

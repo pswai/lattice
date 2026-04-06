@@ -38,7 +38,7 @@ export interface LoggerOptions {
 // Patterns scrubbed from every emitted log line. Mirrors secret-scanner but
 // broader — we never want an API key ending up on disk or in a log shipper.
 const REDACT_PATTERNS: RegExp[] = [
-  /\bah_[0-9a-f]{48}\b/gi, // AgentHub API keys
+  /\blt_[0-9a-f]{48}\b/gi, // Lattice API keys
   /\bBearer\s+[A-Za-z0-9_\-\.=]{20,}/gi,
   /\bsk_live_[0-9a-zA-Z]{24,}\b/g,
   /\bsk_test_[0-9a-zA-Z]{24,}\b/g,

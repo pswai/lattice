@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { createHash, randomBytes } from 'crypto';
 
 export interface Session {
@@ -50,19 +50,20 @@ export interface CreateSessionResult {
   expiresAt: string;
 }
 
-export function createSession(
-  db: Database.Database,
+export async function createSession(
+  db: DbAdapter,
   userId: string,
   opts: CreateSessionOptions = {},
-): CreateSessionResult {
+): Promise<CreateSessionResult> {
   const ttlDays = opts.ttlDays ?? 30;
   const raw = randomBytes(32).toString('base64url');
   const sessionId = hashSessionToken(raw);
   const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
 
-  db.prepare(
+  await db.run(
     'INSERT INTO sessions (id, user_id, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)',
-  ).run(sessionId, userId, expiresAt, opts.ip ?? null, opts.userAgent ?? null);
+    sessionId, userId, expiresAt, opts.ip ?? null, opts.userAgent ?? null,
+  );
 
   return { raw, sessionId, expiresAt };
 }
@@ -71,26 +72,25 @@ export function createSession(
  * Resolve a session from either the raw token or its hash.
  * Returns null if missing, revoked, or expired.
  */
-export function getSession(db: Database.Database, rawOrHash: string): Session | null {
+export async function getSession(db: DbAdapter, rawOrHash: string): Promise<Session | null> {
   if (!rawOrHash) return null;
   // Heuristic: stored sessionId is 64 hex chars. If input matches that shape,
   // treat it as the hash; otherwise hash it as a raw token.
   const looksHashed = /^[a-f0-9]{64}$/i.test(rawOrHash);
   const sessionId = looksHashed ? rawOrHash.toLowerCase() : hashSessionToken(rawOrHash);
 
-  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as
-    | SessionRow
-    | undefined;
+  const row = await db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', sessionId);
   if (!row) return null;
   if (row.revoked_at) return null;
   if (new Date(row.expires_at).getTime() <= Date.now()) return null;
   return rowToSession(row);
 }
 
-export function revokeSession(db: Database.Database, sessionId: string): void {
-  db.prepare(
-    "UPDATE sessions SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND revoked_at IS NULL",
-  ).run(sessionId);
+export async function revokeSession(db: DbAdapter, sessionId: string): Promise<void> {
+  await db.run(
+    "UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+    new Date().toISOString(), sessionId,
+  );
 }
 
 export interface UserSessionView {
@@ -103,24 +103,23 @@ export interface UserSessionView {
 }
 
 /** List a user's active sessions (excluding revoked and expired), newest first. */
-export function listUserSessions(db: Database.Database, userId: string): UserSessionView[] {
-  const rows = db
-    .prepare(
-      `SELECT id, created_at, expires_at, ip, user_agent, revoked_at
-       FROM sessions
-       WHERE user_id = ?
-         AND revoked_at IS NULL
-         AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       ORDER BY created_at DESC`,
-    )
-    .all(userId) as Array<{
+export async function listUserSessions(db: DbAdapter, userId: string): Promise<UserSessionView[]> {
+  const rows = await db.all<{
     id: string;
     created_at: string;
     expires_at: string;
     ip: string | null;
     user_agent: string | null;
     revoked_at: string | null;
-  }>;
+  }>(
+    `SELECT id, created_at, expires_at, ip, user_agent, revoked_at
+     FROM sessions
+     WHERE user_id = ?
+       AND revoked_at IS NULL
+       AND expires_at > ?
+     ORDER BY created_at DESC`,
+    userId, new Date().toISOString(),
+  );
   return rows.map((r) => ({
     id: r.id,
     createdAt: r.created_at,
@@ -132,25 +131,23 @@ export function listUserSessions(db: Database.Database, userId: string): UserSes
 }
 
 /** Revoke all active sessions for a user EXCEPT the one with keepSessionId. */
-export function revokeUserSessionsExcept(
-  db: Database.Database,
+export async function revokeUserSessionsExcept(
+  db: DbAdapter,
   userId: string,
   keepSessionId: string,
-): { revoked: number } {
-  const result = db
-    .prepare(
-      "UPDATE sessions SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
-    )
-    .run(userId, keepSessionId);
+): Promise<{ revoked: number }> {
+  const result = await db.run(
+    "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
+    new Date().toISOString(), userId, keepSessionId,
+  );
   return { revoked: result.changes };
 }
 
 /** Delete expired and revoked sessions. Returns rows removed. */
-export function pruneExpiredSessions(db: Database.Database): number {
-  const result = db
-    .prepare(
-      "DELETE FROM sessions WHERE expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now') OR revoked_at IS NOT NULL",
-    )
-    .run();
+export async function pruneExpiredSessions(db: DbAdapter): Promise<number> {
+  const result = await db.run(
+    "DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL",
+    new Date().toISOString(),
+  );
   return result.changes;
 }

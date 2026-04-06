@@ -1,4 +1,5 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
+import { jsonArrayTable } from '../db/adapter.js';
 import { NotFoundError } from '../errors.js';
 
 export type WorkflowRunStatus = 'running' | 'completed' | 'failed';
@@ -38,25 +39,25 @@ function rowToRun(row: WorkflowRunRow): WorkflowRun {
   };
 }
 
-export function createWorkflowRun(
-  db: Database.Database,
+export async function createWorkflowRun(
+  db: DbAdapter,
   teamId: string,
   playbookName: string,
   startedBy: string,
-): number {
-  const result = db.prepare(`
+): Promise<number> {
+  const result = await db.run(`
     INSERT INTO workflow_runs (team_id, playbook_name, started_by, task_ids, status)
     VALUES (?, ?, ?, '[]', 'running')
-  `).run(teamId, playbookName, startedBy);
+  `, teamId, playbookName, startedBy);
   return Number(result.lastInsertRowid);
 }
 
-export function setWorkflowRunTaskIds(
-  db: Database.Database,
+export async function setWorkflowRunTaskIds(
+  db: DbAdapter,
   runId: number,
   taskIds: number[],
-): void {
-  db.prepare('UPDATE workflow_runs SET task_ids = ? WHERE id = ?').run(
+): Promise<void> {
+  await db.run('UPDATE workflow_runs SET task_ids = ? WHERE id = ?',
     JSON.stringify(taskIds),
     runId,
   );
@@ -71,11 +72,11 @@ export interface WorkflowRunListItem extends WorkflowRun {
   taskCount: number;
 }
 
-export function listWorkflowRuns(
-  db: Database.Database,
+export async function listWorkflowRuns(
+  db: DbAdapter,
   teamId: string,
   input: ListWorkflowRunsInput,
-): { workflow_runs: WorkflowRunListItem[]; total: number } {
+): Promise<{ workflow_runs: WorkflowRunListItem[]; total: number }> {
   const limit = Math.min(input.limit ?? 50, 200);
   const conditions = ['team_id = ?'];
   const params: (string | number)[] = [teamId];
@@ -87,12 +88,12 @@ export function listWorkflowRuns(
 
   params.push(limit);
 
-  const rows = db.prepare(`
+  const rows = await db.all<WorkflowRunRow>(`
     SELECT * FROM workflow_runs
     WHERE ${conditions.join(' AND ')}
     ORDER BY started_at DESC
     LIMIT ?
-  `).all(...params) as WorkflowRunRow[];
+  `, ...params);
 
   const items = rows.map((row) => {
     const run = rowToRun(row);
@@ -106,14 +107,15 @@ export interface WorkflowRunDetails extends WorkflowRun {
   tasks: Array<{ id: number; description: string; status: string }>;
 }
 
-export function getWorkflowRun(
-  db: Database.Database,
+export async function getWorkflowRun(
+  db: DbAdapter,
   teamId: string,
   id: number,
-): WorkflowRunDetails {
-  const row = db.prepare(
+): Promise<WorkflowRunDetails> {
+  const row = await db.get<WorkflowRunRow>(
     'SELECT * FROM workflow_runs WHERE id = ? AND team_id = ?',
-  ).get(id, teamId) as WorkflowRunRow | undefined;
+    id, teamId,
+  );
 
   if (!row) {
     throw new NotFoundError('WorkflowRun', id);
@@ -124,9 +126,10 @@ export function getWorkflowRun(
   const tasks: Array<{ id: number; description: string; status: string }> = [];
   if (run.taskIds.length > 0) {
     const placeholders = run.taskIds.map(() => '?').join(',');
-    const taskRows = db.prepare(
+    const taskRows = await db.all<{ id: number; description: string; status: string }>(
       `SELECT id, description, status FROM tasks WHERE id IN (${placeholders}) AND team_id = ?`,
-    ).all(...run.taskIds, teamId) as Array<{ id: number; description: string; status: string }>;
+      ...run.taskIds, teamId,
+    );
     tasks.push(...taskRows);
   }
 
@@ -139,27 +142,28 @@ export function getWorkflowRun(
  * (completed/escalated/abandoned), the run is marked completed.
  * If any task is escalated or abandoned, the run is marked failed.
  */
-export function checkWorkflowCompletion(
-  db: Database.Database,
+export async function checkWorkflowCompletion(
+  db: DbAdapter,
   taskId: number,
-): void {
+): Promise<void> {
   // Find workflow run(s) that contain this task id in their JSON array.
-  const rows = db.prepare(`
+  const rows = await db.all<{ id: number; task_ids: string }>(`
     SELECT id, task_ids FROM workflow_runs
     WHERE status = 'running'
       AND EXISTS (
-        SELECT 1 FROM json_each(task_ids) WHERE value = ?
+        SELECT 1 FROM ${jsonArrayTable(db.dialect, 'task_ids')} WHERE value = ?
       )
-  `).all(taskId) as Array<{ id: number; task_ids: string }>;
+  `, taskId);
 
   for (const row of rows) {
     const taskIds = JSON.parse(row.task_ids) as number[];
     if (taskIds.length === 0) continue;
 
     const placeholders = taskIds.map(() => '?').join(',');
-    const statuses = db.prepare(
+    const statuses = await db.all<{ status: string }>(
       `SELECT status FROM tasks WHERE id IN (${placeholders})`,
-    ).all(...taskIds) as Array<{ status: string }>;
+      ...taskIds,
+    );
 
     const terminal = ['completed', 'escalated', 'abandoned'];
     const allTerminal = statuses.length === taskIds.length &&
@@ -170,10 +174,10 @@ export function checkWorkflowCompletion(
     const anyFailed = statuses.some((s) => s.status === 'escalated' || s.status === 'abandoned');
     const newStatus: WorkflowRunStatus = anyFailed ? 'failed' : 'completed';
 
-    db.prepare(`
+    await db.run(`
       UPDATE workflow_runs
-      SET status = ?, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      SET status = ?, completed_at = ?
       WHERE id = ?
-    `).run(newStatus, row.id);
+    `, newStatus, new Date().toISOString(), row.id);
   }
 }

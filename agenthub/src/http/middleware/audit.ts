@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { writeAudit } from '../../models/audit.js';
 import { getLogger } from '../../logger.js';
 
@@ -73,7 +73,7 @@ function extractIp(headerGet: (name: string) => string | undefined): string {
  * POST/PUT/PATCH/DELETE with response status < 400. Body is NEVER captured
  * (may contain secrets); only the query string is recorded in metadata.
  */
-export function createAuditMiddleware(db: Database.Database) {
+export function createAuditMiddleware(db: DbAdapter) {
   return createMiddleware(async (c, next) => {
     try {
       await next();
@@ -105,7 +105,7 @@ export function createAuditMiddleware(db: Database.Database) {
           queries = {};
         }
 
-        writeAudit(db, {
+        await writeAudit(db, {
           teamId: auth.teamId,
           actor: auth.agentId || 'anonymous',
           action,

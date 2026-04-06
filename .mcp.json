@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "agenthub": {
+    "lattice": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
-        "Authorization": "Bearer uat-team-key-001",
-        "X-Agent-ID": "lead-analyst"
+        "Authorization": "Bearer ah_aa9d4d24ba3c0092c2bc2582a4d725e0b9a3acb3721f3417",
+        "X-Agent-ID": "orchestrator"
       }
     }
   }

@@ -89,10 +89,10 @@ describe('computeNextRun — cron parser', () => {
 });
 
 describe('Schedule model', () => {
-  function setup() {
+  async function setup() {
     const db = createTestDb();
     setupTeam(db, 'team-a');
-    definePlaybook(db, 'team-a', 'alice', {
+    await definePlaybook(db, 'team-a', 'alice', {
       name: 'cleanup',
       description: 'nightly cleanup',
       tasks: [{ description: 'do cleanup' }],
@@ -100,10 +100,10 @@ describe('Schedule model', () => {
     return db;
   }
 
-  it('defineSchedule computes next_run_at ~N minutes from now', () => {
-    const db = setup();
+  it('defineSchedule computes next_run_at ~N minutes from now', async () => {
+    const db = await setup();
     const before = Date.now();
-    const s = defineSchedule(db, 'team-a', 'alice', {
+    const s = await defineSchedule(db, 'team-a', 'alice', {
       playbook_name: 'cleanup',
       cron_expression: '*/5 * * * *',
     });
@@ -115,75 +115,75 @@ describe('Schedule model', () => {
     expect(nextMs - before).toBeLessThanOrEqual(6 * 60 * 1000);
   });
 
-  it('defineSchedule rejects when playbook does not exist', () => {
-    const db = setup();
-    expect(() =>
+  it('defineSchedule rejects when playbook does not exist', async () => {
+    const db = await setup();
+    await expect(
       defineSchedule(db, 'team-a', 'alice', {
         playbook_name: 'does-not-exist',
         cron_expression: '*/5 * * * *',
       }),
-    ).toThrow(/not found/);
+    ).rejects.toThrow(/not found/);
   });
 
-  it('defineSchedule rejects invalid cron with ValidationError', () => {
-    const db = setup();
-    expect(() =>
+  it('defineSchedule rejects invalid cron with ValidationError', async () => {
+    const db = await setup();
+    await expect(
       defineSchedule(db, 'team-a', 'alice', {
         playbook_name: 'cleanup',
         cron_expression: '* * * * *',
       }),
-    ).toThrow(/Unsupported cron pattern/);
+    ).rejects.toThrow(/Unsupported cron pattern/);
   });
 
-  it('listSchedules returns schedules for the team only', () => {
-    const db = setup();
-    setupTeam(db, 'team-b', 'ahk_other_key_12345678901234567890');
-    definePlaybook(db, 'team-b', 'bob', {
+  it('listSchedules returns schedules for the team only', async () => {
+    const db = await setup();
+    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    await definePlaybook(db, 'team-b', 'bob', {
       name: 'cleanup',
       description: 'other team',
       tasks: [{ description: 'do it' }],
     });
-    defineSchedule(db, 'team-a', 'alice', {
+    await defineSchedule(db, 'team-a', 'alice', {
       playbook_name: 'cleanup',
       cron_expression: '*/5 * * * *',
     });
-    defineSchedule(db, 'team-b', 'bob', {
+    await defineSchedule(db, 'team-b', 'bob', {
       playbook_name: 'cleanup',
       cron_expression: '*/10 * * * *',
     });
 
-    const listA = listSchedules(db, 'team-a');
+    const listA = await listSchedules(db, 'team-a');
     expect(listA.total).toBe(1);
     expect(listA.schedules[0].teamId).toBe('team-a');
   });
 
-  it('deleteSchedule removes the row', () => {
-    const db = setup();
-    const s = defineSchedule(db, 'team-a', 'alice', {
+  it('deleteSchedule removes the row', async () => {
+    const db = await setup();
+    const s = await defineSchedule(db, 'team-a', 'alice', {
       playbook_name: 'cleanup',
       cron_expression: '*/5 * * * *',
     });
-    expect(deleteSchedule(db, 'team-a', s.id).deleted).toBe(true);
-    expect(listSchedules(db, 'team-a').total).toBe(0);
+    expect((await deleteSchedule(db, 'team-a', s.id)).deleted).toBe(true);
+    expect((await listSchedules(db, 'team-a')).total).toBe(0);
     // Second delete returns false
-    expect(deleteSchedule(db, 'team-a', s.id).deleted).toBe(false);
+    expect((await deleteSchedule(db, 'team-a', s.id)).deleted).toBe(false);
   });
 
-  it('deleteSchedule is team-scoped', () => {
-    const db = setup();
-    setupTeam(db, 'team-b', 'ahk_other_key_12345678901234567890');
-    const s = defineSchedule(db, 'team-a', 'alice', {
+  it('deleteSchedule is team-scoped', async () => {
+    const db = await setup();
+    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    const s = await defineSchedule(db, 'team-a', 'alice', {
       playbook_name: 'cleanup',
       cron_expression: '*/5 * * * *',
     });
-    expect(deleteSchedule(db, 'team-b', s.id).deleted).toBe(false);
-    expect(listSchedules(db, 'team-a').total).toBe(1);
+    expect((await deleteSchedule(db, 'team-b', s.id)).deleted).toBe(false);
+    expect((await listSchedules(db, 'team-a')).total).toBe(1);
   });
 
-  it('getDueSchedules returns only overdue + enabled rows, cross-team', () => {
-    const db = setup();
-    setupTeam(db, 'team-b', 'ahk_other_key_12345678901234567890');
-    definePlaybook(db, 'team-b', 'bob', {
+  it('getDueSchedules returns only overdue + enabled rows, cross-team', async () => {
+    const db = await setup();
+    setupTeam(db, 'team-b', 'ltk_other_key_12345678901234567890');
+    await definePlaybook(db, 'team-b', 'bob', {
       name: 'cleanup',
       description: 'other team',
       tasks: [{ description: 'do it' }],
@@ -214,7 +214,7 @@ describe('Schedule model', () => {
        VALUES (?, ?, ?, 0, ?, ?)`,
     ).run('team-a', 'cleanup', '*/30 * * * *', past, 'alice');
 
-    const due = getDueSchedules(db);
+    const due = await getDueSchedules(db);
     expect(due.length).toBe(2);
     const teamIds = due.map((d) => d.teamId).sort();
     expect(teamIds).toEqual(['team-a', 'team-b']);
@@ -222,10 +222,10 @@ describe('Schedule model', () => {
 });
 
 describe('Scheduler worker', () => {
-  it('runDueSchedules runs overdue playbooks and advances next_run_at', () => {
+  it('runDueSchedules runs overdue playbooks and advances next_run_at', async () => {
     const db = createTestDb();
     setupTeam(db, 'team-a');
-    definePlaybook(db, 'team-a', 'alice', {
+    await definePlaybook(db, 'team-a', 'alice', {
       name: 'cleanup',
       description: 'nightly cleanup',
       tasks: [{ description: 'do cleanup' }, { description: 'verify' }],
@@ -237,11 +237,11 @@ describe('Scheduler worker', () => {
        VALUES (?, ?, ?, 1, ?, ?)`,
     ).run('team-a', 'cleanup', '*/5 * * * *', past, 'alice');
 
-    const fired = runDueSchedules(db);
+    const fired = await runDueSchedules(db);
     expect(fired).toBe(1);
 
     // next_run_at should now be in the future
-    const row = db
+    const row = db.rawDb
       .prepare('SELECT * FROM schedules WHERE team_id = ?')
       .get('team-a') as { next_run_at: string; last_run_at: string | null; last_workflow_run_id: number | null };
     expect(new Date(row.next_run_at).getTime()).toBeGreaterThan(Date.now());
@@ -249,27 +249,27 @@ describe('Scheduler worker', () => {
     expect(row.last_workflow_run_id).toBeGreaterThan(0);
 
     // Playbook was run — two tasks were created
-    const tasks = db.prepare('SELECT * FROM tasks WHERE team_id = ?').all('team-a') as unknown[];
+    const tasks = db.rawDb.prepare('SELECT * FROM tasks WHERE team_id = ?').all('team-a') as unknown[];
     expect(tasks).toHaveLength(2);
 
     // SCHEDULE_FIRED event broadcast
-    const events = db
+    const events = db.rawDb
       .prepare(`SELECT * FROM events WHERE team_id = ? AND tags LIKE '%schedule_fired%'`)
       .all('team-a') as unknown[];
     expect(events.length).toBeGreaterThan(0);
 
     // Second pass should not fire again (not due)
-    expect(runDueSchedules(db)).toBe(0);
+    expect(await runDueSchedules(db)).toBe(0);
   });
 });
 
 describe('Schedules HTTP API', () => {
   let ctx: TestContext;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ctx = createTestContext();
     // Seed a playbook to reference
-    definePlaybook(ctx.db, ctx.teamId, ctx.agentId, {
+    await definePlaybook(ctx.db, ctx.teamId, ctx.agentId, {
       name: 'nightly',
       description: 'nightly pipeline',
       tasks: [{ description: 'step 1' }],

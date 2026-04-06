@@ -129,7 +129,7 @@ describe('Webhooks — CRUD', () => {
     const created = await createRes.json();
 
     // Second team shouldn't see it.
-    const ctx2 = createTestContext('other-team', 'ahk_other_key_12345678901234567890');
+    const ctx2 = createTestContext('other-team', 'ltk_other_key_12345678901234567890');
     // Copy the created webhook row into the other DB to prove tenant filtering.
     const delRes = await request(ctx2.app, 'DELETE', `/api/v1/webhooks/${created.id}`, {
       headers: authHeaders(ctx2.apiKey, 'bob'),
@@ -178,11 +178,11 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['BROADCAST']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', ['t'], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', ['t'], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     expect(received.length).toBe(1);
-    const sig = received[0].headers['X-AgentHub-Signature'];
+    const sig = received[0].headers['X-Lattice-Signature'];
     expect(sig).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
 
     // Validate signature matches
@@ -208,11 +208,11 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     await createWebhook('https://example.com/hook', ['TASK_UPDATE']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     expect(received).toHaveLength(0);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'TASK_UPDATE', 'x', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'TASK_UPDATE', 'x', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     expect(received).toHaveLength(1);
   });
@@ -222,7 +222,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, 'other-team', 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, 'other-team', 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     expect(received).toHaveLength(0);
   });
@@ -232,7 +232,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
@@ -250,7 +250,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
@@ -273,9 +273,9 @@ describe('Webhooks — delivery dispatcher', () => {
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
     for (let i = 0; i < 20; i++) {
-      broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', `m${i}`, [], 'alice');
+      await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', `m${i}`, [], 'alice');
     }
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 600));
     // Drain remaining deliveries.
     await dispatcher.processOnce();
 
@@ -292,10 +292,10 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'fail', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'fail', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     shouldFail = false;
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'ok', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'ok', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const row = ctx.db
@@ -315,7 +315,7 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50, timeoutMs: 50 });
     const wh = await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'BROADCAST', 'hello', [], 'alice');
     await new Promise((r) => setTimeout(r, 100));
     const delRes = await request(ctx.app, 'GET', `/api/v1/webhooks/${wh.id}/deliveries`, {
       headers: authHeaders(ctx.apiKey, 'alice'),
@@ -330,13 +330,13 @@ describe('Webhooks — delivery dispatcher', () => {
     dispatcher = startWebhookDispatcher(ctx.db, { fetchImpl, intervalMs: 50 });
     await createWebhook('https://example.com/hook', ['*']);
 
-    broadcastInternal(ctx.db, ctx.teamId, 'LEARNING', 'neat', ['tag'], 'alice');
+    await broadcastInternal(ctx.db, ctx.teamId, 'LEARNING', 'neat', ['tag'], 'alice');
     await new Promise((r) => setTimeout(r, 100));
 
     const headers = received[0].headers;
-    expect(headers['X-AgentHub-Event']).toBe('LEARNING');
-    expect(headers['X-AgentHub-Delivery']).toMatch(/^dlv_/);
-    expect(headers['User-Agent']).toBe('AgentHub-Webhooks/1.0');
+    expect(headers['X-Lattice-Event']).toBe('LEARNING');
+    expect(headers['X-Lattice-Delivery']).toMatch(/^dlv_/);
+    expect(headers['User-Agent']).toBe('Lattice-Webhooks/1.0');
     expect(headers['Content-Type']).toBe('application/json');
     const body = JSON.parse(received[0].body);
     expect(body.event_type).toBe('LEARNING');

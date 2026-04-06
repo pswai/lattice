@@ -7,7 +7,7 @@ import { createMcpServer } from '../src/mcp/server.js';
 
 function extractSessionCookie(res: Response): string {
   const h = res.headers.get('set-cookie') || '';
-  const m = h.match(/ah_session=([^;]*)/);
+  const m = h.match(/lt_session=([^;]*)/);
   return m ? m[1] : '';
 }
 
@@ -18,7 +18,7 @@ async function req(
   opts: { body?: unknown; cookie?: string } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (opts.cookie) headers['Cookie'] = `ah_session=${opts.cookie}`;
+  if (opts.cookie) headers['Cookie'] = `lt_session=${opts.cookie}`;
   return app.request(path, {
     method,
     headers,

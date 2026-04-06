@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 
 export interface Plan {
   id: string;
@@ -78,14 +78,12 @@ export const FREE_PLAN_FALLBACK: Plan = {
   createdAt: '1970-01-01T00:00:00.000Z',
 };
 
-export function seedDefaultPlans(db: Database.Database): void {
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO subscription_plans
-      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+export async function seedDefaultPlans(db: DbAdapter): Promise<void> {
   for (const p of DEFAULT_PLANS) {
-    stmt.run(
+    await db.run(
+      `INSERT OR IGNORE INTO subscription_plans
+        (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       p.id,
       p.name,
       p.priceCents,
@@ -98,16 +96,12 @@ export function seedDefaultPlans(db: Database.Database): void {
   }
 }
 
-export function getPlan(db: Database.Database, id: string): Plan | null {
-  const row = db
-    .prepare('SELECT * FROM subscription_plans WHERE id = ?')
-    .get(id) as PlanRow | undefined;
+export async function getPlan(db: DbAdapter, id: string): Promise<Plan | null> {
+  const row = await db.get<PlanRow>('SELECT * FROM subscription_plans WHERE id = ?', id);
   return row ? rowToPlan(row) : null;
 }
 
-export function listPlans(db: Database.Database): Plan[] {
-  const rows = db
-    .prepare('SELECT * FROM subscription_plans ORDER BY price_cents ASC')
-    .all() as PlanRow[];
+export async function listPlans(db: DbAdapter): Promise<Plan[]> {
+  const rows = await db.all<PlanRow>('SELECT * FROM subscription_plans ORDER BY price_cents ASC');
   return rows.map(rowToPlan);
 }

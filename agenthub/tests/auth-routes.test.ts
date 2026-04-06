@@ -12,7 +12,7 @@ function extractSetCookie(res: Response): string {
 
 function extractSessionCookie(res: Response): string {
   const sc = extractSetCookie(res);
-  const m = sc.match(/ah_session=([^;]*)/);
+  const m = sc.match(/lt_session=([^;]*)/);
   return m ? m[1] : '';
 }
 
@@ -24,7 +24,7 @@ async function jsonRequest(
   cookie?: string,
 ): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (cookie) headers['Cookie'] = `ah_session=${cookie}`;
+  if (cookie) headers['Cookie'] = `lt_session=${cookie}`;
   return app.request(path, {
     method,
     headers,

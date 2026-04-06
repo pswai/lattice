@@ -25,7 +25,7 @@ describe('Admin API', () => {
       expect(res.status).toBe(201);
       const data = await res.json();
       expect(data.team_id).toBe('new-team');
-      expect(data.api_key).toMatch(/^ah_/);
+      expect(data.api_key).toMatch(/^lt_/);
     });
 
     it('should reject duplicate team IDs', async () => {
@@ -83,7 +83,7 @@ describe('Admin API', () => {
 
       expect(res.status).toBe(201);
       const data = await res.json();
-      expect(data.api_key).toMatch(/^ah_/);
+      expect(data.api_key).toMatch(/^lt_/);
       expect(data.label).toBe('ci-key');
     });
 

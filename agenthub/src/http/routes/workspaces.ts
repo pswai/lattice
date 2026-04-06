@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../errors.js';
 import {
@@ -57,25 +57,25 @@ const ChangeRoleSchema = z.object({
   role: z.enum(['owner', 'admin', 'member', 'viewer']),
 });
 
-function assertMembership(
-  db: Database.Database,
+async function assertMembership(
+  db: DbAdapter,
   userId: string,
   teamId: string,
-): MembershipRole {
-  const membership = getMembership(db, userId, teamId);
+): Promise<MembershipRole> {
+  const membership = await getMembership(db, userId, teamId);
   if (!membership) {
     throw new NotFoundError('Workspace', teamId);
   }
   return membership.role;
 }
 
-function assertRole(
-  db: Database.Database,
+async function assertRole(
+  db: DbAdapter,
   userId: string,
   teamId: string,
   allowed: MembershipRole[],
-): MembershipRole {
-  const role = assertMembership(db, userId, teamId);
+): Promise<MembershipRole> {
+  const role = await assertMembership(db, userId, teamId);
   if (!allowed.includes(role)) {
     throw new ForbiddenError(
       `This action requires one of roles: ${allowed.join(', ')}`,
@@ -85,7 +85,7 @@ function assertRole(
 }
 
 export function createWorkspaceRoutes(
-  db: Database.Database,
+  db: DbAdapter,
   config?: AppConfig,
   emailSender: EmailSender | null = null,
 ): Hono {
@@ -100,7 +100,7 @@ export function createWorkspaceRoutes(
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const result = acceptInvitation(db, parsed.data.token, session.userId);
+    const result = await acceptInvitation(db, parsed.data.token, session.userId);
     return c.json({ team_id: result.teamId, role: result.role }, 201);
   });
 
@@ -113,26 +113,27 @@ export function createWorkspaceRoutes(
     }
 
     const { id, name } = parsed.data;
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
-    const tx = db.transaction(() => {
+    await db.transaction(async (tx) => {
       try {
-        db.prepare(
+        await tx.run(
           'INSERT INTO teams (id, name, owner_user_id, slug) VALUES (?, ?, ?, ?)',
-        ).run(id, name, session.userId, id);
+          id, name, session.userId, id,
+        );
       } catch (err: unknown) {
         if (err instanceof Error && err.message.includes('UNIQUE')) {
           throw new ValidationError(`Workspace "${id}" already exists`);
         }
         throw err;
       }
-      addMembership(db, { userId: session.userId, teamId: id, role: 'owner' });
-      db.prepare(
+      await addMembership(tx, { userId: session.userId, teamId: id, role: 'owner' });
+      await tx.run(
         'INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
-      ).run(id, keyHash, 'default', 'write');
+        id, keyHash, 'default', 'write',
+      );
     });
-    tx();
 
     return c.json(
       { team_id: id, name, api_key: rawKey, scope: 'write' as const, role: 'owner' as const },
@@ -140,9 +141,9 @@ export function createWorkspaceRoutes(
     );
   });
 
-  router.get('/', requireSession, (c) => {
+  router.get('/', requireSession, async (c) => {
     const session = c.get('session')!;
-    const memberships = listUserMemberships(db, session.userId);
+    const memberships = await listUserMemberships(db, session.userId);
     return c.json({
       workspaces: memberships.map((m) => ({
         team_id: m.teamId,
@@ -156,20 +157,20 @@ export function createWorkspaceRoutes(
   router.patch('/:id', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = RenameWorkspaceSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    db.prepare('UPDATE teams SET name = ? WHERE id = ?').run(parsed.data.name, teamId);
+    await db.run('UPDATE teams SET name = ? WHERE id = ?', parsed.data.name, teamId);
     return c.json({ team_id: teamId, name: parsed.data.name });
   });
 
-  router.delete('/:id', requireSession, (c) => {
+  router.delete('/:id', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    const membership = getMembership(db, session.userId, teamId);
+    const membership = await getMembership(db, session.userId, teamId);
     if (!membership) {
       return c.json({ error: 'NOT_FOUND', message: 'Workspace not found' }, 404);
     }
@@ -177,13 +178,12 @@ export function createWorkspaceRoutes(
       return c.json({ error: 'FORBIDDEN', message: 'Only the workspace owner can delete it' }, 403);
     }
 
-    const tx = db.transaction(() => {
-      db.prepare('DELETE FROM api_keys WHERE team_id = ?').run(teamId);
-      db.prepare('DELETE FROM team_memberships WHERE team_id = ?').run(teamId);
-      db.prepare('DELETE FROM team_invitations WHERE team_id = ?').run(teamId);
-      db.prepare('DELETE FROM teams WHERE id = ?').run(teamId);
+    await db.transaction(async (tx) => {
+      await tx.run('DELETE FROM api_keys WHERE team_id = ?', teamId);
+      await tx.run('DELETE FROM team_memberships WHERE team_id = ?', teamId);
+      await tx.run('DELETE FROM team_invitations WHERE team_id = ?', teamId);
+      await tx.run('DELETE FROM teams WHERE id = ?', teamId);
     });
-    tx();
 
     return c.body(null, 204);
   });
@@ -193,13 +193,13 @@ export function createWorkspaceRoutes(
   router.post('/:id/invites', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = InviteSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const { raw, invitationId, expiresAt } = createInvitation(db, {
+    const { raw, invitationId, expiresAt } = await createInvitation(db, {
       teamId,
       email: parsed.data.email,
       role: parsed.data.role,
@@ -208,9 +208,9 @@ export function createWorkspaceRoutes(
 
     if (emailSender && config) {
       const acceptUrl = `${config.appBaseUrl}/workspaces/invites/accept?token=${raw}`;
-      const emailBody = `You've been invited to join workspace "${teamId}" on AgentHub as ${parsed.data.role}.\n\nAccept the invitation by clicking the link below:\n\n${acceptUrl}\n\nThis invite expires on ${expiresAt}.`;
+      const emailBody = `You've been invited to join workspace "${teamId}" on Lattice as ${parsed.data.role}.\n\nAccept the invitation by clicking the link below:\n\n${acceptUrl}\n\nThis invite expires on ${expiresAt}.`;
       emailSender
-        .send(parsed.data.email, `You're invited to ${teamId} on AgentHub`, emailBody)
+        .send(parsed.data.email, `You're invited to ${teamId} on Lattice`, emailBody)
         .catch((err: unknown) => {
           getLogger().error('email_send_failed', {
             to: parsed.data.email,
@@ -230,11 +230,11 @@ export function createWorkspaceRoutes(
     return c.json(resBody, 201);
   });
 
-  router.get('/:id/invites', requireSession, (c) => {
+  router.get('/:id/invites', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    assertRole(db, session.userId, teamId, ['owner', 'admin']);
-    const invitations = listTeamInvitations(db, teamId);
+    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    const invitations = await listTeamInvitations(db, teamId);
     return c.json(
       invitations.map((inv) => ({
         id: inv.id,
@@ -247,26 +247,26 @@ export function createWorkspaceRoutes(
     );
   });
 
-  router.delete('/:id/invites/:invId', requireSession, (c) => {
+  router.delete('/:id/invites/:invId', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
     const invId = c.req.param('invId');
-    assertRole(db, session.userId, teamId, ['owner', 'admin']);
-    const inv = getInvitationById(db, invId);
+    await assertRole(db, session.userId, teamId, ['owner', 'admin']);
+    const inv = await getInvitationById(db, invId);
     if (!inv || inv.teamId !== teamId) {
       return c.json({ error: 'NOT_FOUND', message: 'Invitation not found' }, 404);
     }
-    revokeInvitation(db, invId);
+    await revokeInvitation(db, invId);
     return c.body(null, 204);
   });
 
   // --- Members ---
 
-  router.get('/:id/members', requireSession, (c) => {
+  router.get('/:id/members', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    assertMembership(db, session.userId, teamId);
-    const members = listTeamMembers(db, teamId);
+    await assertMembership(db, session.userId, teamId);
+    const members = await listTeamMembers(db, teamId);
     return c.json(
       members.map((m) => ({
         user_id: m.userId,
@@ -282,18 +282,18 @@ export function createWorkspaceRoutes(
     const session = c.get('session')!;
     const teamId = c.req.param('id');
     const targetUserId = c.req.param('userId');
-    assertRole(db, session.userId, teamId, ['owner']);
+    await assertRole(db, session.userId, teamId, ['owner']);
     const body = await c.req.json().catch(() => ({}));
     const parsed = ChangeRoleSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
-    const target = getMembership(db, targetUserId, teamId);
+    const target = await getMembership(db, targetUserId, teamId);
     if (!target) {
       return c.json({ error: 'NOT_FOUND', message: 'Member not found' }, 404);
     }
     const newRole = parsed.data.role;
-    if (target.role === 'owner' && newRole !== 'owner' && countOwners(db, teamId) === 1) {
+    if (target.role === 'owner' && newRole !== 'owner' && await countOwners(db, teamId) === 1) {
       return c.json(
         {
           error: 'LAST_OWNER_DEMOTION',
@@ -302,8 +302,8 @@ export function createWorkspaceRoutes(
         409,
       );
     }
-    changeRole(db, targetUserId, teamId, newRole);
-    const refreshed = getMembership(db, targetUserId, teamId)!;
+    await changeRole(db, targetUserId, teamId, newRole);
+    const refreshed = (await getMembership(db, targetUserId, teamId))!;
     return c.json({
       user_id: refreshed.userId,
       team_id: refreshed.teamId,
@@ -311,20 +311,20 @@ export function createWorkspaceRoutes(
     });
   });
 
-  router.delete('/:id/members/:userId', requireSession, (c) => {
+  router.delete('/:id/members/:userId', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
     const targetUserId = c.req.param('userId');
-    const selfRole = assertMembership(db, session.userId, teamId);
+    const selfRole = await assertMembership(db, session.userId, teamId);
     const isSelf = session.userId === targetUserId;
     if (!isSelf && selfRole !== 'owner') {
       throw new ForbiddenError('Only the workspace owner can remove other members');
     }
-    const target = getMembership(db, targetUserId, teamId);
+    const target = await getMembership(db, targetUserId, teamId);
     if (!target) {
       return c.json({ error: 'NOT_FOUND', message: 'Member not found' }, 404);
     }
-    if (target.role === 'owner' && countOwners(db, teamId) === 1) {
+    if (target.role === 'owner' && await countOwners(db, teamId) === 1) {
       return c.json(
         {
           error: 'LAST_OWNER_REMOVAL',
@@ -333,16 +333,16 @@ export function createWorkspaceRoutes(
         409,
       );
     }
-    removeMembership(db, targetUserId, teamId);
+    await removeMembership(db, targetUserId, teamId);
     return c.body(null, 204);
   });
 
   // --- Audit log query (any member can read) ---
 
-  router.get('/:id/audit', requireSession, (c) => {
+  router.get('/:id/audit', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    const membership = getMembership(db, session.userId, teamId);
+    const membership = await getMembership(db, session.userId, teamId);
     if (!membership) {
       return c.json({ error: 'FORBIDDEN', message: 'Not a member of this workspace' }, 403);
     }
@@ -365,7 +365,7 @@ export function createWorkspaceRoutes(
       beforeId = decoded;
     }
 
-    const rows = queryAuditLog(db, teamId, {
+    const rows = await queryAuditLog(db, teamId, {
       actor: q.actor,
       action: q.action,
       resource: q.resource,
@@ -407,12 +407,12 @@ export function createWorkspaceRoutes(
   });
 
   // ─── Usage ────────────────────────────────────────────────────────
-  router.get('/:id/usage', requireSession, (c) => {
+  router.get('/:id/usage', requireSession, async (c) => {
     const session = c.get('session')!;
     const teamId = c.req.param('id');
-    assertMembership(db, session.userId, teamId);
+    await assertMembership(db, session.userId, teamId);
 
-    const result = getCurrentUsageWithLimits(db, teamId);
+    const result = await getCurrentUsageWithLimits(db, teamId);
     return c.json({
       period: result.period,
       usage: {

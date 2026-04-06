@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { randomBytes } from 'crypto';
 import type { User } from './user.js';
 
@@ -37,64 +37,65 @@ export interface FindOrCreateOAuthUserInput {
  * 2. Else if a user with the same email exists → link identity to that user.
  * 3. Else create a new user (email-verified, no password) and link identity.
  */
-export function findOrCreateOAuthUser(
-  db: Database.Database,
+export async function findOrCreateOAuthUser(
+  db: DbAdapter,
   input: FindOrCreateOAuthUserInput,
-): User {
+): Promise<User> {
   const { provider, providerUid } = input;
   const email = input.email ? input.email.trim().toLowerCase() : null;
 
-  const existing = db
-    .prepare(
-      `SELECT u.* FROM oauth_identities oi
-         JOIN users u ON u.id = oi.user_id
-        WHERE oi.provider = ? AND oi.provider_uid = ?`,
-    )
-    .get(provider, providerUid) as UserRow | undefined;
+  const existing = await db.get<UserRow>(
+    `SELECT u.* FROM oauth_identities oi
+       JOIN users u ON u.id = oi.user_id
+      WHERE oi.provider = ? AND oi.provider_uid = ?`,
+    provider, providerUid,
+  );
   if (existing) return rowToUser(existing);
 
-  const tx = db.transaction(() => {
-    let userId: string;
+  const userId = await db.transaction(async (tx) => {
+    let uid: string;
 
     if (email) {
-      const userRow = db
-        .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
-        .get(email) as UserRow | undefined;
+      const userRow = await tx.get<UserRow>(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+        email,
+      );
       if (userRow) {
-        userId = userRow.id;
+        uid = userRow.id;
       } else {
-        userId = createOAuthUser(db, email, input.name ?? null);
+        uid = await createOAuthUser(tx, email, input.name ?? null);
       }
     } else {
       // No email from provider — create a placeholder user with a
       // synthetic email so the unique index holds.
       const placeholder = `oauth_${provider}_${providerUid}@users.noreply`.toLowerCase();
-      userId = createOAuthUser(db, placeholder, input.name ?? null);
+      uid = await createOAuthUser(tx, placeholder, input.name ?? null);
     }
 
-    db.prepare(
+    await tx.run(
       'INSERT INTO oauth_identities (provider, provider_uid, user_id, email) VALUES (?, ?, ?, ?)',
-    ).run(provider, providerUid, userId, email);
+      provider, providerUid, uid, email,
+    );
 
-    return userId;
+    return uid;
   });
 
-  const userId = tx();
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow;
-  return rowToUser(row);
+  const row = await db.get<UserRow>('SELECT * FROM users WHERE id = ?', userId);
+  return rowToUser(row!);
 }
 
-function createOAuthUser(
-  db: Database.Database,
+async function createOAuthUser(
+  db: DbAdapter,
   email: string,
   name: string | null,
-): string {
+): Promise<string> {
   const id = `u_${randomBytes(12).toString('hex')}`;
   // No password for OAuth-only users; store a sentinel that can never verify.
   const passwordHash = `oauth:${randomBytes(16).toString('hex')}`;
-  db.prepare(
+  await db.run(
     `INSERT INTO users (id, email, password_hash, name, email_verified_at)
-     VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-  ).run(id, email, passwordHash, name);
+     VALUES (?, ?, ?, ?, ?)`,
+    id, email, passwordHash, name, new Date().toISOString(),
+  );
   return id;
 }

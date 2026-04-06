@@ -1,6 +1,6 @@
-# Deploying AgentHub with Docker
+# Deploying Lattice with Docker
 
-AgentHub ships with a Dockerfile and `docker-compose.yml` so you can run the
+Lattice ships with a Dockerfile and `docker-compose.yml` so you can run the
 full stack (HTTP API + MCP endpoint + dashboard) with one command. SQLite data
 is persisted to a host-mounted volume.
 
@@ -13,7 +13,7 @@ is persisted to a host-mounted volume.
 
 ```bash
 git clone https://github.com/your-org/tools-for-ai.git
-cd tools-for-ai/agenthub
+cd tools-for-ai/lattice
 ```
 
 ## 2. Set your admin key
@@ -100,16 +100,16 @@ browser to see live tasks, agents, events, and context for your team.
 
 ## Data persistence
 
-The SQLite DB lives at `./data/agenthub.db` on the host (mounted into the
+The SQLite DB lives at `./data/lattice.db` on the host (mounted into the
 container at `/data`). Back it up with a plain file copy while the container
-is stopped, or use `sqlite3 agenthub.db ".backup backup.db"` while it runs.
+is stopped, or use `sqlite3 lattice.db ".backup backup.db"` while it runs.
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP listen port |
-| `DB_PATH` | `/data/agenthub.db` | SQLite file path inside the container |
+| `DB_PATH` | `/data/lattice.db` | SQLite file path inside the container |
 | `ADMIN_KEY` | *(required)* | Bearer token for `/admin/*` routes |
 | `EVENT_RETENTION_DAYS` | `30` | How long events are kept before cleanup |
 

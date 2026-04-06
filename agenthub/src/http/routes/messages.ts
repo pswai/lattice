@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { sendMessage, getMessages } from '../../models/message.js';
 import { ValidationError } from '../../errors.js';
 
@@ -10,7 +10,7 @@ const SendMessageSchema = z.object({
   tags: z.array(z.string().max(50)).max(20),
 });
 
-export function createMessageRoutes(db: Database.Database): Hono {
+export function createMessageRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /messages — send a message
@@ -22,12 +22,12 @@ export function createMessageRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = sendMessage(db, teamId, agentId, parsed.data);
+    const result = await sendMessage(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /messages — get messages for the authenticated agent
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId, agentId } = c.get('auth');
 
     const sinceIdParam = c.req.query('since_id');
@@ -36,7 +36,7 @@ export function createMessageRoutes(db: Database.Database): Hono {
     const since_id = sinceIdParam ? parseInt(sinceIdParam, 10) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const result = getMessages(db, teamId, agentId, { since_id, limit });
+    const result = await getMessages(db, teamId, agentId, { since_id, limit });
     return c.json(result);
   });
 

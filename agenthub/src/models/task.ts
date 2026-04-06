@@ -1,4 +1,5 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
+import { jsonArrayTable } from '../db/adapter.js';
 import type { Task, TaskStatus, TaskPriority, CreateTaskInput, UpdateTaskInput, CreateTaskResponse, UpdateTaskResponse } from './types.js';
 import { TaskConflictError, InvalidTransitionError, NotFoundError, ForbiddenError, ValidationError } from '../errors.js';
 import { broadcastInternal } from './event.js';
@@ -47,14 +48,15 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   abandoned: ['claimed'],
 };
 
-export function getTask(
-  db: Database.Database,
+export async function getTask(
+  db: DbAdapter,
   teamId: string,
   taskId: number,
-): Task {
-  const row = db.prepare(
+): Promise<Task> {
+  const row = await db.get<TaskRow>(
     'SELECT * FROM tasks WHERE id = ? AND team_id = ?',
-  ).get(taskId, teamId) as TaskRow | undefined;
+    taskId, teamId,
+  );
 
   if (!row) {
     throw new NotFoundError('Task', taskId);
@@ -70,11 +72,11 @@ export interface ListTasksInput {
   limit?: number;
 }
 
-export function listTasks(
-  db: Database.Database,
+export async function listTasks(
+  db: DbAdapter,
   teamId: string,
   input: ListTasksInput,
-): { tasks: Task[]; total: number } {
+): Promise<{ tasks: Task[]; total: number }> {
   const limit = Math.min(input.limit ?? 50, 200);
   const conditions = ['team_id = ?'];
   const params: (string | number)[] = [teamId];
@@ -96,12 +98,12 @@ export function listTasks(
 
   params.push(limit);
 
-  const rows = db.prepare(`
+  const rows = await db.all<TaskRow>(`
     SELECT * FROM tasks
     WHERE ${conditions.join(' AND ')}
     ORDER BY priority ASC, created_at ASC
     LIMIT ?
-  `).all(...params) as TaskRow[];
+  `, ...params);
 
   return {
     tasks: rows.map(rowToTask),
@@ -130,11 +132,11 @@ export interface GetTaskGraphInput {
   limit?: number;
 }
 
-export function getTaskGraph(
-  db: Database.Database,
+export async function getTaskGraph(
+  db: DbAdapter,
   teamId: string,
   input: GetTaskGraphInput,
-): { nodes: TaskGraphNode[]; edges: TaskGraphEdge[] } {
+): Promise<{ nodes: TaskGraphNode[]; edges: TaskGraphEdge[] }> {
   const limit = Math.min(input.limit ?? 100, 500);
   const conditions = ['t.team_id = ?'];
   const params: (string | number)[] = [teamId];
@@ -158,7 +160,7 @@ export function getTaskGraph(
       FROM tasks t
       JOIN workflow_runs wr ON wr.team_id = t.team_id AND wr.id = ?
       WHERE ${conditions.join(' AND ')}
-        AND EXISTS (SELECT 1 FROM json_each(wr.task_ids) WHERE value = t.id)
+        AND EXISTS (SELECT 1 FROM ${jsonArrayTable(db.dialect, 'wr.task_ids')} WHERE value = t.id)
       ORDER BY t.priority ASC, t.created_at ASC
       LIMIT ?
     `;
@@ -175,7 +177,7 @@ export function getTaskGraph(
     params.push(limit);
   }
 
-  const rows = db.prepare(sql).all(...params) as Array<{
+  const rows = await db.all<{
     id: number;
     description: string;
     status: string;
@@ -183,7 +185,7 @@ export function getTaskGraph(
     assigned_to: string | null;
     claimed_by: string | null;
     created_at: string;
-  }>;
+  }>(sql, ...params);
 
   const nodes: TaskGraphNode[] = rows.map((r) => ({
     id: r.id,
@@ -201,10 +203,10 @@ export function getTaskGraph(
 
   const nodeIds = nodes.map((n) => n.id);
   const placeholders = nodeIds.map(() => '?').join(',');
-  const edgeRows = db.prepare(`
+  const edgeRows = await db.all<{ task_id: number; depends_on: number }>(`
     SELECT task_id, depends_on FROM task_dependencies
     WHERE task_id IN (${placeholders}) AND depends_on IN (${placeholders})
-  `).all(...nodeIds, ...nodeIds) as Array<{ task_id: number; depends_on: number }>;
+  `, ...nodeIds, ...nodeIds);
 
   const edges: TaskGraphEdge[] = edgeRows.map((e) => ({
     from: e.depends_on,
@@ -214,12 +216,12 @@ export function getTaskGraph(
   return { nodes, edges };
 }
 
-export function createTask(
-  db: Database.Database,
+export async function createTask(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: CreateTaskInput,
-): CreateTaskResponse {
+): Promise<CreateTaskResponse> {
   const status = input.status ?? 'claimed';
   const priority = input.priority ?? 'P2';
   const assignedTo = input.assigned_to ?? null;
@@ -228,32 +230,32 @@ export function createTask(
   const claimedBy = status === 'claimed' ? (assignedTo ?? agentId) : null;
   const claimedAt = status === 'claimed' ? new Date().toISOString() : null;
 
-  const result = db.prepare(`
+  const result = await db.run(`
     INSERT INTO tasks (team_id, description, status, created_by, claimed_by, claimed_at, priority, assigned_to)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(teamId, input.description, status, agentId, claimedBy, claimedAt, priority, assignedTo);
+  `, teamId, input.description, status, agentId, claimedBy, claimedAt, priority, assignedTo);
 
   const taskId = Number(result.lastInsertRowid);
 
   // Insert task dependencies if provided
   if (input.depends_on && input.depends_on.length > 0) {
-    const insertDep = db.prepare(
-      'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on) VALUES (?, ?)',
-    );
     for (const depId of input.depends_on) {
-      insertDep.run(taskId, depId);
+      await db.run(
+        'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on) VALUES (?, ?)',
+        taskId, depId,
+      );
     }
   }
 
   // Auto-broadcast TASK_UPDATE event
-  broadcastInternal(
+  await broadcastInternal(
     db, teamId, 'TASK_UPDATE',
     `Task #${taskId} created: "${input.description}" (status: ${status})`,
     ['task-update'], agentId,
   );
 
   // Billing: count task creation as one execution.
-  incrementUsage(db, teamId, { exec: 1 });
+  await incrementUsage(db, teamId, { exec: 1 });
 
   return {
     task_id: taskId,
@@ -262,16 +264,17 @@ export function createTask(
   };
 }
 
-export function updateTask(
-  db: Database.Database,
+export async function updateTask(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: UpdateTaskInput,
-): UpdateTaskResponse {
+): Promise<UpdateTaskResponse> {
   // Fetch current task
-  const row = db.prepare(
+  const row = await db.get<TaskRow>(
     'SELECT * FROM tasks WHERE id = ? AND team_id = ?',
-  ).get(input.task_id, teamId) as TaskRow | undefined;
+    input.task_id, teamId,
+  );
 
   if (!row) {
     throw new NotFoundError('Task', input.task_id);
@@ -302,11 +305,11 @@ export function updateTask(
 
   // Check dependencies before allowing claim
   if (input.status === 'claimed') {
-    const blockers = db.prepare(`
+    const blockers = await db.all<{ id: number; description: string; status: string }>(`
       SELECT t.id, t.description, t.status FROM task_dependencies td
       JOIN tasks t ON t.id = td.depends_on
       WHERE td.task_id = ? AND t.status != 'completed'
-    `).all(input.task_id) as Array<{ id: number; description: string; status: string }>;
+    `, input.task_id);
 
     if (blockers.length > 0) {
       const blockerList = blockers.map(b => `#${b.id} (${b.status})`).join(', ');
@@ -331,7 +334,7 @@ export function updateTask(
   }
 
   // Optimistic lock update
-  const updateResult = db.prepare(`
+  const updateResult = await db.run(`
     UPDATE tasks
     SET status = ?,
         result = ?,
@@ -340,47 +343,47 @@ export function updateTask(
         priority = ?,
         assigned_to = ?,
         version = version + 1,
-        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        updated_at = ?
     WHERE id = ? AND version = ?
-  `).run(input.status, resultText, claimedBy, claimedAt, priority, assignedTo, input.task_id, input.version);
+  `, input.status, resultText, claimedBy, claimedAt, priority, assignedTo, new Date().toISOString(), input.task_id, input.version);
 
   if (updateResult.changes === 0) {
     // Re-fetch to get current version for error message
-    const current = db.prepare('SELECT version FROM tasks WHERE id = ?').get(input.task_id) as { version: number };
-    throw new TaskConflictError(current.version, input.version);
+    const current = await db.get<{ version: number }>('SELECT version FROM tasks WHERE id = ?', input.task_id);
+    throw new TaskConflictError(current!.version, input.version);
   }
 
   const newVersion = input.version + 1;
 
   // Side effects based on new status
   if (input.status === 'completed') {
-    broadcastInternal(
+    await broadcastInternal(
       db, teamId, 'TASK_UPDATE',
       `Task #${input.task_id} completed by ${agentId}: ${resultText ?? '(no result)'}`,
       ['task-update'], agentId,
     );
     // Save result as context entry
     if (resultText) {
-      saveContext(db, teamId, agentId, {
+      await saveContext(db, teamId, agentId, {
         key: `task-result-${input.task_id}`,
         value: resultText,
         tags: ['task-result'],
       });
     }
   } else if (input.status === 'escalated') {
-    broadcastInternal(
+    await broadcastInternal(
       db, teamId, 'ESCALATION',
       `Task #${input.task_id} escalated by ${agentId}: ${resultText ?? '(no reason)'}`,
       ['task-escalation'], agentId,
     );
   } else if (input.status === 'abandoned') {
-    broadcastInternal(
+    await broadcastInternal(
       db, teamId, 'TASK_UPDATE',
       `Task #${input.task_id} abandoned by ${agentId}`,
       ['task-update'], agentId,
     );
   } else if (input.status === 'claimed') {
-    broadcastInternal(
+    await broadcastInternal(
       db, teamId, 'TASK_UPDATE',
       `Task #${input.task_id} claimed by ${agentId}`,
       ['task-update'], agentId,
@@ -388,7 +391,7 @@ export function updateTask(
   }
 
   // Update workflow_run status if this task belongs to one
-  checkWorkflowCompletion(db, input.task_id);
+  await checkWorkflowCompletion(db, input.task_id);
 
   return {
     task_id: input.task_id,

@@ -1,4 +1,5 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
+import { jsonArrayTable } from '../db/adapter.js';
 import type { ContextEntry, SaveContextInput, GetContextInput, SaveContextResponse, GetContextResponse } from './types.js';
 import { broadcastInternal } from './event.js';
 import { ValidationError } from '../errors.js';
@@ -63,37 +64,38 @@ function escapeLikeToken(t: string): string {
   return t.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
-export function saveContext(
-  db: Database.Database,
+export async function saveContext(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: SaveContextInput,
-): SaveContextResponse {
+): Promise<SaveContextResponse> {
   // Check if key exists for this team to determine created vs replaced
-  const existing = db.prepare(
+  const existing = await db.get<{ id: number }>(
     'SELECT id FROM context_entries WHERE team_id = ? AND key = ?',
-  ).get(teamId, input.key) as { id: number } | undefined;
+    teamId, input.key,
+  );
 
   let entryId: number;
 
   if (existing) {
     // Update in place — preserves the original ID
-    db.prepare(`
+    await db.run(`
       UPDATE context_entries SET value = ?, tags = ?, created_by = ?,
-        created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        created_at = ?
       WHERE team_id = ? AND key = ?
-    `).run(input.value, JSON.stringify(input.tags), agentId, teamId, input.key);
+    `, input.value, JSON.stringify(input.tags), agentId, new Date().toISOString(), teamId, input.key);
     entryId = existing.id;
   } else {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO context_entries (team_id, key, value, tags, created_by)
       VALUES (?, ?, ?, ?, ?)
-    `).run(teamId, input.key, input.value, JSON.stringify(input.tags), agentId);
+    `, teamId, input.key, input.value, JSON.stringify(input.tags), agentId);
     entryId = Number(result.lastInsertRowid);
   }
 
   // Auto-broadcast LEARNING event after successful save
-  broadcastInternal(
+  await broadcastInternal(
     db, teamId, 'LEARNING',
     `Context saved: "${input.key}" by ${agentId}`,
     input.tags, agentId,
@@ -106,11 +108,27 @@ export function saveContext(
   };
 }
 
-export function getContext(
-  db: Database.Database,
+export async function getContext(
+  db: DbAdapter,
   teamId: string,
   input: GetContextInput,
-): GetContextResponse {
+): Promise<GetContextResponse> {
+  if (db.dialect === 'pg') {
+    return getContextPg(db, teamId, input);
+  } else {
+    return getContextSqlite(db, teamId, input);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SQLite path — FTS5 MATCH with LIKE fallback for short tokens
+// ---------------------------------------------------------------------------
+
+async function getContextSqlite(
+  db: DbAdapter,
+  teamId: string,
+  input: GetContextInput,
+): Promise<GetContextResponse> {
   const limit = Math.min(input.limit ?? 20, 100);
   const hasTags = input.tags && input.tags.length > 0;
   const hasQuery = input.query && input.query.trim().length > 0;
@@ -135,72 +153,72 @@ export function getContext(
   if (hasQuery && hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     if (useLike) {
-      rows = db.prepare(`
+      rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         WHERE ce.team_id = ?
           AND EXISTS (
-            SELECT 1 FROM json_each(ce.tags) AS t
+            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND ${likeClause}
         ORDER BY ce.created_at DESC
         LIMIT ?
-      `).all(teamId, ...input.tags!, ...likeParams, limit) as ContextRow[];
+      `, teamId, ...input.tags!, ...likeParams, limit);
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
-      rows = db.prepare(`
+      rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
         WHERE ce.team_id = ?
           AND EXISTS (
-            SELECT 1 FROM json_each(ce.tags) AS t
+            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND context_entries_fts MATCH ?
         ORDER BY fts.rank
         LIMIT ?
-      `).all(teamId, ...input.tags!, ftsQuery, limit) as ContextRow[];
+      `, teamId, ...input.tags!, ftsQuery, limit);
     }
   } else if (hasQuery) {
     if (useLike) {
-      rows = db.prepare(`
+      rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         WHERE ce.team_id = ?
           AND ${likeClause}
         ORDER BY ce.created_at DESC
         LIMIT ?
-      `).all(teamId, ...likeParams, limit) as ContextRow[];
+      `, teamId, ...likeParams, limit);
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
-      rows = db.prepare(`
+      rows = await db.all<ContextRow>(`
         SELECT ce.* FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
         WHERE ce.team_id = ?
           AND context_entries_fts MATCH ?
         ORDER BY fts.rank
         LIMIT ?
-      `).all(teamId, ftsQuery, limit) as ContextRow[];
+      `, teamId, ftsQuery, limit);
     }
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
-    rows = db.prepare(`
+    rows = await db.all<ContextRow>(`
       SELECT ce.* FROM context_entries ce
       WHERE ce.team_id = ?
         AND EXISTS (
-          SELECT 1 FROM json_each(ce.tags) AS t
+          SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
           WHERE t.value IN (${placeholders})
         )
       ORDER BY ce.created_at DESC
       LIMIT ?
-    `).all(teamId, ...input.tags!, limit) as ContextRow[];
+    `, teamId, ...input.tags!, limit);
   } else {
     // No filters — browse all entries for this team
-    rows = db.prepare(`
+    rows = await db.all<ContextRow>(`
       SELECT * FROM context_entries
       WHERE team_id = ?
       ORDER BY created_at DESC
       LIMIT ?
-    `).all(teamId, limit) as ContextRow[];
+    `, teamId, limit);
   }
 
   // Compute true total (not capped by LIMIT) for proper pagination
@@ -208,64 +226,184 @@ export function getContext(
   if (hasQuery && hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
     if (useLike) {
-      const countRow = db.prepare(`
+      const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         WHERE ce.team_id = ?
           AND EXISTS (
-            SELECT 1 FROM json_each(ce.tags) AS t
+            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND ${likeClause}
-      `).get(teamId, ...input.tags!, ...likeParams) as { cnt: number };
-      total = countRow.cnt;
+      `, teamId, ...input.tags!, ...likeParams);
+      total = countRow!.cnt;
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
-      const countRow = db.prepare(`
+      const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
         WHERE ce.team_id = ?
           AND EXISTS (
-            SELECT 1 FROM json_each(ce.tags) AS t
+            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
             WHERE t.value IN (${placeholders})
           )
           AND context_entries_fts MATCH ?
-      `).get(teamId, ...input.tags!, ftsQuery) as { cnt: number };
-      total = countRow.cnt;
+      `, teamId, ...input.tags!, ftsQuery);
+      total = countRow!.cnt;
     }
   } else if (hasQuery) {
     if (useLike) {
-      const countRow = db.prepare(`
+      const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         WHERE ce.team_id = ?
           AND ${likeClause}
-      `).get(teamId, ...likeParams) as { cnt: number };
-      total = countRow.cnt;
+      `, teamId, ...likeParams);
+      total = countRow!.cnt;
     } else {
       const ftsQuery = escapeFts5Query(input.query!);
-      const countRow = db.prepare(`
+      const countRow = await db.get<{ cnt: number }>(`
         SELECT COUNT(*) as cnt FROM context_entries ce
         JOIN context_entries_fts fts ON ce.id = fts.rowid
         WHERE ce.team_id = ?
           AND context_entries_fts MATCH ?
-      `).get(teamId, ftsQuery) as { cnt: number };
-      total = countRow.cnt;
+      `, teamId, ftsQuery);
+      total = countRow!.cnt;
     }
   } else if (hasTags) {
     const placeholders = input.tags!.map(() => '?').join(', ');
-    const countRow = db.prepare(`
+    const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries ce
       WHERE ce.team_id = ?
         AND EXISTS (
-          SELECT 1 FROM json_each(ce.tags) AS t
+          SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
           WHERE t.value IN (${placeholders})
         )
-    `).get(teamId, ...input.tags!) as { cnt: number };
-    total = countRow.cnt;
+    `, teamId, ...input.tags!);
+    total = countRow!.cnt;
   } else {
-    const countRow = db.prepare(`
+    const countRow = await db.get<{ cnt: number }>(`
       SELECT COUNT(*) as cnt FROM context_entries WHERE team_id = ?
-    `).get(teamId) as { cnt: number };
-    total = countRow.cnt;
+    `, teamId);
+    total = countRow!.cnt;
+  }
+
+  return {
+    entries: rows.map(r => rowToEntry(r, hasQuery === true)),
+    total,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Postgres path — ILIKE + pg_trgm similarity() for relevance ordering
+// ---------------------------------------------------------------------------
+
+async function getContextPg(
+  db: DbAdapter,
+  teamId: string,
+  input: GetContextInput,
+): Promise<GetContextResponse> {
+  const limit = Math.min(input.limit ?? 20, 100);
+  const hasTags = input.tags && input.tags.length > 0;
+  const hasQuery = input.query && input.query.trim().length > 0;
+
+  const jsonArr = jsonArrayTable('pg', 'ce.tags');
+
+  // Build ILIKE clause + params for text search (one AND-ed clause per token,
+  // each token must match at least one of key/value/tags).
+  let ilikeClause = '';
+  const ilikeParams: string[] = [];
+  if (hasQuery) {
+    const tokens = input.query!.trim().split(/\s+/).filter(Boolean);
+    const parts: string[] = [];
+    for (const t of tokens) {
+      const pat = `%${escapeLikeToken(t)}%`;
+      parts.push("(ce.key ILIKE ? OR ce.value ILIKE ? OR ce.tags::text ILIKE ?)");
+      ilikeParams.push(pat, pat, pat);
+    }
+    ilikeClause = parts.join(' AND ');
+  }
+
+  let rows: ContextRow[];
+
+  if (hasQuery && hasTags) {
+    const placeholders = input.tags!.map(() => '?').join(', ');
+    rows = await db.all<ContextRow>(`
+      SELECT ce.* FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND EXISTS (
+          SELECT 1 FROM ${jsonArr} AS t
+          WHERE t IN (${placeholders})
+        )
+        AND ${ilikeClause}
+      ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
+      LIMIT ?
+    `, teamId, ...input.tags!, ...ilikeParams, input.query!, input.query!, limit);
+  } else if (hasQuery) {
+    rows = await db.all<ContextRow>(`
+      SELECT ce.* FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND ${ilikeClause}
+      ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
+      LIMIT ?
+    `, teamId, ...ilikeParams, input.query!, input.query!, limit);
+  } else if (hasTags) {
+    const placeholders = input.tags!.map(() => '?').join(', ');
+    rows = await db.all<ContextRow>(`
+      SELECT ce.* FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND EXISTS (
+          SELECT 1 FROM ${jsonArr} AS t
+          WHERE t IN (${placeholders})
+        )
+      ORDER BY ce.created_at DESC
+      LIMIT ?
+    `, teamId, ...input.tags!, limit);
+  } else {
+    // No filters — browse all entries for this team
+    rows = await db.all<ContextRow>(`
+      SELECT * FROM context_entries
+      WHERE team_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `, teamId, limit);
+  }
+
+  // Compute true total (not capped by LIMIT) for proper pagination
+  let total: number;
+  if (hasQuery && hasTags) {
+    const placeholders = input.tags!.map(() => '?').join(', ');
+    const countRow = await db.get<{ cnt: number }>(`
+      SELECT COUNT(*) as cnt FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND EXISTS (
+          SELECT 1 FROM ${jsonArr} AS t
+          WHERE t IN (${placeholders})
+        )
+        AND ${ilikeClause}
+    `, teamId, ...input.tags!, ...ilikeParams);
+    total = countRow!.cnt;
+  } else if (hasQuery) {
+    const countRow = await db.get<{ cnt: number }>(`
+      SELECT COUNT(*) as cnt FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND ${ilikeClause}
+    `, teamId, ...ilikeParams);
+    total = countRow!.cnt;
+  } else if (hasTags) {
+    const placeholders = input.tags!.map(() => '?').join(', ');
+    const countRow = await db.get<{ cnt: number }>(`
+      SELECT COUNT(*) as cnt FROM context_entries ce
+      WHERE ce.team_id = ?
+        AND EXISTS (
+          SELECT 1 FROM ${jsonArr} AS t
+          WHERE t IN (${placeholders})
+        )
+    `, teamId, ...input.tags!);
+    total = countRow!.cnt;
+  } else {
+    const countRow = await db.get<{ cnt: number }>(`
+      SELECT COUNT(*) as cnt FROM context_entries WHERE team_id = ?
+    `, teamId);
+    total = countRow!.cnt;
   }
 
   return {

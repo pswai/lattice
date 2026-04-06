@@ -10,23 +10,24 @@ import {
 import { createAuditMiddleware } from '../src/http/middleware/audit.js';
 import { createAuditRoutes } from '../src/http/routes/audit.js';
 import { testConfig, TEST_ADMIN_KEY } from './helpers.js';
+import { SqliteAdapter } from '../src/db/adapter.js';
 
-function createDb(): Database.Database {
+function createDb(): SqliteAdapter {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA_SQL);
-  return db;
+  return new SqliteAdapter(db);
 }
 
 describe('audit model', () => {
-  let db: Database.Database;
+  let db: SqliteAdapter;
 
   beforeEach(() => {
     db = createDb();
   });
 
-  it('writeAudit persists a row and queryAudit returns it', () => {
-    writeAudit(db, {
+  it('writeAudit persists a row and queryAudit returns it', async () => {
+    await writeAudit(db, {
       teamId: 'team-a',
       actor: 'agent-1',
       action: 'task.create',
@@ -37,7 +38,7 @@ describe('audit model', () => {
       requestId: 'req-1',
     });
 
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].actor).toBe('agent-1');
     expect(rows[0].action).toBe('task.create');
@@ -48,28 +49,28 @@ describe('audit model', () => {
     expect(JSON.parse(rows[0].metadata)).toEqual({ query: { foo: ['bar'] } });
   });
 
-  it('queryAudit filters by actor, action, resourceType', () => {
-    writeAudit(db, { teamId: 't', actor: 'a1', action: 'task.create', resourceType: 'tasks' });
-    writeAudit(db, { teamId: 't', actor: 'a2', action: 'task.update', resourceType: 'tasks' });
-    writeAudit(db, { teamId: 't', actor: 'a1', action: 'webhook.delete', resourceType: 'webhooks' });
-    writeAudit(db, { teamId: 'other', actor: 'a1', action: 'task.create' });
+  it('queryAudit filters by actor, action, resourceType', async () => {
+    await writeAudit(db, { teamId: 't', actor: 'a1', action: 'task.create', resourceType: 'tasks' });
+    await writeAudit(db, { teamId: 't', actor: 'a2', action: 'task.update', resourceType: 'tasks' });
+    await writeAudit(db, { teamId: 't', actor: 'a1', action: 'webhook.delete', resourceType: 'webhooks' });
+    await writeAudit(db, { teamId: 'other', actor: 'a1', action: 'task.create' });
 
-    expect(queryAudit(db, { teamId: 't' })).toHaveLength(3);
-    expect(queryAudit(db, { teamId: 't', actor: 'a1' })).toHaveLength(2);
-    expect(queryAudit(db, { teamId: 't', action: 'task.update' })).toHaveLength(1);
-    expect(queryAudit(db, { teamId: 't', resourceType: 'webhooks' })).toHaveLength(1);
+    expect(await queryAudit(db, { teamId: 't' })).toHaveLength(3);
+    expect(await queryAudit(db, { teamId: 't', actor: 'a1' })).toHaveLength(2);
+    expect(await queryAudit(db, { teamId: 't', action: 'task.update' })).toHaveLength(1);
+    expect(await queryAudit(db, { teamId: 't', resourceType: 'webhooks' })).toHaveLength(1);
   });
 
-  it('queryAudit filters by since/until', () => {
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+  it('queryAudit filters by since/until', async () => {
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
     // Force specific timestamps
-    db.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2025-01-01T00:00:00.000Z');
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
-    db.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2025-06-01T00:00:00.000Z');
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
-    db.prepare('UPDATE audit_log SET created_at = ? WHERE id = 3').run('2025-12-01T00:00:00.000Z');
+    db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2025-01-01T00:00:00.000Z');
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2025-06-01T00:00:00.000Z');
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 3').run('2025-12-01T00:00:00.000Z');
 
-    const mid = queryAudit(db, {
+    const mid = await queryAudit(db, {
       teamId: 't',
       since: '2025-03-01T00:00:00.000Z',
       until: '2025-09-01T00:00:00.000Z',
@@ -78,36 +79,36 @@ describe('audit model', () => {
     expect(mid[0].id).toBe(2);
   });
 
-  it('queryAudit supports beforeId cursor pagination', () => {
+  it('queryAudit supports beforeId cursor pagination', async () => {
     for (let i = 0; i < 5; i++) {
-      writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+      await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
     }
-    const page1 = queryAudit(db, { teamId: 't', limit: 2 });
+    const page1 = await queryAudit(db, { teamId: 't', limit: 2 });
     expect(page1.map((r) => r.id)).toEqual([5, 4]);
 
-    const page2 = queryAudit(db, { teamId: 't', limit: 2, beforeId: page1[page1.length - 1].id });
+    const page2 = await queryAudit(db, { teamId: 't', limit: 2, beforeId: page1[page1.length - 1].id });
     expect(page2.map((r) => r.id)).toEqual([3, 2]);
 
-    const page3 = queryAudit(db, { teamId: 't', limit: 2, beforeId: page2[page2.length - 1].id });
+    const page3 = await queryAudit(db, { teamId: 't', limit: 2, beforeId: page2[page2.length - 1].id });
     expect(page3.map((r) => r.id)).toEqual([1]);
   });
 
-  it('queryAudit caps limit at 1000', () => {
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+  it('queryAudit caps limit at 1000', async () => {
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
     // Can't easily assert 1000 w/o inserting; just ensure no throw for huge values.
-    const rows = queryAudit(db, { teamId: 't', limit: 999999 });
+    const rows = await queryAudit(db, { teamId: 't', limit: 999999 });
     expect(rows).toHaveLength(1);
   });
 
-  it('pruneAuditOlderThan deletes rows before cutoff', () => {
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
-    writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
-    db.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2020-01-01T00:00:00.000Z');
-    db.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2099-01-01T00:00:00.000Z');
+  it('pruneAuditOlderThan deletes rows before cutoff', async () => {
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    await writeAudit(db, { teamId: 't', actor: 'a', action: 'x.create' });
+    db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 1').run('2020-01-01T00:00:00.000Z');
+    db.rawDb.prepare('UPDATE audit_log SET created_at = ? WHERE id = 2').run('2099-01-01T00:00:00.000Z');
 
-    const removed = pruneAuditOlderThan(db, '2025-01-01T00:00:00.000Z');
+    const removed = await pruneAuditOlderThan(db, '2025-01-01T00:00:00.000Z');
     expect(removed).toBe(1);
-    const remaining = queryAudit(db, { teamId: 't' });
+    const remaining = await queryAudit(db, { teamId: 't' });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(2);
   });
@@ -115,7 +116,7 @@ describe('audit model', () => {
 
 // --- Middleware tests ---------------------------------------------------
 
-function buildAuditApp(db: Database.Database) {
+function buildAuditApp(db: any) {
   const app = new Hono();
   // Simulate auth middleware populating c.set('auth')
   app.use('*', async (c, next) => {
@@ -134,7 +135,7 @@ function buildAuditApp(db: Database.Database) {
 }
 
 describe('audit middleware', () => {
-  let db: Database.Database;
+  let db: SqliteAdapter;
 
   beforeEach(() => {
     db = createDb();
@@ -144,7 +145,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/tasks', { method: 'POST' });
     expect(res.status).toBe(201);
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('task.create');
     expect(rows[0].resource_type).toBe('tasks');
@@ -157,7 +158,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/tasks/123', { method: 'PATCH' });
     expect(res.status).toBe(200);
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('task.update');
     expect(rows[0].resource_id).toBe('123');
@@ -167,7 +168,7 @@ describe('audit middleware', () => {
     const app = buildAuditApp(db);
     const res = await app.request('/webhooks/abc-def-ghi', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows[0].action).toBe('webhook.delete');
     expect(rows[0].resource_id).toBe('abc-def-ghi');
   });
@@ -175,21 +176,21 @@ describe('audit middleware', () => {
   it('SKIPS GET requests', async () => {
     const app = buildAuditApp(db);
     await app.request('/tasks', { method: 'GET' });
-    expect(queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
   });
 
   it('SKIPS 4xx responses', async () => {
     const app = buildAuditApp(db);
     const res = await app.request('/fail', { method: 'POST' });
     expect(res.status).toBe(400);
-    expect(queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
   });
 
   it('SKIPS 5xx responses', async () => {
     const app = buildAuditApp(db);
     const res = await app.request('/boom', { method: 'POST' });
     expect(res.status).toBe(500);
-    expect(queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
   });
 
   it('extracts IP from X-Forwarded-For (first entry)', async () => {
@@ -198,7 +199,7 @@ describe('audit middleware', () => {
       method: 'POST',
       headers: { 'X-Forwarded-For': '203.0.113.5, 10.0.0.1, 10.0.0.2' },
     });
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows[0].ip).toBe('203.0.113.5');
   });
 
@@ -208,14 +209,14 @@ describe('audit middleware', () => {
       method: 'POST',
       headers: { 'X-Real-IP': '198.51.100.9' },
     });
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     expect(rows[0].ip).toBe('198.51.100.9');
   });
 
   it('records metadata.query from request querystring', async () => {
     const app = buildAuditApp(db);
     await app.request('/tasks?foo=bar&foo=baz', { method: 'POST' });
-    const rows = queryAudit(db, { teamId: 'team-a' });
+    const rows = await queryAudit(db, { teamId: 'team-a' });
     const meta = JSON.parse(rows[0].metadata);
     expect(meta.query.foo).toEqual(['bar', 'baz']);
   });
@@ -227,26 +228,26 @@ describe('audit middleware', () => {
     app.post('/tasks', (c) => c.json({ ok: true }, 201));
     const res = await app.request('/tasks', { method: 'POST' });
     expect(res.status).toBe(201);
-    expect(queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
+    expect(await queryAudit(db, { teamId: 'team-a' })).toHaveLength(0);
   });
 });
 
 // --- Admin route tests --------------------------------------------------
 
-function buildAdminApp(db: Database.Database, adminKey: string = TEST_ADMIN_KEY) {
+function buildAdminApp(db: any, adminKey: string = TEST_ADMIN_KEY) {
   const app = new Hono();
   app.route('/admin', createAuditRoutes(db, testConfig({ adminKey })));
   return app;
 }
 
 describe('audit admin route', () => {
-  let db: Database.Database;
+  let db: SqliteAdapter;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createDb();
-    writeAudit(db, { teamId: 'team-a', actor: 'a', action: 'task.create' });
-    writeAudit(db, { teamId: 'team-a', actor: 'b', action: 'task.update' });
-    writeAudit(db, { teamId: 'other', actor: 'a', action: 'task.create' });
+    await writeAudit(db, { teamId: 'team-a', actor: 'a', action: 'task.create' });
+    await writeAudit(db, { teamId: 'team-a', actor: 'b', action: 'task.update' });
+    await writeAudit(db, { teamId: 'other', actor: 'a', action: 'task.create' });
   });
 
   it('returns 401 without admin key', async () => {

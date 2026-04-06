@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import type { Message, SendMessageInput, SendMessageResponse, GetMessagesInput, GetMessagesResponse } from './types.js';
 import { scanForSecrets } from '../services/secret-scanner.js';
 import { SecretDetectedError } from '../errors.js';
@@ -25,41 +25,41 @@ function rowToMessage(row: MessageRow): Message {
   };
 }
 
-export function sendMessage(
-  db: Database.Database,
+export async function sendMessage(
+  db: DbAdapter,
   teamId: string,
   fromAgent: string,
   input: SendMessageInput,
-): SendMessageResponse {
+): Promise<SendMessageResponse> {
   // Scan message content for secrets
   const scan = scanForSecrets(input.message);
   if (!scan.clean) {
     throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
   }
 
-  const result = db.prepare(`
+  const result = await db.run(`
     INSERT INTO messages (team_id, from_agent, to_agent, message, tags)
     VALUES (?, ?, ?, ?, ?)
-  `).run(teamId, fromAgent, input.to, input.message, JSON.stringify(input.tags));
+  `, teamId, fromAgent, input.to, input.message, JSON.stringify(input.tags));
 
   return { messageId: Number(result.lastInsertRowid) };
 }
 
-export function getMessages(
-  db: Database.Database,
+export async function getMessages(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: GetMessagesInput,
-): GetMessagesResponse {
+): Promise<GetMessagesResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
   const sinceId = input.since_id ?? 0;
 
-  const rows = db.prepare(`
+  const rows = await db.all<MessageRow>(`
     SELECT * FROM messages
     WHERE team_id = ? AND to_agent = ? AND id > ?
     ORDER BY id ASC
     LIMIT ?
-  `).all(teamId, agentId, sinceId, limit) as MessageRow[];
+  `, teamId, agentId, sinceId, limit);
 
   const messages = rows.map(rowToMessage);
   const cursor = messages.length > 0 ? messages[messages.length - 1].id : sinceId;

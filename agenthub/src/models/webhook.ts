@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { randomBytes, createHmac } from 'crypto';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { assertPublicUrl } from '../services/ssrf-guard.js';
@@ -104,12 +104,12 @@ export interface CreateWebhookInput {
   event_types?: string[];
 }
 
-export function createWebhook(
-  db: Database.Database,
+export async function createWebhook(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: CreateWebhookInput,
-): Webhook {
+): Promise<Webhook> {
   try {
     const parsed = new URL(input.url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -144,111 +144,113 @@ export function createWebhook(
   const id = generateWebhookId();
   const secret = generateSecret();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO webhooks (id, team_id, url, secret, event_types, created_by)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, teamId, input.url, secret, JSON.stringify(eventTypes), agentId);
+  `, id, teamId, input.url, secret, JSON.stringify(eventTypes), agentId);
 
   return getWebhook(db, teamId, id);
 }
 
-export function getWebhook(
-  db: Database.Database,
+export async function getWebhook(
+  db: DbAdapter,
   teamId: string,
   id: string,
-): Webhook {
-  const row = db
-    .prepare('SELECT * FROM webhooks WHERE id = ? AND team_id = ?')
-    .get(id, teamId) as WebhookRow | undefined;
+): Promise<Webhook> {
+  const row = await db.get<WebhookRow>(
+    'SELECT * FROM webhooks WHERE id = ? AND team_id = ?',
+    id, teamId,
+  );
   if (!row) throw new NotFoundError('Webhook', id);
   return rowToWebhook(row);
 }
 
-export function listWebhooks(db: Database.Database, teamId: string): Webhook[] {
-  const rows = db
-    .prepare('SELECT * FROM webhooks WHERE team_id = ? ORDER BY created_at DESC')
-    .all(teamId) as WebhookRow[];
+export async function listWebhooks(db: DbAdapter, teamId: string): Promise<Webhook[]> {
+  const rows = await db.all<WebhookRow>(
+    'SELECT * FROM webhooks WHERE team_id = ? ORDER BY created_at DESC',
+    teamId,
+  );
   return rows.map(rowToWebhook);
 }
 
-export function deleteWebhook(
-  db: Database.Database,
+export async function deleteWebhook(
+  db: DbAdapter,
   teamId: string,
   id: string,
-): { deleted: boolean } {
-  const result = db
-    .prepare('DELETE FROM webhooks WHERE id = ? AND team_id = ?')
-    .run(id, teamId);
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
+    'DELETE FROM webhooks WHERE id = ? AND team_id = ?',
+    id, teamId,
+  );
   if (result.changes === 0) throw new NotFoundError('Webhook', id);
   return { deleted: true };
 }
 
-export function listActiveWebhooksForEvent(
-  db: Database.Database,
+export async function listActiveWebhooksForEvent(
+  db: DbAdapter,
   teamId: string,
   eventType: string,
-): Webhook[] {
-  const rows = db
-    .prepare('SELECT * FROM webhooks WHERE team_id = ? AND active = 1')
-    .all(teamId) as WebhookRow[];
+): Promise<Webhook[]> {
+  const rows = await db.all<WebhookRow>(
+    'SELECT * FROM webhooks WHERE team_id = ? AND active = 1',
+    teamId,
+  );
   return rows
     .map(rowToWebhook)
     .filter((w) => w.eventTypes.includes('*') || w.eventTypes.includes(eventType));
 }
 
-export function createDelivery(
-  db: Database.Database,
+export async function createDelivery(
+  db: DbAdapter,
   webhookId: string,
   eventId: number,
-): WebhookDelivery {
+): Promise<WebhookDelivery> {
   const id = generateDeliveryId();
-  db.prepare(`
+  await db.run(`
     INSERT INTO webhook_deliveries (id, webhook_id, event_id, next_retry_at)
-    VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-  `).run(id, webhookId, eventId);
-  const row = db
-    .prepare('SELECT * FROM webhook_deliveries WHERE id = ?')
-    .get(id) as DeliveryRow;
-  return rowToDelivery(row);
+    VALUES (?, ?, ?, ?)
+  `, id, webhookId, eventId, new Date().toISOString());
+  const row = await db.get<DeliveryRow>(
+    'SELECT * FROM webhook_deliveries WHERE id = ?',
+    id,
+  );
+  return rowToDelivery(row!);
 }
 
-export function listDeliveries(
-  db: Database.Database,
+export async function listDeliveries(
+  db: DbAdapter,
   teamId: string,
   webhookId: string,
   limit = 100,
-): WebhookDelivery[] {
+): Promise<WebhookDelivery[]> {
   // Verify the webhook belongs to this team before exposing deliveries
-  getWebhook(db, teamId, webhookId);
-  const rows = db
-    .prepare(
-      'SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?',
-    )
-    .all(webhookId, Math.min(limit, 200)) as DeliveryRow[];
+  await getWebhook(db, teamId, webhookId);
+  const rows = await db.all<DeliveryRow>(
+    'SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?',
+    webhookId, Math.min(limit, 200),
+  );
   return rows.map(rowToDelivery);
 }
 
-export function getPendingDeliveries(
-  db: Database.Database,
+export async function getPendingDeliveries(
+  db: DbAdapter,
   limit = 50,
-): Array<WebhookDelivery & { teamId: string; url: string; secret: string; failureCount: number }> {
-  const rows = db
-    .prepare(`
-      SELECT d.*, w.team_id, w.url, w.secret, w.failure_count
-      FROM webhook_deliveries d
-      JOIN webhooks w ON w.id = d.webhook_id
-      WHERE d.status = 'pending'
-        AND w.active = 1
-        AND (d.next_retry_at IS NULL OR d.next_retry_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-      ORDER BY d.next_retry_at ASC
-      LIMIT ?
-    `)
-    .all(limit) as Array<DeliveryRow & {
-      team_id: string;
-      url: string;
-      secret: string;
-      failure_count: number;
-    }>;
+): Promise<Array<WebhookDelivery & { teamId: string; url: string; secret: string; failureCount: number }>> {
+  const rows = await db.all<DeliveryRow & {
+    team_id: string;
+    url: string;
+    secret: string;
+    failure_count: number;
+  }>(`
+    SELECT d.*, w.team_id, w.url, w.secret, w.failure_count
+    FROM webhook_deliveries d
+    JOIN webhooks w ON w.id = d.webhook_id
+    WHERE d.status = 'pending'
+      AND w.active = 1
+      AND (d.next_retry_at IS NULL OR d.next_retry_at <= ?)
+    ORDER BY d.next_retry_at ASC
+    LIMIT ?
+  `, new Date().toISOString(), limit);
   return rows.map((row) => ({
     ...rowToDelivery(row),
     teamId: row.team_id,
@@ -271,40 +273,41 @@ export const RETRY_SCHEDULE_MS = [
 
 export const MAX_CONSECUTIVE_FAILURES = 20;
 
-export function markDeliverySuccess(
-  db: Database.Database,
+export async function markDeliverySuccess(
+  db: DbAdapter,
   deliveryId: string,
   webhookId: string,
   responseCode: number,
-): void {
-  db.transaction(() => {
-    db.prepare(`
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.run(`
       UPDATE webhook_deliveries
       SET status = 'success', response_code = ?, attempts = attempts + 1,
           next_retry_at = NULL, error = NULL,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at = ?
       WHERE id = ?
-    `).run(responseCode, deliveryId);
-    db.prepare(`
+    `, responseCode, new Date().toISOString(), deliveryId);
+    await tx.run(`
       UPDATE webhooks SET failure_count = 0,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at = ?
       WHERE id = ?
-    `).run(webhookId);
-  })();
+    `, new Date().toISOString(), webhookId);
+  });
 }
 
-export function markDeliveryFailure(
-  db: Database.Database,
+export async function markDeliveryFailure(
+  db: DbAdapter,
   deliveryId: string,
   webhookId: string,
   responseCode: number | null,
   errorMessage: string,
   isRetriable: boolean,
-): void {
-  db.transaction(() => {
-    const row = db
-      .prepare('SELECT attempts FROM webhook_deliveries WHERE id = ?')
-      .get(deliveryId) as { attempts: number } | undefined;
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const row = await tx.get<{ attempts: number }>(
+      'SELECT attempts FROM webhook_deliveries WHERE id = ?',
+      deliveryId,
+    );
     if (!row) return;
     const nextAttempt = row.attempts + 1;
 
@@ -318,27 +321,28 @@ export function markDeliveryFailure(
       nextRetryAt = new Date(Date.now() + RETRY_SCHEDULE_MS[nextAttempt]).toISOString();
     }
 
-    db.prepare(`
+    await tx.run(`
       UPDATE webhook_deliveries
       SET status = ?, response_code = ?, attempts = ?, next_retry_at = ?, error = ?,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at = ?
       WHERE id = ?
-    `).run(status, responseCode, nextAttempt, nextRetryAt, errorMessage.slice(0, 500), deliveryId);
+    `, status, responseCode, nextAttempt, nextRetryAt, errorMessage.slice(0, 500), new Date().toISOString(), deliveryId);
 
     // Bump failure_count on the webhook; disable if threshold reached.
-    const whRow = db
-      .prepare('SELECT failure_count FROM webhooks WHERE id = ?')
-      .get(webhookId) as { failure_count: number } | undefined;
+    const whRow = await tx.get<{ failure_count: number }>(
+      'SELECT failure_count FROM webhooks WHERE id = ?',
+      webhookId,
+    );
     if (!whRow) return;
     const newFailureCount = whRow.failure_count + 1;
     const disable = newFailureCount >= MAX_CONSECUTIVE_FAILURES;
-    db.prepare(`
+    await tx.run(`
       UPDATE webhooks SET failure_count = ?,
           active = CASE WHEN ? THEN 0 ELSE active END,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at = ?
       WHERE id = ?
-    `).run(newFailureCount, disable ? 1 : 0, webhookId);
-  })();
+    `, newFailureCount, disable ? 1 : 0, new Date().toISOString(), webhookId);
+  });
 }
 
 export function signPayload(secret: string, timestamp: number, body: string): string {

@@ -128,7 +128,7 @@ describe('/auth/oauth/github', () => {
     );
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('http://localhost:3000');
-    const sessionCookie = extractCookie(res, 'ah_session');
+    const sessionCookie = extractCookie(res, 'lt_session');
     expect(sessionCookie.length).toBeGreaterThan(10);
 
     // User + identity persisted.

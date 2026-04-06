@@ -88,15 +88,15 @@ describe('Task Graph', () => {
     const c = await createTask(ctx, { description: 'C', status: 'open' });
 
     // Build a workflow_run that includes only A and B
-    ctx.db.prepare(
+    ctx.rawDb.prepare(
       "INSERT INTO workflow_runs (team_id, playbook_name, started_by, task_ids, status) VALUES (?, ?, ?, ?, 'running')"
     ).run(ctx.teamId, 'pb', 'alice', JSON.stringify([a.task_id, b.task_id]));
-    const wrId = ctx.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number };
+    const wrId = ctx.rawDb.prepare('SELECT last_insert_rowid() AS id').get() as { id: number };
 
     // Add a dep A -> B and A -> C
-    ctx.db.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)')
+    ctx.rawDb.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)')
       .run(b.task_id, a.task_id);
-    ctx.db.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)')
+    ctx.rawDb.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)')
       .run(c.task_id, a.task_id);
 
     const res = await request(

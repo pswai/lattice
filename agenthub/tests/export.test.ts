@@ -20,20 +20,20 @@ describe('Team data export', () => {
     ctx = createTestContext();
   });
 
-  function populateTeam(): void {
+  async function populateTeam(): Promise<void> {
     const { db, teamId } = ctx;
     const agent = 'alice';
 
     // context
-    saveContext(db, teamId, agent, { key: 'k1', value: 'v1', tags: ['a'] });
-    saveContext(db, teamId, agent, { key: 'k2', value: 'v2', tags: ['b'] });
+    await saveContext(db, teamId, agent, { key: 'k1', value: 'v1', tags: ['a'] });
+    await saveContext(db, teamId, agent, { key: 'k2', value: 'v2', tags: ['b'] });
 
     // events (via broadcastInternal)
-    broadcastInternal(db, teamId, 'BROADCAST', 'hello', ['x'], agent);
+    await broadcastInternal(db, teamId, 'BROADCAST', 'hello', ['x'], agent);
 
     // tasks with dependency
-    const t1 = createTask(db, teamId, agent, { description: 'first', status: 'open' });
-    const t2 = createTask(db, teamId, agent, {
+    const t1 = await createTask(db, teamId, agent, { description: 'first', status: 'open' });
+    const t2 = await createTask(db, teamId, agent, {
       description: 'second',
       status: 'open',
       depends_on: [t1.task_id],
@@ -41,13 +41,13 @@ describe('Team data export', () => {
     expect(t2.task_id).toBeGreaterThan(0);
 
     // agents
-    registerAgent(db, teamId, { agent_id: 'bob', capabilities: ['research'] });
+    await registerAgent(db, teamId, { agent_id: 'bob', capabilities: ['research'] });
 
     // messages
-    sendMessage(db, teamId, agent, { to: 'bob', message: 'hey', tags: ['intro'] });
+    await sendMessage(db, teamId, agent, { to: 'bob', message: 'hey', tags: ['intro'] });
 
     // artifacts
-    saveArtifact(db, teamId, agent, {
+    await saveArtifact(db, teamId, agent, {
       key: 'report.md',
       content_type: 'text/markdown',
       content: '# hello\n\nworld',
@@ -55,46 +55,46 @@ describe('Team data export', () => {
     });
 
     // playbooks + workflow runs
-    definePlaybook(db, teamId, agent, {
+    await definePlaybook(db, teamId, agent, {
       name: 'pb1',
       description: 'd',
       tasks: [{ description: 'x' }, { description: 'y' }],
     });
-    runPlaybook(db, teamId, agent, 'pb1');
+    await runPlaybook(db, teamId, agent, 'pb1');
 
     // profiles
-    defineProfile(db, teamId, agent, {
+    await defineProfile(db, teamId, agent, {
       name: 'researcher',
       description: 'r',
       system_prompt: 'you are',
     });
 
     // schedules
-    defineSchedule(db, teamId, agent, {
+    await defineSchedule(db, teamId, agent, {
       playbook_name: 'pb1',
       cron_expression: '*/5 * * * *',
     });
 
     // inbound endpoints (with and without hmac_secret)
-    defineInboundEndpoint(db, teamId, agent, {
+    await defineInboundEndpoint(db, teamId, agent, {
       name: 'gh-hook',
       action_type: 'create_task',
       action_config: { description_template: 'Issue: {{title}}' },
       hmac_secret: 'supersecret123',
     });
-    defineInboundEndpoint(db, teamId, agent, {
+    await defineInboundEndpoint(db, teamId, agent, {
       name: 'no-hmac',
       action_type: 'broadcast_event',
       action_config: {},
     });
 
     // webhooks
-    createWebhook(db, teamId, agent, { url: 'https://example.com/hook' });
+    await createWebhook(db, teamId, agent, { url: 'https://example.com/hook' });
   }
 
-  it('exports all sections with data when team has data in every table', () => {
-    populateTeam();
-    const snap = exportTeamData(ctx.db, ctx.teamId);
+  it('exports all sections with data when team has data in every table', async () => {
+    await populateTeam();
+    const snap = await exportTeamData(ctx.db, ctx.teamId);
 
     expect(snap.version).toBe('1');
     expect(snap.team_id).toBe(ctx.teamId);
@@ -131,8 +131,8 @@ describe('Team data export', () => {
     expect(snap.counts.webhooks).toBe(snap.webhooks.length);
   });
 
-  it('returns empty arrays and zero counts for an empty team', () => {
-    const snap = exportTeamData(ctx.db, ctx.teamId);
+  it('returns empty arrays and zero counts for an empty team', async () => {
+    const snap = await exportTeamData(ctx.db, ctx.teamId);
 
     expect(snap.context_entries).toEqual([]);
     expect(snap.events).toEqual([]);
@@ -153,9 +153,9 @@ describe('Team data export', () => {
     }
   });
 
-  it('redacts webhook secrets and inbound endpoint keys/hmac', () => {
-    populateTeam();
-    const snap = exportTeamData(ctx.db, ctx.teamId);
+  it('redacts webhook secrets and inbound endpoint keys/hmac', async () => {
+    await populateTeam();
+    const snap = await exportTeamData(ctx.db, ctx.teamId);
 
     for (const w of snap.webhooks) {
       expect(w.secret).toBe(REDACTED);
@@ -169,9 +169,9 @@ describe('Team data export', () => {
     expect(noHmac?.hmac_secret).toBeNull();
   });
 
-  it('artifacts include metadata but not content field', () => {
-    populateTeam();
-    const snap = exportTeamData(ctx.db, ctx.teamId);
+  it('artifacts include metadata but not content field', async () => {
+    await populateTeam();
+    const snap = await exportTeamData(ctx.db, ctx.teamId);
     expect(snap.artifacts).toHaveLength(1);
     const a = snap.artifacts[0];
     expect(a.key).toBe('report.md');
@@ -182,13 +182,13 @@ describe('Team data export', () => {
     expect((a as Record<string, unknown>).content).toBeUndefined();
   });
 
-  it('limits events to the last 1000', () => {
+  it('limits events to the last 1000', async () => {
     const { db, teamId } = ctx;
     const total = EVENT_EXPORT_LIMIT + 50;
     for (let i = 0; i < total; i++) {
-      broadcastInternal(db, teamId, 'BROADCAST', `msg ${i}`, [], 'bot');
+      await broadcastInternal(db, teamId, 'BROADCAST', `msg ${i}`, [], 'bot');
     }
-    const snap = exportTeamData(db, teamId);
+    const snap = await exportTeamData(db, teamId);
     expect(snap.events.length).toBe(EVENT_EXPORT_LIMIT);
     // should be the most recent ones, in ascending id order
     const ids = snap.events.map((e) => e.id);
@@ -196,19 +196,19 @@ describe('Team data export', () => {
       expect(ids[i]).toBeGreaterThan(ids[i - 1]);
     }
     // And the last id should be the most recent (highest) event id
-    const maxRow = db
+    const maxRow = (ctx.rawDb)
       .prepare('SELECT MAX(id) as m FROM events WHERE team_id = ?')
       .get(teamId) as { m: number };
     expect(ids[ids.length - 1]).toBe(maxRow.m);
   });
 
-  it('only includes data for the requesting team', () => {
-    populateTeam();
+  it('only includes data for the requesting team', async () => {
+    await populateTeam();
     // Create a second team with its own data
-    setupTeam(ctx.db, 'other-team', 'ahk_other_key_12345678901234567890');
-    saveContext(ctx.db, 'other-team', 'eve', { key: 'secret', value: 'v', tags: [] });
+    setupTeam(ctx.db, 'other-team', 'ltk_other_key_12345678901234567890');
+    await saveContext(ctx.db, 'other-team', 'eve', { key: 'secret', value: 'v', tags: [] });
 
-    const snap = exportTeamData(ctx.db, ctx.teamId);
+    const snap = await exportTeamData(ctx.db, ctx.teamId);
     for (const e of snap.context_entries) {
       expect(e.teamId).toBe(ctx.teamId);
     }
@@ -217,7 +217,7 @@ describe('Team data export', () => {
 
   describe('REST: GET /api/v1/export', () => {
     it('returns the snapshot as JSON', async () => {
-      populateTeam();
+      await populateTeam();
       const res = await request(ctx.app, 'GET', '/api/v1/export', {
         headers: authHeaders(ctx.apiKey),
       });
@@ -235,7 +235,7 @@ describe('Team data export', () => {
     });
 
     it('is team-scoped: tasks/context only belong to caller team', async () => {
-      populateTeam();
+      await populateTeam();
       const res = await request(ctx.app, 'GET', '/api/v1/export', {
         headers: authHeaders(ctx.apiKey),
       });

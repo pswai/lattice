@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import {
   createWebhook,
   listWebhooks,
@@ -15,7 +15,7 @@ const CreateWebhookSchema = z.object({
   event_types: z.array(z.string().max(50)).min(1).max(20).optional(),
 });
 
-export function createWebhookRoutes(db: Database.Database): Hono {
+export function createWebhookRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /webhooks
@@ -26,14 +26,14 @@ export function createWebhookRoutes(db: Database.Database): Hono {
       throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
     }
     const { teamId, agentId } = c.get('auth');
-    const webhook = createWebhook(db, teamId, agentId, parsed.data);
+    const webhook = await createWebhook(db, teamId, agentId, parsed.data);
     return c.json(webhook, 201);
   });
 
   // GET /webhooks
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const webhooks = listWebhooks(db, teamId).map((w) => ({
+    const webhooks = (await listWebhooks(db, teamId)).map((w) => ({
       ...w,
       secret: w.secret.slice(0, 10) + '...',
     }));
@@ -41,26 +41,26 @@ export function createWebhookRoutes(db: Database.Database): Hono {
   });
 
   // GET /webhooks/:id
-  router.get('/:id', (c) => {
+  router.get('/:id', async (c) => {
     const { teamId } = c.get('auth');
-    const wh = getWebhook(db, teamId, c.req.param('id'));
+    const wh = await getWebhook(db, teamId, c.req.param('id'));
     return c.json({ ...wh, secret: wh.secret.slice(0, 10) + '...' });
   });
 
   // DELETE /webhooks/:id
-  router.delete('/:id', (c) => {
+  router.delete('/:id', async (c) => {
     const { teamId } = c.get('auth');
-    const result = deleteWebhook(db, teamId, c.req.param('id'));
+    const result = await deleteWebhook(db, teamId, c.req.param('id'));
     return c.json(result);
   });
 
   // GET /webhooks/:id/deliveries
-  router.get('/:id/deliveries', (c) => {
+  router.get('/:id/deliveries', async (c) => {
     const { teamId } = c.get('auth');
     const id = c.req.param('id');
     const limitParam = c.req.query('limit');
     const limit = limitParam ? parseInt(limitParam, 10) : 100;
-    const deliveries = listDeliveries(db, teamId, id, limit);
+    const deliveries = await listDeliveries(db, teamId, id, limit);
     return c.json({ deliveries, total: deliveries.length });
   });
 

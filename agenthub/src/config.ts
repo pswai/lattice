@@ -1,6 +1,7 @@
 export interface AppConfig {
   port: number;
   dbPath: string;
+  databaseUrl: string;
   pollIntervalMs: number;
   taskReapTimeoutMinutes: number;
   taskReapIntervalMs: number;
@@ -31,7 +32,8 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   return {
     port: parseInt(process.env.PORT || '3000', 10),
-    dbPath: process.env.DB_PATH || './data/agenthub.db',
+    dbPath: process.env.DB_PATH || './data/lattice.db',
+    databaseUrl: process.env.DATABASE_URL || '',
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000', 10),
     taskReapTimeoutMinutes: parseInt(process.env.TASK_REAP_TIMEOUT_MINUTES || '30', 10),
     taskReapIntervalMs: parseInt(process.env.TASK_REAP_INTERVAL_MS || '60000', 10),
@@ -58,7 +60,7 @@ export function loadConfig(): AppConfig {
     emailProvider:
       (process.env.EMAIL_PROVIDER || 'stub').toLowerCase() === 'resend' ? 'resend' : 'stub',
     emailResendApiKey: process.env.RESEND_API_KEY || '',
-    emailFromAddress: process.env.EMAIL_FROM || 'noreply@agenthub.local',
+    emailFromAddress: process.env.EMAIL_FROM || 'noreply@lattice.local',
     appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
     quotaEnforcement: (process.env.QUOTA_ENFORCEMENT || 'false').toLowerCase() === 'true',

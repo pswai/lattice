@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './http/app.js';
 import { createMcpServer } from './mcp/server.js';
-import { initDatabase } from './db/connection.js';
+import { createSqliteAdapter } from './db/connection.js';
 import { startTaskReaper } from './services/task-reaper.js';
 import { startEventCleanup } from './services/event-cleanup.js';
 import { startWebhookDispatcher } from './services/webhook-dispatcher.js';
@@ -25,18 +25,18 @@ setRootLogger(
   }),
 );
 
-const db = initDatabase(config.dbPath);
+const adapter = createSqliteAdapter(config.dbPath);
 const emailSender = createEmailSender(config);
-const app = createApp(db, () => createMcpServer(db), config, emailSender);
+const app = createApp(adapter, () => createMcpServer(adapter), config, emailSender);
 
-startTaskReaper(db, config);
-startEventCleanup(db, config);
-startWebhookDispatcher(db);
-startScheduler(db);
-startAuditCleanup(db, config);
+startTaskReaper(adapter, config);
+startEventCleanup(adapter, config);
+startWebhookDispatcher(adapter);
+startScheduler(adapter);
+startAuditCleanup(adapter, config);
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
-  getLogger().info('agenthub_started', {
+  getLogger().info('lattice_started', {
     port: info.port,
     mcp: `http://localhost:${info.port}/mcp`,
     rest: `http://localhost:${info.port}/api/v1`,

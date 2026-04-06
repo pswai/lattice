@@ -195,7 +195,7 @@ describe('Agent Profiles API', () => {
       });
 
       // create team B on the same DB, own app instance
-      const teamB = setupTeam(ctx.db, 'team-b', 'ahk_team_b_key_1234567890abcdef');
+      const teamB = setupTeam(ctx.db, 'team-b', 'ltk_team_b_key_1234567890abcdef');
       const appB = createApp(ctx.db, () => createMcpServer(ctx.db), testConfig());
       const headersB = authHeaders(teamB.apiKey);
 

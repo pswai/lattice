@@ -1,6 +1,6 @@
-# AgentHub Observability
+# Lattice Observability
 
-AgentHub exports structured logs, Prometheus metrics, and liveness/readiness
+Lattice exports structured logs, Prometheus metrics, and liveness/readiness
 probes out of the box. No agents to install. No external services required.
 
 ## Structured logs
@@ -52,12 +52,12 @@ No authentication — scrape it with any Prometheus-compatible agent.
 
 | Metric | Type | Labels |
 |---|---|---|
-| `agenthub_up` | gauge | — |
-| `agenthub_http_requests_total` | counter | `method,route,status,team` |
-| `agenthub_http_request_duration_ms` | histogram | `method,route` |
-| `agenthub_active_agents` | gauge | `team` |
-| `agenthub_tasks` | gauge | `team,status` |
-| `agenthub_events_total` | counter | `team,event_type` |
+| `lattice_up` | gauge | — |
+| `lattice_http_requests_total` | counter | `method,route,status,team` |
+| `lattice_http_request_duration_ms` | histogram | `method,route` |
+| `lattice_active_agents` | gauge | `team` |
+| `lattice_tasks` | gauge | `team,status` |
+| `lattice_events_total` | counter | `team,event_type` |
 
 Histogram buckets: `5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000` ms.
 
@@ -70,18 +70,18 @@ to once per 5 seconds.
 ```promql
 # p95 latency
 histogram_quantile(0.95,
-  sum by (le, route) (rate(agenthub_http_request_duration_ms_bucket[5m]))
+  sum by (le, route) (rate(lattice_http_request_duration_ms_bucket[5m]))
 )
 
 # error rate
-sum by (route) (rate(agenthub_http_requests_total{status=~"5.."}[5m]))
-  / sum by (route) (rate(agenthub_http_requests_total[5m]))
+sum by (route) (rate(lattice_http_requests_total{status=~"5.."}[5m]))
+  / sum by (route) (rate(lattice_http_requests_total[5m]))
 
 # tasks stuck in "claimed"
-agenthub_tasks{status="claimed"}
+lattice_tasks{status="claimed"}
 
 # rate-limit incidents
-sum by (team) (rate(agenthub_http_requests_total{status="429"}[5m]))
+sum by (team) (rate(lattice_http_requests_total{status="429"}[5m]))
 ```
 
 ## Health and readiness probes
@@ -133,10 +133,10 @@ A minimal promtail config:
 
 ```yaml
 scrape_configs:
-  - job_name: agenthub
+  - job_name: lattice
     static_configs:
       - targets: [localhost]
-        labels: { job: agenthub, __path__: /var/log/agenthub/*.log }
+        labels: { job: lattice, __path__: /var/log/lattice/*.log }
     pipeline_stages:
       - json:
           expressions:
@@ -146,7 +146,7 @@ scrape_configs:
       - labels: { level, team_id }
 ```
 
-## What AgentHub intentionally does NOT ship
+## What Lattice intentionally does NOT ship
 
 - No built-in OpenTelemetry tracer (add `@opentelemetry/auto-instrumentations-node`
   with the Node SDK if you need distributed traces — the `req_id` is already

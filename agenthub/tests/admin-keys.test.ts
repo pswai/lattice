@@ -83,7 +83,7 @@ describe('admin-keys routes', () => {
     });
     expect(res.status).toBe(201);
     const data = await res.json();
-    expect(data.api_key).toMatch(/^ah_/);
+    expect(data.api_key).toMatch(/^lt_/);
     expect(data.label).toBe('ci');
     expect(data.scope).toBe('read');
     expect(data.expires_at).toBeTruthy();
@@ -105,7 +105,7 @@ describe('admin-keys routes', () => {
     );
     expect(rotateRes.status).toBe(201);
     const rotated = await rotateRes.json();
-    expect(rotated.api_key).toMatch(/^ah_/);
+    expect(rotated.api_key).toMatch(/^lt_/);
     expect(rotated.api_key).not.toBe(created.api_key);
     expect(rotated.rotated_from).toBe(keyId);
     expect(rotated.label).toBe('rotate-me');

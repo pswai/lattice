@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { createHash } from 'crypto';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 
 /**
  * Teams meta routes.
@@ -10,10 +10,10 @@ import type Database from 'better-sqlite3';
  * credentials can reach. Used by agents to discover which team
  * they are currently operating on and verify team switches.
  */
-export function createTeamRoutes(db: Database.Database): Hono {
+export function createTeamRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
-  router.get('/mine', (c) => {
+  router.get('/mine', async (c) => {
     const { teamId: effectiveTeamId, scope } = c.get('auth');
 
     // Reconstruct base/override by re-hashing the headers that were used.
@@ -26,20 +26,18 @@ export function createTeamRoutes(db: Database.Database): Hono {
     const accessibleTeams: { teamId: string; via: 'authorization' | 'x-team-override' }[] = [];
 
     if (baseKey) {
-      const row = db
-        .prepare('SELECT team_id FROM api_keys WHERE key_hash = ?')
-        .get(createHash('sha256').update(baseKey).digest('hex')) as
-        | { team_id: string }
-        | undefined;
+      const row = await db.get<{ team_id: string }>(
+        'SELECT team_id FROM api_keys WHERE key_hash = ?',
+        createHash('sha256').update(baseKey).digest('hex'),
+      );
       if (row) accessibleTeams.push({ teamId: row.team_id, via: 'authorization' });
     }
 
     if (overrideKey) {
-      const row = db
-        .prepare('SELECT team_id FROM api_keys WHERE key_hash = ?')
-        .get(createHash('sha256').update(overrideKey).digest('hex')) as
-        | { team_id: string }
-        | undefined;
+      const row = await db.get<{ team_id: string }>(
+        'SELECT team_id FROM api_keys WHERE key_hash = ?',
+        createHash('sha256').update(overrideKey).digest('hex'),
+      );
       if (row) accessibleTeams.push({ teamId: row.team_id, via: 'x-team-override' });
     }
 

@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { exportTeamData } from '../../models/export.js';
 
-export function createExportRoutes(db: Database.Database): Hono {
+export function createExportRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // GET /export — team-scoped snapshot
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const snapshot = exportTeamData(db, teamId);
+    const snapshot = await exportTeamData(db, teamId);
     return c.json(snapshot);
   });
 

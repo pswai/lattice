@@ -4,16 +4,27 @@ import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/db/schema.js';
 import { createOpsRoutes, refreshGaugesFromDb } from '../src/http/routes/ops.js';
 import { metricsRegistry } from '../src/metrics.js';
+import { SqliteAdapter } from '../src/db/adapter.js';
+import { DEFAULT_PLANS } from '../src/models/plan.js';
 
-function createDb(): Database.Database {
+function createDb(): SqliteAdapter {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  return db;
+  // Seed default plans
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO subscription_plans
+      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const p of DEFAULT_PLANS) {
+    stmt.run(p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays);
+  }
+  return new SqliteAdapter(db);
 }
 
-function mountOps(db: Database.Database, metricsEnabled = true): Hono {
+function mountOps(db: SqliteAdapter, metricsEnabled = true): Hono {
   const app = new Hono();
   app.route('/', createOpsRoutes(db, { metricsEnabled }));
   return app;
@@ -43,7 +54,7 @@ describe('GET /readyz', () => {
   it('returns 503 unready when DB is closed', async () => {
     const db = createDb();
     const app = mountOps(db);
-    db.close();
+    db.rawDb.close();
     const res = await app.request('/readyz');
     expect(res.status).toBe(503);
     const body = (await res.json()) as { status: string; error: string };
@@ -67,53 +78,52 @@ describe('GET /metrics', () => {
       'text/plain; version=0.0.4; charset=utf-8',
     );
     const text = await res.text();
-    expect(text).toContain('# HELP agenthub_http_requests_total');
-    expect(text).toContain('# TYPE agenthub_http_requests_total counter');
-    expect(text).toContain('agenthub_http_request_duration_ms');
-    expect(text).toContain('agenthub_active_agents');
-    expect(text).toContain('agenthub_tasks');
-    expect(text).toContain('agenthub_events_total');
-    expect(text).toContain('agenthub_up');
-    expect(text).toContain('agenthub_up 1');
+    expect(text).toContain('# HELP lattice_http_requests_total');
+    expect(text).toContain('# TYPE lattice_http_requests_total counter');
+    expect(text).toContain('lattice_http_request_duration_ms');
+    expect(text).toContain('lattice_active_agents');
+    expect(text).toContain('lattice_tasks');
+    expect(text).toContain('lattice_events_total');
+    expect(text).toContain('lattice_up');
+    expect(text).toContain('lattice_up 1');
   });
 
   it('reflects agents-online gauge from DB', async () => {
     const db = createDb();
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t1', 'T1');
-    db.prepare(
+    db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t1', 'T1');
+    db.rawDb.prepare(
       "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a1', 't1', 'online', '[]')",
     ).run();
-    db.prepare(
+    db.rawDb.prepare(
       "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a2', 't1', 'online', '[]')",
     ).run();
-    db.prepare(
+    db.rawDb.prepare(
       "INSERT INTO agents (id, team_id, status, capabilities) VALUES ('a3', 't1', 'offline', '[]')",
     ).run();
-    refreshGaugesFromDb(db, { force: true });
+    await refreshGaugesFromDb(db, { force: true });
     const app = mountOps(db);
     // Force fresh read by calling refresh with force via re-route
-    refreshGaugesFromDb(db, { force: true });
+    await refreshGaugesFromDb(db, { force: true });
     const res = await app.request('/metrics');
     const text = await res.text();
-    expect(text).toContain('agenthub_active_agents{team="t1"} 2');
+    expect(text).toContain('lattice_active_agents{team="t1"} 2');
   });
 
   it('reflects tasks-by-status gauge from DB', async () => {
     const db = createDb();
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t2', 'T2');
-    db.prepare(
+    db.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run('t2', 'T2');
+    db.rawDb.prepare(
       "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'a', 'open', 'x')",
     ).run();
-    db.prepare(
+    db.rawDb.prepare(
       "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'b', 'open', 'x')",
     ).run();
-    db.prepare(
+    db.rawDb.prepare(
       "INSERT INTO tasks (team_id, description, status, created_by) VALUES ('t2', 'c', 'completed', 'x')",
     ).run();
-    refreshGaugesFromDb(db, { force: true });
-    const text = refreshRender(db);
-    expect(text).toContain('agenthub_tasks{team="t2",status="open"} 2');
-    expect(text).toContain('agenthub_tasks{team="t2",status="completed"} 1');
+    const text = await refreshRender(db);
+    expect(text).toContain('lattice_tasks{team="t2",status="open"} 2');
+    expect(text).toContain('lattice_tasks{team="t2",status="completed"} 1');
   });
 
   it('returns disabled marker when metrics disabled', async () => {
@@ -123,12 +133,12 @@ describe('GET /metrics', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain('metrics disabled');
-    expect(text).not.toContain('# TYPE agenthub_');
+    expect(text).not.toContain('# TYPE lattice_');
   });
 });
 
 // Render the registry inline for tests without worrying about rate-limit.
-function refreshRender(db: Database.Database): string {
-  refreshGaugesFromDb(db, { force: true });
+async function refreshRender(db: SqliteAdapter): Promise<string> {
+  await refreshGaugesFromDb(db, { force: true });
   return metricsRegistry.render();
 }

@@ -286,7 +286,7 @@ describe('Inbound endpoints — receiver', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-AgentHub-Signature': sign('super-secret-value', body),
+        'X-Lattice-Signature': sign('super-secret-value', body),
       },
       body,
     });
@@ -297,7 +297,7 @@ describe('Inbound endpoints — receiver', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-AgentHub-Signature': 'sha256=deadbeef',
+        'X-Lattice-Signature': 'sha256=deadbeef',
       },
       body,
     });

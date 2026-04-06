@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import {
   definePlaybook,
   listPlaybooks,
@@ -21,7 +21,7 @@ const DefinePlaybookSchema = z.object({
   tasks: z.array(PlaybookTaskSchema),
 });
 
-export function createPlaybookRoutes(db: Database.Database): Hono {
+export function createPlaybookRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /playbooks — define (upsert)
@@ -33,22 +33,22 @@ export function createPlaybookRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = definePlaybook(db, teamId, agentId, parsed.data);
+    const result = await definePlaybook(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /playbooks — list
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const result = listPlaybooks(db, teamId);
+    const result = await listPlaybooks(db, teamId);
     return c.json(result);
   });
 
   // GET /playbooks/:name — get one
-  router.get('/:name', (c) => {
+  router.get('/:name', async (c) => {
     const { teamId } = c.get('auth');
     const name = c.req.param('name');
-    const result = getPlaybook(db, teamId, name);
+    const result = await getPlaybook(db, teamId, name);
     return c.json(result);
   });
 
@@ -73,7 +73,7 @@ export function createPlaybookRoutes(db: Database.Database): Hono {
         // ignore body-parsing errors (empty body)
       }
     }
-    const result = runPlaybook(db, teamId, agentId, name, vars);
+    const result = await runPlaybook(db, teamId, agentId, name, vars);
     return c.json(result, 201);
   });
 

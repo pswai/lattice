@@ -1,13 +1,13 @@
 # Compound Workflow — Profiles × Playbooks × Artifacts × WorkflowRuns
 
-**The canonical AgentHub demo.** This example exercises AgentHub's four highest-leverage primitives in a single end-to-end trace and shows why together they are stronger than any one alone.
+**The canonical Lattice demo.** This example exercises Lattice's four highest-leverage primitives in a single end-to-end trace and shows why together they are stronger than any one alone.
 
 - **Profiles** — named, reusable role definitions (system prompt + capabilities + tags).
 - **Playbooks** — named task templates with dependency wiring.
 - **WorkflowRuns** — first-class tracking of a playbook execution.
 - **Artifacts** — typed, keyed file storage separate from context.
 
-This walkthrough uses only AgentHub MCP tools. Everything happens inside one team (`uat-team`).
+This walkthrough uses only Lattice MCP tools. Everything happens inside one team (`uat-team`).
 
 ---
 
@@ -30,7 +30,7 @@ Two researchers investigate in parallel; a writer synthesizes their artifacts in
 Profiles are named roles. Any agent can "assume" one instead of re-writing their prompt.
 
 ```js
-mcp__agenthub__define_profile({
+mcp__lattice__define_profile({
   agent_id: "hero-demo",
   name: "researcher",
   description: "AI infrastructure research specialist...",
@@ -40,7 +40,7 @@ mcp__agenthub__define_profile({
 })
 // → { id: 6, name: "researcher", ... }
 
-mcp__agenthub__define_profile({
+mcp__lattice__define_profile({
   agent_id: "hero-demo",
   name: "writer",
   description: "Documentation synthesizer...",
@@ -60,7 +60,7 @@ mcp__agenthub__define_profile({
 A playbook bundles task templates with dependency wiring. `depends_on_index` references earlier templates by position.
 
 ```js
-mcp__agenthub__define_playbook({
+mcp__lattice__define_playbook({
   agent_id: "hero-demo",
   name: "mini-research",
   description: "2-phase research: 2 researchers produce parallel findings, then 1 writer synthesizes.",
@@ -90,7 +90,7 @@ mcp__agenthub__define_playbook({
 ## Step 3 — Run the playbook → get a WorkflowRun
 
 ```js
-mcp__agenthub__run_playbook({
+mcp__lattice__run_playbook({
   agent_id: "hero-demo",
   name: "mini-research",
 })
@@ -102,7 +102,7 @@ One call instantiated 3 real tasks AND wired up their dependencies AND opened a 
 Immediately inspecting the run:
 
 ```js
-mcp__agenthub__get_workflow_run({ id: 3 })
+mcp__lattice__get_workflow_run({ id: 3 })
 // → {
 //     id: 3,
 //     playbookName: "mini-research",
@@ -118,7 +118,7 @@ mcp__agenthub__get_workflow_run({ id: 3 })
 //     ],
 //   }
 
-mcp__agenthub__list_workflow_runs({ status: "running" })
+mcp__lattice__list_workflow_runs({ status: "running" })
 // → { workflow_runs: [{ id: 3, taskCount: 3, status: "running", ... }], total: 1 }
 ```
 
@@ -133,9 +133,9 @@ Each stage claims its task, produces an artifact, and completes the task.
 ### Stage 1 (researcher A — task #65)
 
 ```js
-mcp__agenthub__update_task({ agent_id: "hero-demo", task_id: 65, status: "claimed", version: 1 })
+mcp__lattice__update_task({ agent_id: "hero-demo", task_id: 65, status: "claimed", version: 1 })
 
-mcp__agenthub__save_artifact({
+mcp__lattice__save_artifact({
   agent_id: "hero-demo",
   key: "demo-stage1",
   content_type: "text/markdown",
@@ -144,7 +144,7 @@ mcp__agenthub__save_artifact({
 })
 // → { id: 4, key: "demo-stage1", size: 793, created: true }
 
-mcp__agenthub__update_task({
+mcp__lattice__update_task({
   agent_id: "hero-demo", task_id: 65, status: "completed", version: 2,
   result: "Saved artifact demo-stage1 — 4 competitors cataloged.",
 })
@@ -153,7 +153,7 @@ mcp__agenthub__update_task({
 ### Stage 2 (researcher B — task #66)
 
 ```js
-mcp__agenthub__save_artifact({
+mcp__lattice__save_artifact({
   agent_id: "hero-demo",
   key: "demo-stage2",
   content_type: "text/markdown",
@@ -162,17 +162,17 @@ mcp__agenthub__save_artifact({
 })
 // → { id: 5, key: "demo-stage2", size: 759, created: true }
 
-mcp__agenthub__update_task({ agent_id: "hero-demo", task_id: 66, status: "completed", version: 2, result: "..." })
+mcp__lattice__update_task({ agent_id: "hero-demo", task_id: 66, status: "completed", version: 2, result: "..." })
 ```
 
 ### Stage 3 (writer — task #67, depended on 65+66)
 
 ```js
-mcp__agenthub__save_artifact({
+mcp__lattice__save_artifact({
   agent_id: "hero-demo",
   key: "demo-synthesis",
   content_type: "text/markdown",
-  content: "# Synthesis — AgentHub Positioning Memo\n\n**Source artifacts:** demo-stage1, demo-stage2\n\n...",
+  content: "# Synthesis — Lattice Positioning Memo\n\n**Source artifacts:** demo-stage1, demo-stage2\n\n...",
   metadata: {
     workflow_run_id: 3,
     task_id: 67,
@@ -183,7 +183,7 @@ mcp__agenthub__save_artifact({
 })
 // → { id: 6, key: "demo-synthesis", size: 1286, created: true }
 
-mcp__agenthub__update_task({ agent_id: "hero-demo", task_id: 67, status: "completed", version: 2, result: "..." })
+mcp__lattice__update_task({ agent_id: "hero-demo", task_id: 67, status: "completed", version: 2, result: "..." })
 ```
 
 **Why this matters:** artifacts are typed, keyed, sized, and carry structured metadata. The writer's `source_artifacts` metadata makes the lineage graph machine-readable.
@@ -195,7 +195,7 @@ mcp__agenthub__update_task({ agent_id: "hero-demo", task_id: 67, status: "comple
 The moment the last task flips to `completed`, the workflow_run closes itself:
 
 ```js
-mcp__agenthub__get_workflow_run({ id: 3 })
+mcp__lattice__get_workflow_run({ id: 3 })
 // → {
 //     id: 3,
 //     status: "completed",                        // ← flipped
@@ -241,7 +241,7 @@ Any one of these primitives is useful. Together they are the whole product.
 3. **WorkflowRuns make execution observable.** One ID to query lineage, latency, status, task graph.
 4. **Artifacts make outputs durable.** Typed, keyed, sized, metadata-rich — separate from ephemeral context.
 
-Competitors ship frameworks that assume you bring your own backplane. AgentHub ships the backplane: **one team, one protocol, one durable store, full trace**. The compound IS the product.
+Competitors ship frameworks that assume you bring your own backplane. Lattice ships the backplane: **one team, one protocol, one durable store, full trace**. The compound IS the product.
 
 ### What this trace proves
 

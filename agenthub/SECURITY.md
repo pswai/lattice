@@ -1,12 +1,12 @@
-# AgentHub Security
+# Lattice Security
 
-A practical guide to the security controls AgentHub ships with, how to configure
+A practical guide to the security controls Lattice ships with, how to configure
 them, and what threat model they address. Aimed at operators and security
-reviewers evaluating AgentHub for production use.
+reviewers evaluating Lattice for production use.
 
 ## Threat model
 
-AgentHub is a coordination bus for AI agent teams. Per-team data is the primary
+Lattice is a coordination bus for AI agent teams. Per-team data is the primary
 asset: context entries, messages, artifacts, tasks, events. The main threats:
 
 | Threat | Control |
@@ -58,12 +58,12 @@ In-memory sliding window per API key.
 RATE_LIMIT_PER_MIN   default 300    (0 disables)
 ```
 
-When exceeded, AgentHub returns `429 RATE_LIMITED` with `Retry-After`,
+When exceeded, Lattice returns `429 RATE_LIMITED` with `Retry-After`,
 `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` headers. The
 default (300 req/min/key) is generous for agent workloads; tune to your fleet.
 
 > **Note:** rate-limit state is per-process. Multi-node deployments should
-> front AgentHub with a shared limiter (e.g. Cloudflare, NGINX, a Redis
+> front Lattice with a shared limiter (e.g. Cloudflare, NGINX, a Redis
 > bucket) if you need globally-consistent limits.
 
 ## Request body size limit
@@ -123,7 +123,7 @@ Retention cleanup runs daily and only deletes rows older than the cutoff.
 ## Webhooks (inbound + outbound)
 
 - **Outbound webhooks** (`POST /api/v1/webhooks`) sign every delivery with
-  `X-AgentHub-Signature: sha256=<hmac>` using the webhook's secret.
+  `X-Lattice-Signature: sha256=<hmac>` using the webhook's secret.
   Deliveries are retried with exponential backoff and marked `dead` after
   repeated failure.
 - **Inbound endpoints** (`POST /admin/inbound/...`) can require HMAC
@@ -132,13 +132,13 @@ Retention cleanup runs daily and only deletes rows older than the cutoff.
 
 ## Deployment recommendations
 
-1. **Terminate TLS upstream.** AgentHub serves HTTP; put it behind a
+1. **Terminate TLS upstream.** Lattice serves HTTP; put it behind a
    reverse proxy (NGINX, Caddy, a load balancer) that terminates TLS.
 2. **Enable HSTS** (`HSTS_ENABLED=true`) once TLS is confirmed working.
 3. **Set a strong `ADMIN_KEY`** — at least 32 random bytes. Rotate regularly.
 4. **Restrict `/admin/*`** network access (VPN, IP allowlist, mTLS) in
    addition to the admin key.
-5. **Back up `./data/agenthub.db`.** It contains team data, audit log,
+5. **Back up `./data/lattice.db`.** It contains team data, audit log,
    and key hashes.
 6. **Monitor 401/429/413 rates** via the Prometheus metrics endpoint.
 7. **Forward JSON logs** to your log aggregator; redaction is already done.

@@ -16,7 +16,7 @@ describe('Trigram FTS search', () => {
     const headers = authHeaders(ctx.apiKey);
     const entries = [
       { key: 'cli-usage',        value: 'Run the cli tool to bootstrap a team',          tags: ['cli', 'tooling'] },
-      { key: 'agenthub-overview', value: 'AgentHub coordinates AI agents over MCP',      tags: ['overview'] },
+      { key: 'lattice-overview', value: 'Lattice coordinates AI agents over MCP',      tags: ['overview'] },
       { key: 'about-page',       value: 'The about section describes the product',       tags: ['docs'] },
       { key: 'abandoned-task',   value: 'abstract abandoned workflow run',               tags: ['tasks'] },
       { key: 'migration-notes',  value: 'Database migrations happen on connect',         tags: ['db'] },
@@ -51,14 +51,14 @@ describe('Trigram FTS search', () => {
     expect(keys).toContain('abandoned-task');
   });
 
-  it('matches a middle-of-word fragment ("gent" inside "AgentHub")', async () => {
+  it('matches a middle-of-word fragment ("gent" inside "Lattice")', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/context?query=gent', {
       headers: authHeaders(ctx.apiKey),
     });
     expect(res.status).toBe(200);
     const data = await res.json();
     const keys = data.entries.map((e: { key: string }) => e.key);
-    expect(keys).toContain('agenthub-overview');
+    expect(keys).toContain('lattice-overview');
   });
 
   it('matches a fragment spanning word interior ("hook" inside "Webhooks")', async () => {

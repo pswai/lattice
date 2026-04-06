@@ -119,11 +119,11 @@ describe('Auto-registration', () => {
     ctx = createTestContext();
   });
 
-  it('should auto-register an unknown agent on first MCP tool call', () => {
+  it('should auto-register an unknown agent on first MCP tool call', async () => {
     // Directly test the autoRegisterAgent helper
-    autoRegisterAgent(ctx.db, ctx.teamId, 'new-agent');
+    await autoRegisterAgent(ctx.db, ctx.teamId, 'new-agent');
 
-    const row = ctx.db.prepare(
+    const row = ctx.rawDb.prepare(
       'SELECT * FROM agents WHERE team_id = ? AND id = ?',
     ).get(ctx.teamId, 'new-agent') as any;
 
@@ -133,16 +133,16 @@ describe('Auto-registration', () => {
     expect(JSON.parse(row.capabilities)).toEqual([]);
   });
 
-  it('should update last_heartbeat for an already-registered agent', () => {
+  it('should update last_heartbeat for an already-registered agent', async () => {
     // First register with capabilities
-    ctx.db.prepare(`
+    ctx.rawDb.prepare(`
       INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
       VALUES (?, ?, '["python"]', 'busy', '{}', '2020-01-01T00:00:00.000Z')
     `).run('existing-agent', ctx.teamId);
 
-    autoRegisterAgent(ctx.db, ctx.teamId, 'existing-agent');
+    await autoRegisterAgent(ctx.db, ctx.teamId, 'existing-agent');
 
-    const row = ctx.db.prepare(
+    const row = ctx.rawDb.prepare(
       'SELECT * FROM agents WHERE team_id = ? AND id = ?',
     ).get(ctx.teamId, 'existing-agent') as any;
 
@@ -152,12 +152,12 @@ describe('Auto-registration', () => {
     expect(row.last_heartbeat).not.toBe('2020-01-01T00:00:00.000Z');
   });
 
-  it('should be idempotent — calling multiple times does not error', () => {
-    autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
-    autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
-    autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
+  it('should be idempotent — calling multiple times does not error', async () => {
+    await autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
+    await autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
+    await autoRegisterAgent(ctx.db, ctx.teamId, 'repeat-agent');
 
-    const rows = ctx.db.prepare(
+    const rows = ctx.rawDb.prepare(
       'SELECT * FROM agents WHERE team_id = ? AND id = ?',
     ).all(ctx.teamId, 'repeat-agent');
 

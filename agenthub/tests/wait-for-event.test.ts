@@ -11,7 +11,7 @@ describe('wait_for_event', () => {
 
   describe('model: waitForEvent', () => {
     it('returns immediately if matching events already exist', async () => {
-      broadcastEvent(ctx.db, ctx.teamId, 'a', {
+      await broadcastEvent(ctx.db, ctx.teamId, 'a', {
         event_type: 'BROADCAST',
         message: 'pre-existing',
         tags: [],
@@ -125,7 +125,7 @@ describe('wait_for_event', () => {
     it('isolates by team — other team events do not wake the waiter', async () => {
       // Set up a second team
       const otherTeam = 'other-team';
-      ctx.db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(otherTeam, 'Other');
+      ctx.rawDb.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(otherTeam, 'Other');
 
       const start = Date.now();
       const waitPromise = waitForEvent(ctx.db, ctx.teamId, {

@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  agenthub:
+  lattice:
     build: .
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
-      - DB_PATH=/data/agenthub.db
+      - DB_PATH=/data/lattice.db
       - ADMIN_KEY=${ADMIN_KEY:-change-me-in-production}
       - EVENT_RETENTION_DAYS=30
     volumes:

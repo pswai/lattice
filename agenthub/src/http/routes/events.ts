@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { broadcastEvent, getUpdates, waitForEvent } from '../../models/event.js';
 import { scanForSecrets } from '../../services/secret-scanner.js';
 import { SecretDetectedError, ValidationError } from '../../errors.js';
@@ -14,7 +14,7 @@ const BroadcastSchema = z.object({
   tags: z.array(z.string().max(50)).max(20),
 });
 
-export function createEventRoutes(db: Database.Database): Hono {
+export function createEventRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /events — broadcast
@@ -33,7 +33,7 @@ export function createEventRoutes(db: Database.Database): Hono {
       throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
     }
 
-    const result = broadcastEvent(db, teamId, agentId, parsed.data);
+    const result = await broadcastEvent(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
@@ -70,7 +70,7 @@ export function createEventRoutes(db: Database.Database): Hono {
   });
 
   // GET /events — get_updates
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId, agentId } = c.get('auth');
 
     const sinceIdParam = c.req.query('since_id');
@@ -84,7 +84,7 @@ export function createEventRoutes(db: Database.Database): Hono {
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
     const include_context = includeContextParam === 'false' ? false : true;
 
-    const result = getUpdates(db, teamId, {
+    const result = await getUpdates(db, teamId, {
       since_id,
       since_timestamp: sinceTimestamp,
       topics,

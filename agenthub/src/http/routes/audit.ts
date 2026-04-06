@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { queryAudit } from '../../models/audit.js';
 
-export function createAuditRoutes(db: Database.Database, config: AppConfig): Hono {
+export function createAuditRoutes(db: DbAdapter, config: AppConfig): Hono {
   const router = new Hono();
 
   // Admin auth (same scheme as admin.ts). Mounted under /admin by app.ts.
@@ -26,7 +26,7 @@ export function createAuditRoutes(db: Database.Database, config: AppConfig): Hon
 
   // GET /audit-log?team_id=...&actor=...&action=...&resource_type=...
   //              &since=...&until=...&limit=...&before_id=...
-  router.get('/audit-log', (c) => {
+  router.get('/audit-log', async (c) => {
     const teamId = c.req.query('team_id');
     if (!teamId) {
       return c.json(
@@ -62,7 +62,7 @@ export function createAuditRoutes(db: Database.Database, config: AppConfig): Hon
       beforeId = n;
     }
 
-    const items = queryAudit(db, {
+    const items = await queryAudit(db, {
       teamId,
       actor: c.req.query('actor'),
       action: c.req.query('action'),

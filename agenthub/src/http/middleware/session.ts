@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { getSession } from '../../models/session.js';
 
 export interface SessionAuth {
@@ -13,7 +13,7 @@ declare module 'hono' {
   }
 }
 
-const COOKIE_NAME = 'ah_session';
+const COOKIE_NAME = 'lt_session';
 
 function parseSessionCookie(header: string | null | undefined): string | null {
   if (!header) return null;
@@ -30,16 +30,16 @@ function parseSessionCookie(header: string | null | undefined): string | null {
 }
 
 /**
- * Attaches `session` to the Hono context if a valid ah_session cookie is present.
+ * Attaches `session` to the Hono context if a valid lt_session cookie is present.
  * Does NOT reject when missing — downstream routes that require a session must
  * use `requireSession`.
  */
-export function createSessionMiddleware(db: Database.Database) {
+export function createSessionMiddleware(db: DbAdapter) {
   return createMiddleware(async (c, next) => {
     const cookieHeader = c.req.header('Cookie') || c.req.header('cookie');
     const raw = parseSessionCookie(cookieHeader);
     if (raw) {
-      const session = getSession(db, raw);
+      const session = await getSession(db, raw);
       if (session) {
         c.set('session', { userId: session.userId, sessionId: session.sessionId });
       }

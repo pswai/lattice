@@ -8,12 +8,12 @@ describe('Dashboard', () => {
     ctx = createTestContext();
   });
 
-  it('GET / returns HTML with AgentHub Dashboard title', async () => {
+  it('GET / returns HTML with Lattice Dashboard title', async () => {
     const res = await ctx.app.request('/');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toMatch(/text\/html/);
     const body = await res.text();
-    expect(body).toContain('<title>AgentHub Dashboard</title>');
+    expect(body).toContain('<title>Lattice Dashboard</title>');
   });
 
   it('GET / does not require authentication', async () => {

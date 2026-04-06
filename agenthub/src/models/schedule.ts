@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { ValidationError } from '../errors.js';
 import { getPlaybook } from './playbook.js';
 
@@ -139,12 +139,12 @@ export interface DefineScheduleInput {
   enabled?: boolean;
 }
 
-export function defineSchedule(
-  db: Database.Database,
+export async function defineSchedule(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: DefineScheduleInput,
-): Schedule {
+): Promise<Schedule> {
   if (!input.playbook_name || input.playbook_name.length === 0) {
     throw new ValidationError('playbook_name is required');
   }
@@ -153,34 +153,36 @@ export function defineSchedule(
   }
 
   // Validate playbook exists (throws NotFoundError if missing)
-  getPlaybook(db, teamId, input.playbook_name);
+  await getPlaybook(db, teamId, input.playbook_name);
 
   const enabled = input.enabled === false ? 0 : 1;
   const nextRunAt = computeNextRun(input.cron_expression, new Date()).toISOString();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO schedules (team_id, playbook_name, cron_expression, enabled, next_run_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(team_id, playbook_name, cron_expression) DO UPDATE SET
       enabled = excluded.enabled,
       next_run_at = excluded.next_run_at,
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(teamId, input.playbook_name, input.cron_expression, enabled, nextRunAt, agentId);
+      updated_at = ?
+  `, teamId, input.playbook_name, input.cron_expression, enabled, nextRunAt, agentId, new Date().toISOString());
 
-  const row = db.prepare(
+  const row = await db.get<ScheduleRow>(
     'SELECT * FROM schedules WHERE team_id = ? AND playbook_name = ? AND cron_expression = ?',
-  ).get(teamId, input.playbook_name, input.cron_expression) as ScheduleRow;
+    teamId, input.playbook_name, input.cron_expression,
+  );
 
-  return rowToSchedule(row);
+  return rowToSchedule(row!);
 }
 
-export function listSchedules(
-  db: Database.Database,
+export async function listSchedules(
+  db: DbAdapter,
   teamId: string,
-): { schedules: Schedule[]; total: number } {
-  const rows = db.prepare(
+): Promise<{ schedules: Schedule[]; total: number }> {
+  const rows = await db.all<ScheduleRow>(
     'SELECT * FROM schedules WHERE team_id = ? ORDER BY id ASC',
-  ).all(teamId) as ScheduleRow[];
+    teamId,
+  );
 
   return {
     schedules: rows.map(rowToSchedule),
@@ -188,40 +190,41 @@ export function listSchedules(
   };
 }
 
-export function deleteSchedule(
-  db: Database.Database,
+export async function deleteSchedule(
+  db: DbAdapter,
   teamId: string,
   id: number,
-): { deleted: boolean } {
-  const result = db.prepare(
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
     'DELETE FROM schedules WHERE team_id = ? AND id = ?',
-  ).run(teamId, id);
+    teamId, id,
+  );
   return { deleted: result.changes > 0 };
 }
 
 /** Cross-team — returns schedules whose next_run_at is due (<= now) and enabled. */
-export function getDueSchedules(db: Database.Database): Schedule[] {
+export async function getDueSchedules(db: DbAdapter): Promise<Schedule[]> {
   const now = new Date().toISOString();
-  const rows = db.prepare(`
+  const rows = await db.all<ScheduleRow>(`
     SELECT * FROM schedules
     WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
     ORDER BY next_run_at ASC
-  `).all(now) as ScheduleRow[];
+  `, now);
   return rows.map(rowToSchedule);
 }
 
-export function markScheduleFired(
-  db: Database.Database,
+export async function markScheduleFired(
+  db: DbAdapter,
   id: number,
   workflowRunId: number,
   nextRunAt: string,
-): void {
-  db.prepare(`
+): Promise<void> {
+  await db.run(`
     UPDATE schedules
-    SET last_run_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    SET last_run_at = ?,
         last_workflow_run_id = ?,
         next_run_at = ?,
-        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        updated_at = ?
     WHERE id = ?
-  `).run(workflowRunId, nextRunAt, id);
+  `, new Date().toISOString(), workflowRunId, nextRunAt, new Date().toISOString(), id);
 }

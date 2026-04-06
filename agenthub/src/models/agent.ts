@@ -1,4 +1,5 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
+import { jsonArrayTable } from '../db/adapter.js';
 import { broadcastInternal } from './event.js';
 
 export type AgentStatus = 'online' | 'offline' | 'busy';
@@ -39,17 +40,17 @@ function rowToAgent(row: AgentRow): Agent {
  * Auto-register an agent if not already present. Updates last_heartbeat if they exist.
  * Used by MCP tool handlers to ensure agents are discoverable without explicit registration.
  */
-export function autoRegisterAgent(
-  db: Database.Database,
+export async function autoRegisterAgent(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
-): void {
-  db.prepare(`
+): Promise<void> {
+  await db.run(`
     INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
-    VALUES (?, ?, '[]', 'online', '{}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    VALUES (?, ?, '[]', 'online', '{}', ?)
     ON CONFLICT (team_id, id) DO UPDATE SET
-      last_heartbeat = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(agentId, teamId);
+      last_heartbeat = ?
+  `, agentId, teamId, new Date().toISOString(), new Date().toISOString());
 }
 
 export interface RegisterAgentInput {
@@ -59,45 +60,46 @@ export interface RegisterAgentInput {
   metadata?: Record<string, unknown>;
 }
 
-export function registerAgent(
-  db: Database.Database,
+export async function registerAgent(
+  db: DbAdapter,
   teamId: string,
   input: RegisterAgentInput,
-): Agent {
+): Promise<Agent> {
   const status = input.status ?? 'online';
   const metadata = input.metadata ?? {};
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO agents (id, team_id, capabilities, status, metadata, last_heartbeat)
-    VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT (team_id, id) DO UPDATE SET
       capabilities = excluded.capabilities,
       status = excluded.status,
       metadata = excluded.metadata,
-      last_heartbeat = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(input.agent_id, teamId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata));
+      last_heartbeat = ?
+  `, input.agent_id, teamId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata), new Date().toISOString(), new Date().toISOString());
 
-  const row = db.prepare(
+  const row = await db.get<AgentRow>(
     'SELECT * FROM agents WHERE team_id = ? AND id = ?',
-  ).get(teamId, input.agent_id) as AgentRow;
+    teamId, input.agent_id,
+  );
 
-  broadcastInternal(
+  await broadcastInternal(
     db, teamId, 'BROADCAST',
     `Agent "${input.agent_id}" registered (capabilities: ${input.capabilities.join(', ')})`,
     ['agent-registry'], input.agent_id,
   );
 
-  return rowToAgent(row);
+  return rowToAgent(row!);
 }
 
-export function heartbeat(
-  db: Database.Database,
+export async function heartbeat(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   status?: AgentStatus,
-): { ok: boolean } {
-  const setClauses = ['last_heartbeat = strftime(\'%Y-%m-%dT%H:%M:%fZ\', \'now\')'];
-  const params: string[] = [];
+): Promise<{ ok: boolean }> {
+  const setClauses = ['last_heartbeat = ?'];
+  const params: string[] = [new Date().toISOString()];
 
   if (status) {
     setClauses.push('status = ?');
@@ -106,10 +108,10 @@ export function heartbeat(
 
   params.push(teamId, agentId);
 
-  const result = db.prepare(`
+  const result = await db.run(`
     UPDATE agents SET ${setClauses.join(', ')}
     WHERE team_id = ? AND id = ?
-  `).run(...params);
+  `, ...params);
 
   return { ok: result.changes > 0 };
 }
@@ -119,11 +121,11 @@ export interface ListAgentsInput {
   status?: AgentStatus;
 }
 
-export function listAgents(
-  db: Database.Database,
+export async function listAgents(
+  db: DbAdapter,
   teamId: string,
   input: ListAgentsInput,
-): { agents: Agent[] } {
+): Promise<{ agents: Agent[] }> {
   const conditions = ['team_id = ?'];
   const params: string[] = [teamId];
 
@@ -132,30 +134,28 @@ export function listAgents(
     params.push(input.status);
   }
 
-  let rows: AgentRow[];
-
   if (input.capability) {
-    conditions.push(`EXISTS (SELECT 1 FROM json_each(capabilities) AS c WHERE c.value = ?)`);
+    conditions.push(`EXISTS (SELECT 1 FROM ${jsonArrayTable(db.dialect, 'capabilities', 'c')} WHERE c.value = ?)`);
     params.push(input.capability);
   }
 
-  rows = db.prepare(`
+  const rows = await db.all<AgentRow>(`
     SELECT * FROM agents
     WHERE ${conditions.join(' AND ')}
     ORDER BY last_heartbeat DESC
-  `).all(...params) as AgentRow[];
+  `, ...params);
 
   return { agents: rows.map(rowToAgent) };
 }
 
 /** Mark agents as offline if they haven't sent a heartbeat within the timeout */
-export function markStaleAgents(db: Database.Database, timeoutMinutes: number): number {
+export async function markStaleAgents(db: DbAdapter, timeoutMinutes: number): Promise<number> {
   const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
 
-  const result = db.prepare(`
+  const result = await db.run(`
     UPDATE agents SET status = 'offline'
     WHERE status != 'offline' AND last_heartbeat < ?
-  `).run(cutoff);
+  `, cutoff);
 
   return result.changes;
 }

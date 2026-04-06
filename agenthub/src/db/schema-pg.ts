@@ -1,21 +1,33 @@
-export const SCHEMA_SQL = `
+/**
+ * Postgres-dialect DDL for all Lattice tables.
+ * Mirrors schema.ts (SQLite) with Postgres-specific types:
+ * - SERIAL instead of INTEGER PRIMARY KEY AUTOINCREMENT
+ * - NOW() AT TIME ZONE 'UTC' instead of strftime(...)
+ * - No FTS5 virtual table / triggers (uses pg_trgm GIN indexes instead)
+ * - BOOLEAN instead of INTEGER for flag columns
+ */
+export const PG_SCHEMA_SQL = `
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Teams table
 CREATE TABLE IF NOT EXISTS teams (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     owner_user_id TEXT,
     slug TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_slug ON teams(slug) WHERE slug IS NOT NULL;
 
 -- API keys for team authentication
 CREATE TABLE IF NOT EXISTS api_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     label TEXT NOT NULL DEFAULT '',
     scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     expires_at TEXT,
     last_used_at TEXT,
     revoked_at TEXT,
@@ -24,57 +36,33 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 -- Context entries — append-only shared knowledge base
 CREATE TABLE IF NOT EXISTS context_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     UNIQUE(team_id, key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_context_team ON context_entries(team_id);
 CREATE INDEX IF NOT EXISTS idx_context_created ON context_entries(created_at);
 
--- FTS5 virtual table for full-text search on context entries.
--- Uses trigram tokenizer so short queries and middle-of-word fragments match.
-CREATE VIRTUAL TABLE IF NOT EXISTS context_entries_fts USING fts5(
-    key,
-    value,
-    tags,
-    content='context_entries',
-    content_rowid='id',
-    tokenize='trigram'
-);
-
--- Triggers to keep FTS index in sync
-CREATE TRIGGER IF NOT EXISTS context_entries_ai AFTER INSERT ON context_entries BEGIN
-    INSERT INTO context_entries_fts(rowid, key, value, tags)
-    VALUES (new.id, new.key, new.value, new.tags);
-END;
-
-CREATE TRIGGER IF NOT EXISTS context_entries_ad AFTER DELETE ON context_entries BEGIN
-    INSERT INTO context_entries_fts(context_entries_fts, rowid, key, value, tags)
-    VALUES ('delete', old.id, old.key, old.value, old.tags);
-END;
-
-CREATE TRIGGER IF NOT EXISTS context_entries_au AFTER UPDATE ON context_entries BEGIN
-    INSERT INTO context_entries_fts(context_entries_fts, rowid, key, value, tags)
-    VALUES ('delete', old.id, old.key, old.value, old.tags);
-    INSERT INTO context_entries_fts(rowid, key, value, tags)
-    VALUES (new.id, new.key, new.value, new.tags);
-END;
+-- pg_trgm GIN indexes for full-text search (replaces FTS5)
+CREATE INDEX IF NOT EXISTS idx_context_key_trgm ON context_entries USING gin(key gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_context_value_trgm ON context_entries USING gin(value gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_context_tags_trgm ON context_entries USING gin(tags gin_trgm_ops);
 
 -- Events — messaging bus
 CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     event_type TEXT NOT NULL CHECK(event_type IN ('LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE')),
     message TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_team_time ON events(team_id, created_at);
@@ -82,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_events_team_id ON events(team_id, id);
 
 -- Tasks — task coordination with claim/reap
 CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     description TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'claimed', 'completed', 'escalated', 'abandoned')),
@@ -93,8 +81,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     version INTEGER NOT NULL DEFAULT 1,
     priority TEXT NOT NULL DEFAULT 'P2' CHECK(priority IN ('P0', 'P1', 'P2', 'P3')),
     assigned_to TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
@@ -117,8 +105,8 @@ CREATE TABLE IF NOT EXISTS agents (
     capabilities TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'online' CHECK(status IN ('online', 'offline', 'busy')),
     metadata TEXT NOT NULL DEFAULT '{}',
-    last_heartbeat TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_heartbeat TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    registered_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     PRIMARY KEY (team_id, id)
 );
 
@@ -126,31 +114,31 @@ CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(team_id, last_heartbea
 
 -- Messages — agent-to-agent direct messaging
 CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     from_agent TEXT NOT NULL,
     to_agent TEXT NOT NULL,
     message TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(team_id, to_agent, id);
 
 -- Playbooks — reusable task template bundles
 CREATE TABLE IF NOT EXISTS playbooks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     tasks_json TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     UNIQUE(team_id, name)
 );
 
 -- Artifacts — typed file storage (HTML, JSON, code, reports) separate from context
 CREATE TABLE IF NOT EXISTS artifacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     key TEXT NOT NULL,
     content_type TEXT NOT NULL,
@@ -158,15 +146,15 @@ CREATE TABLE IF NOT EXISTS artifacts (
     metadata TEXT NOT NULL DEFAULT '{}',
     size INTEGER NOT NULL,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     UNIQUE(team_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(team_id, content_type);
 
--- Agent profiles — reusable role definitions (system prompts, default capabilities/tags)
+-- Agent profiles — reusable role definitions
 CREATE TABLE IF NOT EXISTS agent_profiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -174,20 +162,20 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_capabilities TEXT NOT NULL DEFAULT '[]',
     default_tags TEXT NOT NULL DEFAULT '[]',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     UNIQUE(team_id, name)
 );
 
--- Workflow runs — track playbook executions as first-class entities
+-- Workflow runs — track playbook executions
 CREATE TABLE IF NOT EXISTS workflow_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     playbook_name TEXT NOT NULL,
     started_by TEXT NOT NULL,
     task_ids TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running', 'completed', 'failed')),
-    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    started_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_team ON workflow_runs(team_id, started_at);
@@ -202,8 +190,8 @@ CREATE TABLE IF NOT EXISTS webhooks (
     active INTEGER NOT NULL DEFAULT 1,
     failure_count INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_webhooks_team_active ON webhooks(team_id, active);
 
@@ -216,15 +204,15 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     attempts INTEGER NOT NULL DEFAULT 0,
     next_retry_at TEXT,
     error TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deliveries_retry ON webhook_deliveries(status, next_retry_at);
 
 -- Schedules — recurring playbook executions (cron-like)
 CREATE TABLE IF NOT EXISTS schedules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     playbook_name TEXT NOT NULL,
     cron_expression TEXT NOT NULL,
@@ -233,15 +221,15 @@ CREATE TABLE IF NOT EXISTS schedules (
     last_run_at TEXT,
     last_workflow_run_id INTEGER,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     UNIQUE(team_id, playbook_name, cron_expression)
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run_at);
 
--- Inbound endpoints — public receiver URLs that let external systems trigger Lattice actions
+-- Inbound endpoints — public receiver URLs
 CREATE TABLE IF NOT EXISTS inbound_endpoints (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     endpoint_key TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -250,15 +238,14 @@ CREATE TABLE IF NOT EXISTS inbound_endpoints (
     hmac_secret TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_endpoints_team ON inbound_endpoints(team_id);
 
--- Audit log — append-only record of mutating API actions.
--- No UPDATE/DELETE API; background retention prunes by age.
+-- Audit log — append-only record of mutating API actions
 CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     team_id TEXT NOT NULL,
     actor TEXT NOT NULL,
     action TEXT NOT NULL,
@@ -267,25 +254,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
     metadata TEXT NOT NULL DEFAULT '{}',
     ip TEXT,
     request_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_audit_team_time ON audit_log(team_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_team_actor ON audit_log(team_id, actor, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_team_action ON audit_log(team_id, action, created_at DESC);
 
--- Users — human end-users for SaaS self-serve (separate from API-key teams).
+-- Users — human end-users for SaaS
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT,
     email_verified_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
 
--- Sessions — opaque-token-backed browser sessions. PK is sha256(raw_token).
+-- Sessions
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -293,44 +280,43 @@ CREATE TABLE IF NOT EXISTS sessions (
     ip TEXT,
     user_agent TEXT,
     revoked_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
--- Email verification tokens. Hashed at rest; one-shot via used_at.
+-- Email verification tokens
 CREATE TABLE IF NOT EXISTS email_verifications (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,
     used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
 
--- Password reset tokens. Hashed at rest; one-shot via used_at.
+-- Password reset tokens
 CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,
     used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 
--- Team memberships — join users to teams with a role.
+-- Team memberships
 CREATE TABLE IF NOT EXISTS team_memberships (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'viewer')),
     invited_by TEXT,
-    joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    joined_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     PRIMARY KEY (user_id, team_id)
 );
 CREATE INDEX IF NOT EXISTS idx_team_memberships_team ON team_memberships(team_id);
 
--- Team invitations — pending invites to join a team.
--- token_hash = sha256(raw); raw is surfaced only once at creation time.
+-- Team invitations
 CREATE TABLE IF NOT EXISTS team_invitations (
     id TEXT PRIMARY KEY,
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -341,23 +327,23 @@ CREATE TABLE IF NOT EXISTS team_invitations (
     expires_at TEXT NOT NULL,
     accepted_at TEXT,
     revoked_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
 CREATE INDEX IF NOT EXISTS idx_team_invitations_email_lower ON team_invitations(LOWER(email));
 
--- OAuth identities — links external provider accounts (e.g., GitHub) to users.
+-- OAuth identities
 CREATE TABLE IF NOT EXISTS oauth_identities (
     provider TEXT NOT NULL,
     provider_uid TEXT NOT NULL,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     email TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     PRIMARY KEY (provider, provider_uid)
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
 
--- Subscription plans — catalog of billing plans with quota limits.
+-- Subscription plans
 CREATE TABLE IF NOT EXISTS subscription_plans (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -367,10 +353,10 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
     storage_bytes_quota INTEGER NOT NULL,
     seat_quota INTEGER NOT NULL,
     retention_days INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
--- Team subscriptions — per-team plan assignment + Stripe linkage.
+-- Team subscriptions
 CREATE TABLE IF NOT EXISTS team_subscriptions (
     team_id TEXT PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
     plan_id TEXT NOT NULL REFERENCES subscription_plans(id),
@@ -379,63 +365,19 @@ CREATE TABLE IF NOT EXISTS team_subscriptions (
     current_period_start TEXT,
     current_period_end TEXT,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('trialing','active','past_due','canceled')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
--- Usage counters — per-team, per-period (YYYY-MM) usage tallies.
+-- Usage counters
 CREATE TABLE IF NOT EXISTS usage_counters (
     team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     period_ym TEXT NOT NULL,
     exec_count INTEGER NOT NULL DEFAULT 0,
     api_call_count INTEGER NOT NULL DEFAULT 0,
     storage_bytes INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     PRIMARY KEY (team_id, period_ym)
 );
 CREATE INDEX IF NOT EXISTS idx_usage_counters_team ON usage_counters(team_id);
 `;
-
-// Additive column migrations. These ALTER TABLE statements fail if the
-// column already exists, so callers detect existing columns via PRAGMA
-// table_info before running.
-export const TASK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
-  {
-    name: 'priority',
-    sql: "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'",
-  },
-  {
-    name: 'assigned_to',
-    sql: 'ALTER TABLE tasks ADD COLUMN assigned_to TEXT',
-  },
-];
-
-export const TEAMS_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
-  {
-    name: 'owner_user_id',
-    sql: 'ALTER TABLE teams ADD COLUMN owner_user_id TEXT',
-  },
-  {
-    name: 'slug',
-    sql: 'ALTER TABLE teams ADD COLUMN slug TEXT',
-  },
-];
-
-export const API_KEY_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
-  {
-    name: 'scope',
-    sql: "ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin'))",
-  },
-  {
-    name: 'expires_at',
-    sql: 'ALTER TABLE api_keys ADD COLUMN expires_at TEXT',
-  },
-  {
-    name: 'last_used_at',
-    sql: 'ALTER TABLE api_keys ADD COLUMN last_used_at TEXT',
-  },
-  {
-    name: 'revoked_at',
-    sql: 'ALTER TABLE api_keys ADD COLUMN revoked_at TEXT',
-  },
-];

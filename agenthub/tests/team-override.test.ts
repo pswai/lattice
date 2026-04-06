@@ -3,7 +3,7 @@ import { createTestContext, authHeaders, request, setupTeam, type TestContext } 
 
 describe('X-Team-Override', () => {
   let ctx: TestContext;
-  const TEAM_B_KEY = 'ahk_teamb_override_key_1234567890abcd';
+  const TEAM_B_KEY = 'ltk_teamb_override_key_1234567890abcd';
 
   beforeEach(() => {
     ctx = createTestContext();
@@ -54,7 +54,7 @@ describe('X-Team-Override', () => {
     it('returns 401 when X-Team-Override is not a valid API key', async () => {
       const headers = {
         ...authHeaders(ctx.apiKey, 'agent-a'),
-        'X-Team-Override': 'ahk_not_a_real_key_xxxxxxxxxxxxxxxxxxxx',
+        'X-Team-Override': 'ltk_not_a_real_key_xxxxxxxxxxxxxxxxxxxx',
       };
       const res = await request(ctx.app, 'GET', '/api/v1/context?query=test', { headers });
       expect(res.status).toBe(401);
@@ -74,7 +74,7 @@ describe('X-Team-Override', () => {
 
     it('still 401s when the base Authorization header is invalid even if override is valid', async () => {
       const headers = {
-        Authorization: 'Bearer ahk_invalid_base_key_xxxxxxxxxxxxxxxx',
+        Authorization: 'Bearer ltk_invalid_base_key_xxxxxxxxxxxxxxxx',
         'X-Agent-ID': 'agent-a',
         'Content-Type': 'application/json',
         'X-Team-Override': TEAM_B_KEY,
@@ -124,7 +124,7 @@ describe('X-Team-Override', () => {
       const res = await request(ctx.app, 'POST', '/mcp', {
         headers: {
           Authorization: `Bearer ${ctx.apiKey}`,
-          'X-Team-Override': 'ahk_not_a_real_key_xxxxxxxxxxxxxxxxxxxx',
+          'X-Team-Override': 'ltk_not_a_real_key_xxxxxxxxxxxxxxxxxxxx',
           'Content-Type': 'application/json',
         },
         body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },

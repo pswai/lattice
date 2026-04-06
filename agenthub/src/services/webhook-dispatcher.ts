@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { eventBus } from './event-emitter.js';
 import { getLogger } from '../logger.js';
 import {
@@ -30,7 +30,7 @@ export interface WebhookDispatcher {
 }
 
 export function startWebhookDispatcher(
-  db: Database.Database,
+  db: DbAdapter,
   opts: { timeoutMs?: number; intervalMs?: number; fetchImpl?: typeof fetch } = {},
 ): WebhookDispatcher {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -38,23 +38,26 @@ export function startWebhookDispatcher(
 
   // On each new domain event, create a pending delivery row for matching webhooks.
   const onEvent = (payload: { teamId: string; eventId: number }) => {
-    try {
-      const eventRow = db
-        .prepare('SELECT * FROM events WHERE id = ?')
-        .get(payload.eventId) as EventRow | undefined;
-      if (!eventRow) return;
-      const matches = listActiveWebhooksForEvent(db, payload.teamId, eventRow.event_type);
-      for (const wh of matches) {
-        createDelivery(db, wh.id, eventRow.id);
+    (async () => {
+      try {
+        const eventRow = await db.get<EventRow>(
+          'SELECT * FROM events WHERE id = ?',
+          payload.eventId,
+        );
+        if (!eventRow) return;
+        const matches = await listActiveWebhooksForEvent(db, payload.teamId, eventRow.event_type);
+        for (const wh of matches) {
+          await createDelivery(db, wh.id, eventRow.id);
+        }
+        // Kick the worker immediately for low latency.
+        void processOnce();
+      } catch (err) {
+        getLogger().error('webhook_enqueue_failed', {
+          component: 'webhook-dispatcher',
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-      // Kick the worker immediately for low latency.
-      void processOnce();
-    } catch (err) {
-      getLogger().error('webhook_enqueue_failed', {
-        component: 'webhook-dispatcher',
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    })();
   };
   eventBus.on('event', onEvent);
 
@@ -63,8 +66,11 @@ export function startWebhookDispatcher(
     if (running) return;
     running = true;
     try {
-      const pending = getPendingDeliveries(db, 25);
-      await Promise.all(pending.map((d) => deliverOne(db, d, fetchImpl, timeoutMs)));
+      const pending = await getPendingDeliveries(db, 25);
+      // Process deliveries sequentially to avoid concurrent SQLite transactions
+      for (const d of pending) {
+        await deliverOne(db, d, fetchImpl, timeoutMs);
+      }
     } finally {
       running = false;
     }
@@ -88,17 +94,18 @@ export function startWebhookDispatcher(
 }
 
 async function deliverOne(
-  db: Database.Database,
+  db: DbAdapter,
   delivery: Awaited<ReturnType<typeof getPendingDeliveries>>[number],
   fetchImpl: typeof fetch,
   timeoutMs: number,
 ): Promise<void> {
-  const eventRow = db
-    .prepare('SELECT * FROM events WHERE id = ?')
-    .get(delivery.eventId) as EventRow | undefined;
+  const eventRow = await db.get<EventRow>(
+    'SELECT * FROM events WHERE id = ?',
+    delivery.eventId,
+  );
   if (!eventRow) {
     // Event was cleaned up before delivery — drop.
-    markDeliveryFailure(db, delivery.id, delivery.webhookId, null, 'event not found', false);
+    await markDeliveryFailure(db, delivery.id, delivery.webhookId, null, 'event not found', false);
     return;
   }
 
@@ -128,7 +135,7 @@ async function deliverOne(
       webhook_id: delivery.webhookId,
       reason: msg,
     });
-    markDeliveryFailure(db, delivery.id, delivery.webhookId, null, msg, false);
+    await markDeliveryFailure(db, delivery.id, delivery.webhookId, null, msg, false);
     return;
   }
 
@@ -139,19 +146,19 @@ async function deliverOne(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'AgentHub-Webhooks/1.0',
-        'X-AgentHub-Event': eventRow.event_type,
-        'X-AgentHub-Delivery': delivery.id,
-        'X-AgentHub-Signature': signature,
+        'User-Agent': 'Lattice-Webhooks/1.0',
+        'X-Lattice-Event': eventRow.event_type,
+        'X-Lattice-Delivery': delivery.id,
+        'X-Lattice-Signature': signature,
       },
       body,
       signal: controller.signal,
     });
     if (res.status >= 200 && res.status < 300) {
-      markDeliverySuccess(db, delivery.id, delivery.webhookId, res.status);
+      await markDeliverySuccess(db, delivery.id, delivery.webhookId, res.status);
     } else if (res.status >= 400 && res.status < 500) {
       // 4xx is a terminal client error — do not retry.
-      markDeliveryFailure(
+      await markDeliveryFailure(
         db,
         delivery.id,
         delivery.webhookId,
@@ -160,7 +167,7 @@ async function deliverOne(
         false,
       );
     } else {
-      markDeliveryFailure(
+      await markDeliveryFailure(
         db,
         delivery.id,
         delivery.webhookId,
@@ -171,7 +178,7 @@ async function deliverOne(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    markDeliveryFailure(db, delivery.id, delivery.webhookId, null, msg, true);
+    await markDeliveryFailure(db, delivery.id, delivery.webhookId, null, msg, true);
   } finally {
     clearTimeout(timer);
   }

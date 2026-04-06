@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { getCurrentUsageWithLimits } from '../../models/usage.js';
 import { incrementUsageForced } from '../../models/usage.js';
 import { getLogger } from '../../logger.js';
@@ -19,7 +19,7 @@ function secondsToNextPeriod(): number {
 }
 
 export function createQuotaMiddleware(
-  db: Database.Database,
+  db: DbAdapter,
   config: QuotaMiddlewareConfig,
 ) {
   return createMiddleware(async (c, next) => {
@@ -36,7 +36,7 @@ export function createQuotaMiddleware(
     const isMutating = MUTATING_METHODS.has(method);
 
     if (isMutating) {
-      const state = getCurrentUsageWithLimits(db, auth.teamId);
+      const state = await getCurrentUsageWithLimits(db, auth.teamId);
       if (state.hard) {
         c.header('Retry-After', String(secondsToNextPeriod()));
         return c.json(
@@ -69,14 +69,10 @@ export function createQuotaMiddleware(
     if (isMutating) {
       const status = c.res.status;
       if (status >= 200 && status < 300) {
-        queueMicrotask(() => {
-          try {
-            incrementUsageForced(db, auth.teamId, { apiCall: 1 });
-          } catch (err) {
-            getLogger().error('quota_counter_bump_failed', {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
+        incrementUsageForced(db, auth.teamId, { apiCall: 1 }).catch((err) => {
+          getLogger().error('quota_counter_bump_failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
       }
     }

@@ -11,7 +11,7 @@ import type { Hono } from 'hono';
 
 function extractSessionCookie(res: Response): string {
   const h = res.headers.get('set-cookie') || '';
-  const m = h.match(/ah_session=([^;]*)/);
+  const m = h.match(/lt_session=([^;]*)/);
   return m ? m[1] : '';
 }
 
@@ -40,14 +40,14 @@ describe('invite → email', () => {
     clearStubEmails(); // drop signup verify email
     const createRes = await app.request('/workspaces', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `ah_session=${cookie}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `lt_session=${cookie}` },
       body: JSON.stringify({ id: 'ws1', name: 'ws1' }),
     });
     expect(createRes.status).toBe(201);
 
     const inviteRes = await app.request('/workspaces/ws1/invites', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `ah_session=${cookie}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `lt_session=${cookie}` },
       body: JSON.stringify({ email: 'invitee@example.com', role: 'member' }),
     });
     expect(inviteRes.status).toBe(201);
@@ -69,12 +69,12 @@ describe('invite → email', () => {
     const cookie = await signup(app, 'owner2@example.com');
     await app.request('/workspaces', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `ah_session=${cookie}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `lt_session=${cookie}` },
       body: JSON.stringify({ id: 'ws2', name: 'ws2' }),
     });
     const inviteRes = await app.request('/workspaces/ws2/invites', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `ah_session=${cookie}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `lt_session=${cookie}` },
       body: JSON.stringify({ email: 'nobody@example.com', role: 'viewer' }),
     });
     expect(inviteRes.status).toBe(201);

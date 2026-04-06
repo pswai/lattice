@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import {
   getDueSchedules,
   markScheduleFired,
@@ -6,32 +6,37 @@ import {
 } from '../models/schedule.js';
 import { runPlaybook } from '../models/playbook.js';
 import { broadcastInternal } from '../models/event.js';
+import { getLogger } from '../logger.js';
 
 const SCHEDULER_INTERVAL_MS = 30_000;
 const SCHEDULER_AGENT_ID = 'system:scheduler';
 
-export function startScheduler(db: Database.Database): NodeJS.Timeout {
+export function startScheduler(db: DbAdapter): NodeJS.Timeout {
   return setInterval(() => {
-    runDueSchedules(db);
+    runDueSchedules(db).catch((err) =>
+      getLogger().error('scheduler_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }, SCHEDULER_INTERVAL_MS);
 }
 
 /** Run one pass of the scheduler. Exported for tests. */
-export function runDueSchedules(db: Database.Database): number {
-  const due = getDueSchedules(db);
+export async function runDueSchedules(db: DbAdapter): Promise<number> {
+  const due = await getDueSchedules(db);
   let fired = 0;
   for (const schedule of due) {
     try {
-      const run = runPlaybook(
+      const run = await runPlaybook(
         db,
         schedule.teamId,
         SCHEDULER_AGENT_ID,
         schedule.playbookName,
       );
       const nextRunAt = computeNextRun(schedule.cronExpression, new Date()).toISOString();
-      markScheduleFired(db, schedule.id, run.workflow_run_id, nextRunAt);
+      await markScheduleFired(db, schedule.id, run.workflow_run_id, nextRunAt);
 
-      broadcastInternal(
+      await broadcastInternal(
         db,
         schedule.teamId,
         'BROADCAST',
@@ -42,7 +47,7 @@ export function runDueSchedules(db: Database.Database): number {
       fired++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      broadcastInternal(
+      await broadcastInternal(
         db,
         schedule.teamId,
         'ERROR',
@@ -53,7 +58,7 @@ export function runDueSchedules(db: Database.Database): number {
       // Advance next_run_at anyway so we don't tight-loop on a broken schedule.
       try {
         const nextRunAt = computeNextRun(schedule.cronExpression, new Date()).toISOString();
-        markScheduleFired(db, schedule.id, schedule.lastWorkflowRunId ?? 0, nextRunAt);
+        await markScheduleFired(db, schedule.id, schedule.lastWorkflowRunId ?? 0, nextRunAt);
       } catch {
         // If cron is somehow invalid now, leave it; admin will need to fix.
       }

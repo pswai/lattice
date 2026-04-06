@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 
 export interface AuditRow {
   id: number;
@@ -42,13 +42,12 @@ const MAX_LIMIT = 1000;
  * Append a single audit record. Append-only — there is no update/delete
  * counterpart by design.
  */
-export function writeAudit(db: Database.Database, input: WriteAuditInput): void {
+export async function writeAudit(db: DbAdapter, input: WriteAuditInput): Promise<void> {
   const metadataJson = JSON.stringify(input.metadata ?? {});
-  db.prepare(
+  await db.run(
     `INSERT INTO audit_log
        (team_id, actor, action, resource_type, resource_id, metadata, ip, request_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
     input.teamId,
     input.actor,
     input.action,
@@ -63,10 +62,10 @@ export function writeAudit(db: Database.Database, input: WriteAuditInput): void 
 /**
  * Read audit records, newest first, with optional filters and cursor.
  */
-export function queryAudit(
-  db: Database.Database,
+export async function queryAudit(
+  db: DbAdapter,
   input: QueryAuditInput,
-): AuditRow[] {
+): Promise<AuditRow[]> {
   const where: string[] = ['team_id = ?'];
   const params: unknown[] = [input.teamId];
 
@@ -106,14 +105,14 @@ export function queryAudit(
                LIMIT ?`;
   params.push(limit);
 
-  return db.prepare(sql).all(...params) as AuditRow[];
+  return await db.all<AuditRow>(sql, ...params);
 }
 
 /**
  * Retention cleanup — delete audit rows older than the supplied ISO cutoff.
  * Returns number of rows deleted.
  */
-export function pruneAuditOlderThan(db: Database.Database, cutoffIso: string): number {
-  const result = db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(cutoffIso);
+export async function pruneAuditOlderThan(db: DbAdapter, cutoffIso: string): Promise<number> {
+  const result = await db.run('DELETE FROM audit_log WHERE created_at < ?', cutoffIso);
   return result.changes;
 }

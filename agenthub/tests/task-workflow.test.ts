@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupTeam, authHeaders, request, type TestContext } from './helpers.js';
 import { createTask, updateTask, getTask } from '../src/models/task.js';
 import { getUpdates } from '../src/models/event.js';
-import type Database from 'better-sqlite3';
 
 describe('Task Workflow — Full Lifecycle', () => {
   let ctx: TestContext;
@@ -307,7 +306,7 @@ describe('Task Workflow — Escalation Flow', () => {
 });
 
 describe('Task Workflow — Reaping (model-level)', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof createTestDb>;
   const teamId = 'test-team';
 
   beforeEach(() => {
@@ -320,14 +319,14 @@ describe('Task Workflow — Reaping (model-level)', () => {
    */
   function reapTasks(timeoutMinutes: number): number {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
-    const staleTasks = db.prepare(`
+    const staleTasks = db.rawDb.prepare(`
       SELECT id, team_id, description, claimed_by, version
       FROM tasks WHERE status = 'claimed' AND claimed_at < ?
     `).all(cutoff) as Array<{ id: number; team_id: string; description: string; claimed_by: string; version: number }>;
 
     let reaped = 0;
     for (const task of staleTasks) {
-      const result = db.prepare(`
+      const result = db.rawDb.prepare(`
         UPDATE tasks
         SET status = 'abandoned', claimed_by = NULL, claimed_at = NULL,
             result = 'Auto-released: agent did not complete within timeout',
@@ -339,24 +338,24 @@ describe('Task Workflow — Reaping (model-level)', () => {
     return reaped;
   }
 
-  it('should reap stale task and leave it reclaimable', () => {
+  it('should reap stale task and leave it reclaimable', async () => {
     // Create a claimed task and backdate it
-    const task = createTask(db, teamId, 'agent-slow', { description: 'Slow task' });
+    const task = await createTask(db, teamId, 'agent-slow', { description: 'Slow task' });
     const pastTime = new Date(Date.now() - 90 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
+    db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, task.task_id);
 
     // Reap with 30-minute timeout
     const reaped = reapTasks(30);
     expect(reaped).toBe(1);
 
     // Verify task is abandoned
-    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task.task_id) as any;
+    const row = db.rawDb.prepare('SELECT * FROM tasks WHERE id = ?').get(task.task_id) as any;
     expect(row.status).toBe('abandoned');
     expect(row.claimed_by).toBeNull();
     expect(row.result).toContain('Auto-released');
 
     // Another agent can now reclaim it
-    const reclaim = updateTask(db, teamId, 'agent-fast', {
+    const reclaim = await updateTask(db, teamId, 'agent-fast', {
       task_id: task.task_id,
       status: 'claimed',
       version: row.version,
@@ -364,21 +363,21 @@ describe('Task Workflow — Reaping (model-level)', () => {
     expect(reclaim.status).toBe('claimed');
   });
 
-  it('should only reap tasks older than the timeout', () => {
+  it('should only reap tasks older than the timeout', async () => {
     // Create two tasks: one stale, one fresh
-    const stale = createTask(db, teamId, 'agent-1', { description: 'Stale' });
-    const fresh = createTask(db, teamId, 'agent-2', { description: 'Fresh' });
+    const stale = await createTask(db, teamId, 'agent-1', { description: 'Stale' });
+    const fresh = await createTask(db, teamId, 'agent-2', { description: 'Fresh' });
 
     // Backdate only the stale one
     const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, stale.task_id);
+    db.rawDb.prepare('UPDATE tasks SET claimed_at = ? WHERE id = ?').run(pastTime, stale.task_id);
 
     const reaped = reapTasks(30);
     expect(reaped).toBe(1);
 
     // Verify correct task was reaped
-    const staleRow = db.prepare('SELECT status FROM tasks WHERE id = ?').get(stale.task_id) as any;
-    const freshRow = db.prepare('SELECT status FROM tasks WHERE id = ?').get(fresh.task_id) as any;
+    const staleRow = db.rawDb.prepare('SELECT status FROM tasks WHERE id = ?').get(stale.task_id) as any;
+    const freshRow = db.rawDb.prepare('SELECT status FROM tasks WHERE id = ?').get(fresh.task_id) as any;
     expect(staleRow.status).toBe('abandoned');
     expect(freshRow.status).toBe('claimed');
   });

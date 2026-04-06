@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { ValidationError, NotFoundError } from '../errors.js';
 import { createTask } from './task.js';
 import { createWorkflowRun, setWorkflowRunTaskIds } from './workflow.js';
@@ -72,12 +72,12 @@ function validateTasks(tasks: PlaybookTaskTemplate[]): void {
   });
 }
 
-export function definePlaybook(
-  db: Database.Database,
+export async function definePlaybook(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: DefinePlaybookInput,
-): Playbook {
+): Promise<Playbook> {
   if (!input.name || input.name.length === 0) {
     throw new ValidationError('name is required');
   }
@@ -88,29 +88,31 @@ export function definePlaybook(
 
   const tasksJson = JSON.stringify(input.tasks);
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO playbooks (team_id, name, description, tasks_json, created_by)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(team_id, name) DO UPDATE SET
       description = excluded.description,
       tasks_json = excluded.tasks_json,
       created_by = excluded.created_by
-  `).run(teamId, input.name, input.description, tasksJson, agentId);
+  `, teamId, input.name, input.description, tasksJson, agentId);
 
-  const row = db.prepare(
+  const row = await db.get<PlaybookRow>(
     'SELECT * FROM playbooks WHERE team_id = ? AND name = ?',
-  ).get(teamId, input.name) as PlaybookRow;
+    teamId, input.name,
+  );
 
-  return rowToPlaybook(row);
+  return rowToPlaybook(row!);
 }
 
-export function listPlaybooks(
-  db: Database.Database,
+export async function listPlaybooks(
+  db: DbAdapter,
   teamId: string,
-): { playbooks: Playbook[]; total: number } {
-  const rows = db.prepare(
+): Promise<{ playbooks: Playbook[]; total: number }> {
+  const rows = await db.all<PlaybookRow>(
     'SELECT * FROM playbooks WHERE team_id = ? ORDER BY name ASC',
-  ).all(teamId) as PlaybookRow[];
+    teamId,
+  );
 
   return {
     playbooks: rows.map(rowToPlaybook),
@@ -118,14 +120,15 @@ export function listPlaybooks(
   };
 }
 
-export function getPlaybook(
-  db: Database.Database,
+export async function getPlaybook(
+  db: DbAdapter,
   teamId: string,
   name: string,
-): Playbook {
-  const row = db.prepare(
+): Promise<Playbook> {
+  const row = await db.get<PlaybookRow>(
     'SELECT * FROM playbooks WHERE team_id = ? AND name = ?',
-  ).get(teamId, name) as PlaybookRow | undefined;
+    teamId, name,
+  );
 
   if (!row) {
     throw new NotFoundError('Playbook', name);
@@ -139,16 +142,16 @@ function substituteVars(str: string, vars?: Record<string, string>): string {
   );
 }
 
-export function runPlaybook(
-  db: Database.Database,
+export async function runPlaybook(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   name: string,
   vars?: Record<string, string>,
-): { workflow_run_id: number; created_task_ids: number[] } {
-  const playbook = getPlaybook(db, teamId, name);
+): Promise<{ workflow_run_id: number; created_task_ids: number[] }> {
+  const playbook = await getPlaybook(db, teamId, name);
 
-  const workflowRunId = createWorkflowRun(db, teamId, name, agentId);
+  const workflowRunId = await createWorkflowRun(db, teamId, name, agentId);
 
   const createdIds: number[] = [];
   for (let i = 0; i < playbook.tasks.length; i++) {
@@ -165,7 +168,7 @@ export function runPlaybook(
       : template.description;
     const description = substituteVars(rawDescription, vars);
 
-    const result = createTask(db, teamId, agentId, {
+    const result = await createTask(db, teamId, agentId, {
       description,
       status: 'open',
       depends_on: dependsOn.length > 0 ? dependsOn : undefined,
@@ -173,11 +176,11 @@ export function runPlaybook(
     createdIds.push(result.task_id);
   }
 
-  setWorkflowRunTaskIds(db, workflowRunId, createdIds);
+  await setWorkflowRunTaskIds(db, workflowRunId, createdIds);
 
   // Billing: count 1 for the run itself (individual tasks are already counted
   // by createTask). Spec asks for: tasks spawned + 1 for the run.
-  incrementUsage(db, teamId, { exec: 1 });
+  await incrementUsage(db, teamId, { exec: 1 });
 
   return { workflow_run_id: workflowRunId, created_task_ids: createdIds };
 }

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { ValidationError, NotFoundError } from '../errors.js';
 
 export interface AgentProfile {
@@ -50,12 +50,12 @@ export interface DefineProfileInput {
   default_tags?: string[];
 }
 
-export function defineProfile(
-  db: Database.Database,
+export async function defineProfile(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: DefineProfileInput,
-): AgentProfile {
+): Promise<AgentProfile> {
   if (!input.name || input.name.length === 0) {
     throw new ValidationError('name is required');
   }
@@ -75,7 +75,7 @@ export function defineProfile(
   const capabilitiesJson = JSON.stringify(input.default_capabilities ?? []);
   const tagsJson = JSON.stringify(input.default_tags ?? []);
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO agent_profiles (team_id, name, description, system_prompt, default_capabilities, default_tags, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(team_id, name) DO UPDATE SET
@@ -84,8 +84,8 @@ export function defineProfile(
       default_capabilities = excluded.default_capabilities,
       default_tags = excluded.default_tags,
       created_by = excluded.created_by,
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(
+      updated_at = ?
+  `,
     teamId,
     input.name,
     input.description,
@@ -93,22 +93,25 @@ export function defineProfile(
     capabilitiesJson,
     tagsJson,
     agentId,
+    new Date().toISOString(),
   );
 
-  const row = db.prepare(
+  const row = await db.get<ProfileRow>(
     'SELECT * FROM agent_profiles WHERE team_id = ? AND name = ?',
-  ).get(teamId, input.name) as ProfileRow;
+    teamId, input.name,
+  );
 
-  return rowToProfile(row);
+  return rowToProfile(row!);
 }
 
-export function listProfiles(
-  db: Database.Database,
+export async function listProfiles(
+  db: DbAdapter,
   teamId: string,
-): { profiles: AgentProfile[]; total: number } {
-  const rows = db.prepare(
+): Promise<{ profiles: AgentProfile[]; total: number }> {
+  const rows = await db.all<ProfileRow>(
     'SELECT * FROM agent_profiles WHERE team_id = ? ORDER BY name ASC',
-  ).all(teamId) as ProfileRow[];
+    teamId,
+  );
 
   return {
     profiles: rows.map(rowToProfile),
@@ -116,14 +119,15 @@ export function listProfiles(
   };
 }
 
-export function getProfile(
-  db: Database.Database,
+export async function getProfile(
+  db: DbAdapter,
   teamId: string,
   name: string,
-): AgentProfile {
-  const row = db.prepare(
+): Promise<AgentProfile> {
+  const row = await db.get<ProfileRow>(
     'SELECT * FROM agent_profiles WHERE team_id = ? AND name = ?',
-  ).get(teamId, name) as ProfileRow | undefined;
+    teamId, name,
+  );
 
   if (!row) {
     throw new NotFoundError('AgentProfile', name);
@@ -131,14 +135,15 @@ export function getProfile(
   return rowToProfile(row);
 }
 
-export function deleteProfile(
-  db: Database.Database,
+export async function deleteProfile(
+  db: DbAdapter,
   teamId: string,
   name: string,
-): { deleted: boolean } {
-  const result = db
-    .prepare('DELETE FROM agent_profiles WHERE team_id = ? AND name = ?')
-    .run(teamId, name);
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
+    'DELETE FROM agent_profiles WHERE team_id = ? AND name = ?',
+    teamId, name,
+  );
   if (result.changes === 0) {
     throw new NotFoundError('AgentProfile', name);
   }

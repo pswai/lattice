@@ -45,12 +45,12 @@ describe('logger', () => {
       level: 'info',
       format: 'json',
       stream,
-      fields: { app: 'agenthub' },
+      fields: { app: 'lattice' },
     });
     const child = log.child({ req_id: 'abc' });
     child.info('ok', { extra: true });
     const rec = JSON.parse(stream.lines[0].trimEnd());
-    expect(rec.app).toBe('agenthub');
+    expect(rec.app).toBe('lattice');
     expect(rec.req_id).toBe('abc');
     expect(rec.extra).toBe(true);
   });
@@ -67,12 +67,12 @@ describe('logger', () => {
     expect(JSON.parse(stream.lines[0]).team_id).toBe('b');
   });
 
-  it('redacts AgentHub API keys from log lines', () => {
+  it('redacts Lattice API keys from log lines', () => {
     const stream = captureStream();
     const log = createLogger({ level: 'info', format: 'json', stream });
-    log.info('request', { auth: 'ah_' + 'a'.repeat(48) });
+    log.info('request', { auth: 'lt_' + 'a'.repeat(48) });
     expect(stream.lines[0]).toContain('[REDACTED]');
-    expect(stream.lines[0]).not.toContain('ah_' + 'a'.repeat(48));
+    expect(stream.lines[0]).not.toContain('lt_' + 'a'.repeat(48));
   });
 
   it('redacts common secret formats', () => {

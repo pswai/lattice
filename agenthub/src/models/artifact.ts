@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import type {
   Artifact,
   ArtifactContentType,
@@ -70,12 +70,12 @@ function isAllowedContentType(ct: string): ct is ArtifactContentType {
   return (ALLOWED_CONTENT_TYPES as readonly string[]).includes(ct);
 }
 
-export function saveArtifact(
-  db: Database.Database,
+export async function saveArtifact(
+  db: DbAdapter,
   teamId: string,
   agentId: string,
   input: SaveArtifactInput,
-): SaveArtifactResponse {
+): Promise<SaveArtifactResponse> {
   if (!isAllowedContentType(input.content_type)) {
     throw new ValidationError(
       `Invalid content_type. Allowed: ${ALLOWED_CONTENT_TYPES.join(', ')}`,
@@ -98,24 +98,25 @@ export function saveArtifact(
 
   const metadataJson = JSON.stringify(input.metadata ?? {});
 
-  const existing = db
-    .prepare('SELECT id FROM artifacts WHERE team_id = ? AND key = ?')
-    .get(teamId, input.key) as { id: number } | undefined;
+  const existing = await db.get<{ id: number }>(
+    'SELECT id FROM artifacts WHERE team_id = ? AND key = ?',
+    teamId, input.key,
+  );
 
   let artifactId: number;
   if (existing) {
-    db.prepare(`
+    await db.run(`
       UPDATE artifacts
       SET content_type = ?, content = ?, metadata = ?, size = ?, created_by = ?,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at = ?
       WHERE team_id = ? AND key = ?
-    `).run(input.content_type, input.content, metadataJson, size, agentId, teamId, input.key);
+    `, input.content_type, input.content, metadataJson, size, agentId, new Date().toISOString(), teamId, input.key);
     artifactId = existing.id;
   } else {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO artifacts (team_id, key, content_type, content, metadata, size, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(teamId, input.key, input.content_type, input.content, metadataJson, size, agentId);
+    `, teamId, input.key, input.content_type, input.content, metadataJson, size, agentId);
     artifactId = Number(result.lastInsertRowid);
   }
 
@@ -127,25 +128,26 @@ export function saveArtifact(
   };
 }
 
-export function getArtifact(
-  db: Database.Database,
+export async function getArtifact(
+  db: DbAdapter,
   teamId: string,
   key: string,
-): Artifact {
-  const row = db
-    .prepare('SELECT * FROM artifacts WHERE team_id = ? AND key = ?')
-    .get(teamId, key) as ArtifactRow | undefined;
+): Promise<Artifact> {
+  const row = await db.get<ArtifactRow>(
+    'SELECT * FROM artifacts WHERE team_id = ? AND key = ?',
+    teamId, key,
+  );
   if (!row) {
     throw new NotFoundError('Artifact', key);
   }
   return rowToArtifact(row);
 }
 
-export function listArtifacts(
-  db: Database.Database,
+export async function listArtifacts(
+  db: DbAdapter,
   teamId: string,
   input: ListArtifactsInput,
-): ListArtifactsResponse {
+): Promise<ListArtifactsResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
 
   let rows: Omit<ArtifactRow, 'content'>[];
@@ -158,27 +160,31 @@ export function listArtifacts(
         { content_type: input.content_type },
       );
     }
-    rows = db.prepare(`
+    rows = await db.all<Omit<ArtifactRow, 'content'>>(`
       SELECT id, team_id, key, content_type, metadata, size, created_by, created_at, updated_at
       FROM artifacts
       WHERE team_id = ? AND content_type = ?
       ORDER BY updated_at DESC
       LIMIT ?
-    `).all(teamId, input.content_type, limit) as Omit<ArtifactRow, 'content'>[];
-    total = (db.prepare(
+    `, teamId, input.content_type, limit);
+    const countRow = await db.get<{ cnt: number }>(
       'SELECT COUNT(*) as cnt FROM artifacts WHERE team_id = ? AND content_type = ?',
-    ).get(teamId, input.content_type) as { cnt: number }).cnt;
+      teamId, input.content_type,
+    );
+    total = countRow!.cnt;
   } else {
-    rows = db.prepare(`
+    rows = await db.all<Omit<ArtifactRow, 'content'>>(`
       SELECT id, team_id, key, content_type, metadata, size, created_by, created_at, updated_at
       FROM artifacts
       WHERE team_id = ?
       ORDER BY updated_at DESC
       LIMIT ?
-    `).all(teamId, limit) as Omit<ArtifactRow, 'content'>[];
-    total = (db.prepare(
+    `, teamId, limit);
+    const countRow = await db.get<{ cnt: number }>(
       'SELECT COUNT(*) as cnt FROM artifacts WHERE team_id = ?',
-    ).get(teamId) as { cnt: number }).cnt;
+      teamId,
+    );
+    total = countRow!.cnt;
   }
 
   return {
@@ -187,14 +193,15 @@ export function listArtifacts(
   };
 }
 
-export function deleteArtifact(
-  db: Database.Database,
+export async function deleteArtifact(
+  db: DbAdapter,
   teamId: string,
   key: string,
-): { deleted: boolean } {
-  const result = db
-    .prepare('DELETE FROM artifacts WHERE team_id = ? AND key = ?')
-    .run(teamId, key);
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
+    'DELETE FROM artifacts WHERE team_id = ? AND key = ?',
+    teamId, key,
+  );
   if (result.changes === 0) {
     throw new NotFoundError('Artifact', key);
   }

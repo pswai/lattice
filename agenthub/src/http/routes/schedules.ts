@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import {
   defineSchedule,
   listSchedules,
@@ -14,7 +14,7 @@ const DefineScheduleSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
-export function createScheduleRoutes(db: Database.Database): Hono {
+export function createScheduleRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /schedules — define (upsert)
@@ -26,26 +26,26 @@ export function createScheduleRoutes(db: Database.Database): Hono {
     }
 
     const { teamId, agentId } = c.get('auth');
-    const result = defineSchedule(db, teamId, agentId, parsed.data);
+    const result = await defineSchedule(db, teamId, agentId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /schedules — list
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const result = listSchedules(db, teamId);
+    const result = await listSchedules(db, teamId);
     return c.json(result);
   });
 
   // DELETE /schedules/:id — delete
-  router.delete('/:id', (c) => {
+  router.delete('/:id', async (c) => {
     const { teamId } = c.get('auth');
     const idStr = c.req.param('id');
     const id = parseInt(idStr, 10);
     if (!Number.isInteger(id) || id <= 0) {
       throw new ValidationError('Invalid schedule id');
     }
-    const result = deleteSchedule(db, teamId, id);
+    const result = await deleteSchedule(db, teamId, id);
     return c.json(result);
   });
 

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 
 export interface TaskAnalytics {
   total: number;
@@ -84,17 +84,17 @@ export function parseSinceDuration(since: string | undefined): string {
   return new Date(Date.now() - ms).toISOString();
 }
 
-export function getTeamAnalytics(
-  db: Database.Database,
+export async function getTeamAnalytics(
+  db: DbAdapter,
   teamId: string,
   sinceIso: string,
-): TeamAnalytics {
+): Promise<TeamAnalytics> {
   // ── Tasks ────────────────────────────────────────────────────────
-  const taskStatusRows = db.prepare(`
+  const taskStatusRows = await db.all<{ status: string; cnt: number }>(`
     SELECT status, COUNT(*) as cnt FROM tasks
     WHERE team_id = ? AND created_at >= ?
     GROUP BY status
-  `).all(teamId, sinceIso) as Array<{ status: string; cnt: number }>;
+  `, teamId, sinceIso);
 
   const byStatus = {
     open: 0, claimed: 0, completed: 0, escalated: 0, abandoned: 0,
@@ -110,14 +110,14 @@ export function getTeamAnalytics(
   const completionDenom = byStatus.completed + byStatus.abandoned;
   const completionRate = completionDenom > 0 ? byStatus.completed / completionDenom : 0;
 
-  const avgRow = db.prepare(`
+  const avgRow = await db.get<{ avg_ms: number | null }>(`
     SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400000) AS avg_ms
     FROM tasks
     WHERE team_id = ? AND status = 'completed' AND created_at >= ?
-  `).get(teamId, sinceIso) as { avg_ms: number | null };
-  const avgCompletionMs = avgRow.avg_ms;
+  `, teamId, sinceIso);
+  const avgCompletionMs = avgRow!.avg_ms;
 
-  const medianRow = db.prepare(`
+  const medianRow = await db.get<{ median: number | null }>(`
     WITH ordered AS (
       SELECT (julianday(updated_at) - julianday(created_at)) * 86400000 AS ms,
              ROW_NUMBER() OVER (ORDER BY (julianday(updated_at) - julianday(created_at))) AS rn,
@@ -127,15 +127,15 @@ export function getTeamAnalytics(
     )
     SELECT AVG(ms) AS median FROM ordered
     WHERE cnt > 0 AND rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
-  `).get(teamId, sinceIso) as { median: number | null };
+  `, teamId, sinceIso);
   const medianCompletionMs = medianRow?.median ?? null;
 
   // ── Events ───────────────────────────────────────────────────────
-  const eventTypeRows = db.prepare(`
+  const eventTypeRows = await db.all<{ event_type: string; cnt: number }>(`
     SELECT event_type, COUNT(*) as cnt FROM events
     WHERE team_id = ? AND created_at >= ?
     GROUP BY event_type
-  `).all(teamId, sinceIso) as Array<{ event_type: string; cnt: number }>;
+  `, teamId, sinceIso);
 
   const byType = {
     LEARNING: 0, BROADCAST: 0, ESCALATION: 0, ERROR: 0, TASK_UPDATE: 0,
@@ -150,13 +150,13 @@ export function getTeamAnalytics(
   // Per-hour bucketing for the last 24 hours.
   // hoursAgo 0 = the most recent hour, 23 = 23 hours ago.
   const last24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const perHourRows = db.prepare(`
+  const perHourRows = await db.all<{ hours_ago: number; cnt: number }>(`
     SELECT CAST((julianday('now') - julianday(created_at)) * 24 AS INTEGER) AS hours_ago,
            COUNT(*) AS cnt
     FROM events
     WHERE team_id = ? AND created_at >= ?
     GROUP BY hours_ago
-  `).all(teamId, last24hIso) as Array<{ hours_ago: number; cnt: number }>;
+  `, teamId, last24hIso);
 
   const perHour = new Array(24).fill(0) as number[];
   for (const row of perHourRows) {
@@ -166,14 +166,14 @@ export function getTeamAnalytics(
   }
 
   // ── Agents ───────────────────────────────────────────────────────
-  const agentCounts = db.prepare(`
+  const agentCounts = await db.get<{ total: number; online: number | null }>(`
     SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) AS online
     FROM agents WHERE team_id = ?
-  `).get(teamId) as { total: number; online: number | null };
+  `, teamId);
 
-  const topProducers = db.prepare(`
+  const topProducers = await db.all<TopProducer>(`
     SELECT
       a.id AS agent_id,
       COALESCE(e.cnt, 0) AS events,
@@ -193,34 +193,42 @@ export function getTeamAnalytics(
       AND (COALESCE(e.cnt, 0) > 0 OR COALESCE(t.cnt, 0) > 0)
     ORDER BY events DESC, tasks_completed DESC, agent_id ASC
     LIMIT 10
-  `).all(teamId, sinceIso, teamId, sinceIso, teamId) as TopProducer[];
+  `, teamId, sinceIso, teamId, sinceIso, teamId);
 
   // ── Context ──────────────────────────────────────────────────────
-  const contextTotal = (db.prepare(
+  const contextTotalRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM context_entries WHERE team_id = ?',
-  ).get(teamId) as { cnt: number }).cnt;
+    teamId,
+  );
+  const contextTotal = contextTotalRow!.cnt;
 
-  const contextSince = (db.prepare(
+  const contextSinceRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM context_entries WHERE team_id = ? AND created_at >= ?',
-  ).get(teamId, sinceIso) as { cnt: number }).cnt;
+    teamId, sinceIso,
+  );
+  const contextSince = contextSinceRow!.cnt;
 
-  const topAuthors = db.prepare(`
+  const topAuthors = await db.all<TopAuthor>(`
     SELECT created_by AS agent_id, COUNT(*) AS count
     FROM context_entries
     WHERE team_id = ? AND created_at >= ?
     GROUP BY created_by
     ORDER BY count DESC, agent_id ASC
     LIMIT 10
-  `).all(teamId, sinceIso) as TopAuthor[];
+  `, teamId, sinceIso);
 
   // ── Messages ─────────────────────────────────────────────────────
-  const messagesTotal = (db.prepare(
+  const messagesTotalRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM messages WHERE team_id = ?',
-  ).get(teamId) as { cnt: number }).cnt;
+    teamId,
+  );
+  const messagesTotal = messagesTotalRow!.cnt;
 
-  const messagesSince = (db.prepare(
+  const messagesSinceRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM messages WHERE team_id = ? AND created_at >= ?',
-  ).get(teamId, sinceIso) as { cnt: number }).cnt;
+    teamId, sinceIso,
+  );
+  const messagesSince = messagesSinceRow!.cnt;
 
   return {
     tasks: {
@@ -236,8 +244,8 @@ export function getTeamAnalytics(
       per_hour_last_24h: perHour,
     },
     agents: {
-      total: agentCounts.total,
-      online: agentCounts.online ?? 0,
+      total: agentCounts!.total,
+      online: agentCounts!.online ?? 0,
       top_producers: topProducers,
     },
     context: {

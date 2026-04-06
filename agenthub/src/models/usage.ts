@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import { getTeamPlan } from './subscription.js';
 import type { Plan } from './plan.js';
 
@@ -47,62 +47,63 @@ export interface IncrementInput {
  * Add to the current-period counters for a team. UPSERTs the row.
  * No-op when usage tracking is disabled (test default).
  */
-export function incrementUsage(
-  db: Database.Database,
+export async function incrementUsage(
+  db: DbAdapter,
   teamId: string,
   input: IncrementInput,
-): void {
+): Promise<void> {
   if (!usageTrackingEnabled) return;
   const exec = input.exec ?? 0;
   const apiCall = input.apiCall ?? 0;
   const storage = input.storageBytes ?? 0;
   if (exec === 0 && apiCall === 0 && storage === 0) return;
   const periodYm = currentPeriodYm();
-  db.prepare(`
+  await db.run(`
     INSERT INTO usage_counters
       (team_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
-    VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(team_id, period_ym) DO UPDATE SET
       exec_count = exec_count + excluded.exec_count,
       api_call_count = api_call_count + excluded.api_call_count,
       storage_bytes = storage_bytes + excluded.storage_bytes,
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(teamId, periodYm, exec, apiCall, storage);
+      updated_at = ?
+  `, teamId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
 /** Force an increment regardless of the global flag — used by the quota
  *  middleware's post-response api_call_count bump. */
-export function incrementUsageForced(
-  db: Database.Database,
+export async function incrementUsageForced(
+  db: DbAdapter,
   teamId: string,
   input: IncrementInput,
-): void {
+): Promise<void> {
   const exec = input.exec ?? 0;
   const apiCall = input.apiCall ?? 0;
   const storage = input.storageBytes ?? 0;
   if (exec === 0 && apiCall === 0 && storage === 0) return;
   const periodYm = currentPeriodYm();
-  db.prepare(`
+  await db.run(`
     INSERT INTO usage_counters
       (team_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
-    VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(team_id, period_ym) DO UPDATE SET
       exec_count = exec_count + excluded.exec_count,
       api_call_count = api_call_count + excluded.api_call_count,
       storage_bytes = storage_bytes + excluded.storage_bytes,
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-  `).run(teamId, periodYm, exec, apiCall, storage);
+      updated_at = ?
+  `, teamId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
-export function getUsage(
-  db: Database.Database,
+export async function getUsage(
+  db: DbAdapter,
   teamId: string,
   periodYm?: string,
-): UsageRow {
+): Promise<UsageRow> {
   const period = periodYm ?? currentPeriodYm();
-  const row = db
-    .prepare('SELECT * FROM usage_counters WHERE team_id = ? AND period_ym = ?')
-    .get(teamId, period) as CounterRow | undefined;
+  const row = await db.get<CounterRow>(
+    'SELECT * FROM usage_counters WHERE team_id = ? AND period_ym = ?',
+    teamId, period,
+  );
   if (!row) {
     return {
       periodYm: period,
@@ -129,12 +130,12 @@ export interface UsageWithLimits {
   hard: boolean;
 }
 
-export function getCurrentUsageWithLimits(
-  db: Database.Database,
+export async function getCurrentUsageWithLimits(
+  db: DbAdapter,
   teamId: string,
-): UsageWithLimits {
-  const usage = getUsage(db, teamId);
-  const plan = getTeamPlan(db, teamId);
+): Promise<UsageWithLimits> {
+  const usage = await getUsage(db, teamId);
+  const plan = await getTeamPlan(db, teamId);
 
   const ratios = [
     plan.execQuota > 0 ? usage.execCount / plan.execQuota : 0,

@@ -1,11 +1,11 @@
-// Self-contained HTML+CSS+JS dashboard for AgentHub.
+// Self-contained HTML+CSS+JS dashboard for Lattice.
 // Served at GET / by the Hono app. No build step, no external deps beyond CDN Tailwind.
 export const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AgentHub Dashboard</title>
+<title>Lattice Dashboard</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   body { background: #0a0a0a; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -51,12 +51,12 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <div id="setup" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/90">
   <div class="panel p-8 w-full max-w-md">
-    <h1 class="text-xl font-semibold mb-2">AgentHub Dashboard</h1>
+    <h1 class="text-xl font-semibold mb-2">Lattice Dashboard</h1>
     <p class="text-sm text-gray-400 mb-4">Enter your team API key to continue. Stored only in your browser's localStorage.</p>
     <form id="setup-form" class="space-y-3">
-      <input id="key-input" type="password" placeholder="ahk_..." autocomplete="off"
+      <input id="key-input" type="password" placeholder="ltk_..." autocomplete="off"
         class="w-full px-3 py-2 bg-black border border-gray-700 rounded text-sm focus:outline-none focus:border-blue-500" />
-      <p class="text-xs text-gray-500">Need a key? Run <code class="px-1 py-0.5 bg-black rounded text-gray-400">npx agenthub init</code> locally, or POST <code class="px-1 py-0.5 bg-black rounded text-gray-400">/admin/teams/:id/keys</code> with <code class="px-1 py-0.5 bg-black rounded text-gray-400">ADMIN_KEY</code> set.</p>
+      <p class="text-xs text-gray-500">Need a key? Run <code class="px-1 py-0.5 bg-black rounded text-gray-400">npx lattice init</code> locally, or POST <code class="px-1 py-0.5 bg-black rounded text-gray-400">/admin/teams/:id/keys</code> with <code class="px-1 py-0.5 bg-black rounded text-gray-400">ADMIN_KEY</code> set.</p>
       <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded text-sm font-medium">Connect</button>
     </form>
   </div>
@@ -64,7 +64,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <header class="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
   <div class="flex items-center gap-3">
-    <h1 class="text-lg font-semibold">AgentHub Dashboard</h1>
+    <h1 class="text-lg font-semibold">Lattice Dashboard</h1>
     <span id="conn" class="text-xs text-gray-500">connecting…</span>
   </div>
   <nav id="tabs" class="flex gap-1">
@@ -170,7 +170,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <script>
 (() => {
-  const KEY_STORE = 'agenthub.apiKey';
+  const KEY_STORE = 'lattice.apiKey';
   let apiKey = localStorage.getItem(KEY_STORE);
 
   const $ = (id) => document.getElementById(id);

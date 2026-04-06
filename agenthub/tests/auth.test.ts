@@ -18,7 +18,7 @@ describe('Authentication', () => {
 
   it('should return 401 with invalid API key', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/context?query=test', {
-      headers: authHeaders('ahk_invalid_key_12345678901234567890'),
+      headers: authHeaders('ltk_invalid_key_12345678901234567890'),
     });
 
     expect(res.status).toBe(401);
@@ -80,7 +80,7 @@ describe('Authentication', () => {
   describe('Team isolation', () => {
     it('should prevent team A from seeing team B data', async () => {
       // Set up team B
-      const teamBKey = 'ahk_teamb_key_12345678901234567890';
+      const teamBKey = 'ltk_teamb_key_12345678901234567890';
       setupTeam(ctx.db, 'team-b', teamBKey);
 
       // Team A saves context
@@ -99,7 +99,7 @@ describe('Authentication', () => {
     });
 
     it('should prevent team A from seeing team B events', async () => {
-      const teamBKey = 'ahk_teamb_key_12345678901234567890';
+      const teamBKey = 'ltk_teamb_key_12345678901234567890';
       setupTeam(ctx.db, 'team-b', teamBKey);
 
       // Team A broadcasts event
@@ -118,7 +118,7 @@ describe('Authentication', () => {
     });
 
     it('should prevent team A from seeing team B tasks', async () => {
-      const teamBKey = 'ahk_teamb_key_12345678901234567890';
+      const teamBKey = 'ltk_teamb_key_12345678901234567890';
       setupTeam(ctx.db, 'team-b', teamBKey);
 
       // Team A creates task

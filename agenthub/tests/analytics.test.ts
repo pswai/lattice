@@ -122,9 +122,9 @@ describe('getTeamAnalytics', () => {
     ctx = createTestContext();
   });
 
-  it('returns zero-valued analytics for an empty team', () => {
+  it('returns zero-valued analytics for an empty team', async () => {
     const since = ago(24 * 60 * 60 * 1000);
-    const result = getTeamAnalytics(ctx.db, ctx.teamId, since);
+    const result = await getTeamAnalytics(ctx.db, ctx.teamId, since);
 
     expect(result.tasks.total).toBe(0);
     expect(result.tasks.by_status).toEqual({ open: 0, claimed: 0, completed: 0, escalated: 0, abandoned: 0 });
@@ -143,14 +143,14 @@ describe('getTeamAnalytics', () => {
     expect(result.messages.since).toBe(0);
   });
 
-  it('aggregates all sections with seeded data', () => {
+  it('aggregates all sections with seeded data', async () => {
     const team = ctx.teamId;
-    const db = ctx.db;
+    const rawDb = ctx.rawDb;
 
     // Agents
-    insertAgent(db, team, { id: 'alice', status: 'online' });
-    insertAgent(db, team, { id: 'bob', status: 'online' });
-    insertAgent(db, team, { id: 'carol', status: 'offline' });
+    insertAgent(rawDb, team, { id: 'alice', status: 'online' });
+    insertAgent(rawDb, team, { id: 'bob', status: 'online' });
+    insertAgent(rawDb, team, { id: 'carol', status: 'offline' });
 
     // Tasks — seed with deterministic durations (in ms)
     const now = nowIso();
@@ -158,36 +158,36 @@ describe('getTeamAnalytics', () => {
     const twentyMin = 20 * 60 * 1000;
     const thirtyMin = 30 * 60 * 1000;
 
-    insertTask(db, team, { status: 'completed', createdBy: 'alice', claimedBy: 'alice', createdAt: ago(tenMin + 60000), updatedAt: ago(60000) });
-    insertTask(db, team, { status: 'completed', createdBy: 'alice', claimedBy: 'alice', createdAt: ago(twentyMin + 60000), updatedAt: ago(60000) });
-    insertTask(db, team, { status: 'completed', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(thirtyMin + 60000), updatedAt: ago(60000) });
-    insertTask(db, team, { status: 'abandoned', createdBy: 'alice', createdAt: ago(60000), updatedAt: now });
-    insertTask(db, team, { status: 'open', createdBy: 'alice', createdAt: ago(60000), updatedAt: now });
-    insertTask(db, team, { status: 'claimed', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(60000), updatedAt: now });
-    insertTask(db, team, { status: 'escalated', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(60000), updatedAt: now });
+    insertTask(rawDb, team, { status: 'completed', createdBy: 'alice', claimedBy: 'alice', createdAt: ago(tenMin + 60000), updatedAt: ago(60000) });
+    insertTask(rawDb, team, { status: 'completed', createdBy: 'alice', claimedBy: 'alice', createdAt: ago(twentyMin + 60000), updatedAt: ago(60000) });
+    insertTask(rawDb, team, { status: 'completed', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(thirtyMin + 60000), updatedAt: ago(60000) });
+    insertTask(rawDb, team, { status: 'abandoned', createdBy: 'alice', createdAt: ago(60000), updatedAt: now });
+    insertTask(rawDb, team, { status: 'open', createdBy: 'alice', createdAt: ago(60000), updatedAt: now });
+    insertTask(rawDb, team, { status: 'claimed', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(60000), updatedAt: now });
+    insertTask(rawDb, team, { status: 'escalated', createdBy: 'bob', claimedBy: 'bob', createdAt: ago(60000), updatedAt: now });
 
     // Events
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'a', createdBy: 'alice', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'b', createdBy: 'alice', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'BROADCAST', message: 'c', createdBy: 'alice', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'BROADCAST', message: 'd', createdBy: 'bob', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'ERROR', message: 'e', createdBy: 'bob', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'ESCALATION', message: 'f', createdBy: 'bob', createdAt: ago(60000) });
-    insertEvent(db, team, { eventType: 'TASK_UPDATE', message: 'g', createdBy: 'carol', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'a', createdBy: 'alice', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'b', createdBy: 'alice', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'BROADCAST', message: 'c', createdBy: 'alice', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'BROADCAST', message: 'd', createdBy: 'bob', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'ERROR', message: 'e', createdBy: 'bob', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'ESCALATION', message: 'f', createdBy: 'bob', createdAt: ago(60000) });
+    insertEvent(rawDb, team, { eventType: 'TASK_UPDATE', message: 'g', createdBy: 'carol', createdAt: ago(60000) });
 
     // Context
-    insertContext(db, team, { key: 'k1', value: 'v1', createdBy: 'alice', createdAt: ago(60000) });
-    insertContext(db, team, { key: 'k2', value: 'v2', createdBy: 'alice', createdAt: ago(60000) });
-    insertContext(db, team, { key: 'k3', value: 'v3', createdBy: 'bob', createdAt: ago(60000) });
-    insertContext(db, team, { key: 'k-old', value: 'vx', createdBy: 'carol', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
+    insertContext(rawDb, team, { key: 'k1', value: 'v1', createdBy: 'alice', createdAt: ago(60000) });
+    insertContext(rawDb, team, { key: 'k2', value: 'v2', createdBy: 'alice', createdAt: ago(60000) });
+    insertContext(rawDb, team, { key: 'k3', value: 'v3', createdBy: 'bob', createdAt: ago(60000) });
+    insertContext(rawDb, team, { key: 'k-old', value: 'vx', createdBy: 'carol', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
 
     // Messages
-    insertMessage(db, team, { from: 'alice', to: 'bob', message: 'hi', createdAt: ago(60000) });
-    insertMessage(db, team, { from: 'bob', to: 'alice', message: 'hi back', createdAt: ago(60000) });
-    insertMessage(db, team, { from: 'carol', to: 'alice', message: 'old', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
+    insertMessage(rawDb, team, { from: 'alice', to: 'bob', message: 'hi', createdAt: ago(60000) });
+    insertMessage(rawDb, team, { from: 'bob', to: 'alice', message: 'hi back', createdAt: ago(60000) });
+    insertMessage(rawDb, team, { from: 'carol', to: 'alice', message: 'old', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
 
     const since = ago(24 * 60 * 60 * 1000);
-    const result = getTeamAnalytics(db, team, since);
+    const result = await getTeamAnalytics(ctx.db, team, since);
 
     // Tasks
     expect(result.tasks.total).toBe(7);
@@ -232,24 +232,24 @@ describe('getTeamAnalytics', () => {
     expect(result.messages.since).toBe(2);
   });
 
-  it('since filter narrows results', () => {
+  it('since filter narrows results', async () => {
     const team = ctx.teamId;
-    const db = ctx.db;
+    const rawDb = ctx.rawDb;
 
     // Events: 2 recent, 3 old
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'recent1', createdBy: 'a', createdAt: ago(60 * 60 * 1000) });
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'recent2', createdBy: 'a', createdAt: ago(2 * 60 * 60 * 1000) });
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'old1', createdBy: 'b', createdAt: ago(10 * 24 * 60 * 60 * 1000) });
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'old2', createdBy: 'b', createdAt: ago(20 * 24 * 60 * 60 * 1000) });
-    insertEvent(db, team, { eventType: 'LEARNING', message: 'old3', createdBy: 'b', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'recent1', createdBy: 'a', createdAt: ago(60 * 60 * 1000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'recent2', createdBy: 'a', createdAt: ago(2 * 60 * 60 * 1000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'old1', createdBy: 'b', createdAt: ago(10 * 24 * 60 * 60 * 1000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'old2', createdBy: 'b', createdAt: ago(20 * 24 * 60 * 60 * 1000) });
+    insertEvent(rawDb, team, { eventType: 'LEARNING', message: 'old3', createdBy: 'b', createdAt: ago(40 * 24 * 60 * 60 * 1000) });
 
-    const narrow = getTeamAnalytics(db, team, ago(24 * 60 * 60 * 1000));
+    const narrow = await getTeamAnalytics(ctx.db, team, ago(24 * 60 * 60 * 1000));
     expect(narrow.events.total).toBe(2);
 
-    const wide = getTeamAnalytics(db, team, ago(30 * 24 * 60 * 60 * 1000));
+    const wide = await getTeamAnalytics(ctx.db, team, ago(30 * 24 * 60 * 60 * 1000));
     expect(wide.events.total).toBe(4);
 
-    const widest = getTeamAnalytics(db, team, ago(60 * 24 * 60 * 60 * 1000));
+    const widest = await getTeamAnalytics(ctx.db, team, ago(60 * 24 * 60 * 60 * 1000));
     expect(widest.events.total).toBe(5);
   });
 });

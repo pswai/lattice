@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { ValidationError } from '../../errors.js';
 
@@ -15,7 +15,7 @@ const CreateKeySchema = z.object({
   scope: z.enum(['read', 'write', 'admin']).optional(),
 });
 
-export function createAdminRoutes(db: Database.Database, config: AppConfig): Hono {
+export function createAdminRoutes(db: DbAdapter, config: AppConfig): Hono {
   const router = new Hono();
 
   // Admin auth middleware — requires ADMIN_KEY env var
@@ -39,7 +39,7 @@ export function createAdminRoutes(db: Database.Database, config: AppConfig): Hon
     }
 
     try {
-      db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(parsed.data.id, parsed.data.name);
+      await db.run('INSERT INTO teams (id, name) VALUES (?, ?)', parsed.data.id, parsed.data.name);
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
         throw new ValidationError(`Team "${parsed.data.id}" already exists`);
@@ -48,18 +48,19 @@ export function createAdminRoutes(db: Database.Database, config: AppConfig): Hon
     }
 
     // Auto-generate an API key for the new team (default scope: write)
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    db.prepare(
+    await db.run(
       'INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
-    ).run(parsed.data.id, keyHash, 'default', 'write');
+      parsed.data.id, keyHash, 'default', 'write',
+    );
 
     return c.json({ team_id: parsed.data.id, api_key: rawKey, scope: 'write' }, 201);
   });
 
   // GET /admin/teams — list all teams
-  router.get('/teams', (c) => {
-    const teams = db.prepare('SELECT id, name, created_at FROM teams ORDER BY created_at DESC').all();
+  router.get('/teams', async (c) => {
+    const teams = await db.all('SELECT id, name, created_at FROM teams ORDER BY created_at DESC');
     return c.json({ teams });
   });
 
@@ -73,39 +74,40 @@ export function createAdminRoutes(db: Database.Database, config: AppConfig): Hon
     }
 
     // Verify team exists
-    const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(teamId);
+    const team = await db.get('SELECT id FROM teams WHERE id = ?', teamId);
     if (!team) {
       return c.json({ error: 'NOT_FOUND', message: `Team "${teamId}" not found` }, 404);
     }
 
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
     const label = parsed.data?.label || '';
     const scope = parsed.data?.scope || 'write';
 
-    db.prepare(
+    await db.run(
       'INSERT INTO api_keys (team_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
-    ).run(teamId, keyHash, label, scope);
+      teamId, keyHash, label, scope,
+    );
 
     return c.json({ team_id: teamId, api_key: rawKey, label, scope }, 201);
   });
 
   // DELETE /admin/teams/:id/keys — revoke all keys for a team (nuclear option)
-  router.delete('/teams/:id/keys', (c) => {
+  router.delete('/teams/:id/keys', async (c) => {
     const teamId = c.req.param('id');
-    const result = db.prepare('DELETE FROM api_keys WHERE team_id = ?').run(teamId);
+    const result = await db.run('DELETE FROM api_keys WHERE team_id = ?', teamId);
     return c.json({ revoked: result.changes });
   });
 
   // GET /admin/stats — basic observability
-  router.get('/stats', (c) => {
-    const contextCount = (db.prepare('SELECT COUNT(*) as cnt FROM context_entries').get() as { cnt: number }).cnt;
-    const eventCount = (db.prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
-    const taskStats = db.prepare(`
+  router.get('/stats', async (c) => {
+    const contextCount = (await db.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM context_entries'))!.cnt;
+    const eventCount = (await db.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM events'))!.cnt;
+    const taskStats = await db.all<{ status: string; cnt: number }>(`
       SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status
-    `).all() as Array<{ status: string; cnt: number }>;
-    const teamCount = (db.prepare('SELECT COUNT(*) as cnt FROM teams').get() as { cnt: number }).cnt;
-    const agentCount = (db.prepare("SELECT COUNT(*) as cnt FROM agents WHERE status != 'offline'").get() as { cnt: number }).cnt;
+    `);
+    const teamCount = (await db.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM teams'))!.cnt;
+    const agentCount = (await db.get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM agents WHERE status != 'offline'"))!.cnt;
 
     return c.json({
       teams: teamCount,

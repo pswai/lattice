@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
  * but we can test the core init logic that creates DB, team, and API key.
  */
 describe('CLI Init Logic', () => {
-  it('should create a database with the full schema', () => {
+  it('should create a database with the full schema', async () => {
     const db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -30,10 +30,10 @@ describe('CLI Init Logic', () => {
     expect(tableNames).toContain('task_dependencies');
     expect(tableNames).toContain('messages');
 
-    db.close();
+    await db.close();
   });
 
-  it('should create a team and API key', () => {
+  it('should create a team and API key', async () => {
     const db = createTestDb();
 
     // Simulate what CLI init does
@@ -41,7 +41,7 @@ describe('CLI Init Logic', () => {
     const teamName = 'CLI Test Team';
     db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(teamId, teamName);
 
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
     db.prepare('INSERT INTO api_keys (team_id, key_hash, label) VALUES (?, ?, ?)').run(
       teamId,
@@ -64,15 +64,15 @@ describe('CLI Init Logic', () => {
     const verifyHash = createHash('sha256').update(rawKey).digest('hex');
     expect(verifyHash).toBe(key.key_hash);
 
-    db.close();
+    await db.close();
   });
 
-  it('should generate API keys with ah_ prefix', () => {
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
-    expect(rawKey).toMatch(/^ah_[a-f0-9]{48}$/);
+  it('should generate API keys with lt_ prefix', () => {
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
+    expect(rawKey).toMatch(/^lt_[a-f0-9]{48}$/);
   });
 
-  it('should handle existing team gracefully (generate new key only)', () => {
+  it('should handle existing team gracefully (generate new key only)', async () => {
     const db = createTestDb();
     const teamId = 'existing-team';
 
@@ -103,7 +103,7 @@ describe('CLI Init Logic', () => {
     const teams = db.prepare('SELECT * FROM teams WHERE id = ?').all(teamId);
     expect(teams).toHaveLength(1);
 
-    db.close();
+    await db.close();
   });
 
   it('should validate team ID format', () => {
@@ -122,7 +122,7 @@ describe('CLI Init Logic', () => {
 });
 
 describe('CLI — Schema Integrity', () => {
-  it('should create FTS virtual table for context search', () => {
+  it('should create FTS virtual table for context search', async () => {
     const db = createTestDb();
 
     // Verify FTS table exists
@@ -131,10 +131,10 @@ describe('CLI — Schema Integrity', () => {
     ).get() as any;
     expect(fts).toBeDefined();
 
-    db.close();
+    await db.close();
   });
 
-  it('should create expected indexes', () => {
+  it('should create expected indexes', async () => {
     const db = createTestDb();
 
     const indexes = db.prepare(
@@ -149,10 +149,10 @@ describe('CLI — Schema Integrity', () => {
     expect(indexNames).toContain('idx_agents_heartbeat');
     expect(indexNames).toContain('idx_messages_recipient');
 
-    db.close();
+    await db.close();
   });
 
-  it('should enforce foreign keys on api_keys', () => {
+  it('should enforce foreign keys on api_keys', async () => {
     const db = createTestDb();
 
     // Try to insert an API key for a non-existent team — should fail with FK constraint
@@ -162,6 +162,6 @@ describe('CLI — Schema Integrity', () => {
       ).run();
     }).toThrow();
 
-    db.close();
+    await db.close();
   });
 });

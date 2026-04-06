@@ -1,24 +1,32 @@
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../db/adapter.js';
 import type { AppConfig } from '../config.js';
 import { markStaleAgents } from '../models/agent.js';
 import { getLogger } from '../logger.js';
 
-export function startEventCleanup(db: Database.Database, config: AppConfig): NodeJS.Timeout {
+export function startEventCleanup(db: DbAdapter, config: AppConfig): NodeJS.Timeout {
   // Run cleanup every hour
   return setInterval(() => {
-    cleanupOldEvents(db, config.eventRetentionDays);
-    markStaleAgents(db, config.agentHeartbeatTimeoutMinutes);
+    runCleanup(db, config).catch((err) =>
+      getLogger().error('event_cleanup_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }, 60 * 60 * 1000);
 }
 
-function cleanupOldEvents(db: Database.Database, retentionDays: number): void {
+async function runCleanup(db: DbAdapter, config: AppConfig): Promise<void> {
+  await cleanupOldEvents(db, config.eventRetentionDays);
+  await markStaleAgents(db, config.agentHeartbeatTimeoutMinutes);
+}
+
+async function cleanupOldEvents(db: DbAdapter, retentionDays: number): Promise<void> {
   if (retentionDays <= 0) return; // 0 = keep forever
 
   const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare(`
+  const result = await db.run(`
     DELETE FROM events WHERE created_at < ?
-  `).run(cutoff);
+  `, cutoff);
 
   if (result.changes > 0) {
     getLogger().info('event_cleanup', {

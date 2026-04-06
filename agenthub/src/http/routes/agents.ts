@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { registerAgent, heartbeat, listAgents } from '../../models/agent.js';
 import { ValidationError } from '../../errors.js';
 
@@ -15,7 +15,7 @@ const HeartbeatSchema = z.object({
   status: z.enum(['online', 'offline', 'busy']).optional(),
 });
 
-export function createAgentRoutes(db: Database.Database): Hono {
+export function createAgentRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /agents — register or update an agent
@@ -27,17 +27,17 @@ export function createAgentRoutes(db: Database.Database): Hono {
     }
 
     const { teamId } = c.get('auth');
-    const result = registerAgent(db, teamId, parsed.data);
+    const result = await registerAgent(db, teamId, parsed.data);
     return c.json(result, 201);
   });
 
   // GET /agents — list agents with optional filters
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
     const capability = c.req.query('capability');
     const status = c.req.query('status') as 'online' | 'offline' | 'busy' | undefined;
 
-    const result = listAgents(db, teamId, { capability, status });
+    const result = await listAgents(db, teamId, { capability, status });
     return c.json(result);
   });
 
@@ -48,7 +48,7 @@ export function createAgentRoutes(db: Database.Database): Hono {
     const body = await c.req.json().catch(() => ({}));
     const parsed = HeartbeatSchema.safeParse(body);
 
-    const result = heartbeat(db, teamId, agentId, parsed.success ? parsed.data.status : undefined);
+    const result = await heartbeat(db, teamId, agentId, parsed.success ? parsed.data.status : undefined);
     return c.json(result);
   });
 

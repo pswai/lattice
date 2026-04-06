@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { ValidationError } from '../../errors.js';
 
@@ -31,7 +31,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): Hono {
+export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
   const router = new Hono();
 
   // Admin auth — mirrors src/http/routes/admin.ts.
@@ -53,25 +53,24 @@ export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): 
   });
 
   // GET /teams/:id/keys — list keys for a team (never returns hash/raw key).
-  router.get('/teams/:id/keys', (c) => {
+  router.get('/teams/:id/keys', async (c) => {
     const teamId = c.req.param('id');
-    const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(teamId);
+    const team = await db.get('SELECT id FROM teams WHERE id = ?', teamId);
     if (!team) {
       return c.json({ error: 'NOT_FOUND', message: `Team "${teamId}" not found` }, 404);
     }
-    const keys = db
-      .prepare(
-        `SELECT id, label, scope, created_at, last_used_at, expires_at, revoked_at
-         FROM api_keys WHERE team_id = ? ORDER BY id`,
-      )
-      .all(teamId) as ApiKeyRow[];
+    const keys = await db.all<ApiKeyRow>(
+      `SELECT id, label, scope, created_at, last_used_at, expires_at, revoked_at
+       FROM api_keys WHERE team_id = ? ORDER BY id`,
+      teamId,
+    );
     return c.json({ keys });
   });
 
   // POST /teams/:id/keys — create a new key (with optional expiry).
   router.post('/teams/:id/keys', async (c) => {
     const teamId = c.req.param('id');
-    const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(teamId);
+    const team = await db.get('SELECT id FROM teams WHERE id = ?', teamId);
     if (!team) {
       return c.json({ error: 'NOT_FOUND', message: `Team "${teamId}" not found` }, 404);
     }
@@ -91,13 +90,12 @@ export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): 
       ).toISOString();
     }
 
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    const info = db
-      .prepare(
-        'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(teamId, keyHash, label, scope, expiresAt);
+    const info = await db.run(
+      'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
+      teamId, keyHash, label, scope, expiresAt,
+    );
 
     return c.json(
       {
@@ -113,25 +111,22 @@ export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): 
   });
 
   // POST /teams/:id/keys/:keyId/rotate — issue new key, revoke old.
-  router.post('/teams/:id/keys/:keyId/rotate', (c) => {
+  router.post('/teams/:id/keys/:keyId/rotate', async (c) => {
     const teamId = c.req.param('id');
     const keyId = Number(c.req.param('keyId'));
     if (!Number.isFinite(keyId)) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
     }
-    const existing = db
-      .prepare(
-        'SELECT id, label, scope, expires_at, revoked_at FROM api_keys WHERE id = ? AND team_id = ?',
-      )
-      .get(keyId, teamId) as
-      | {
-          id: number;
-          label: string;
-          scope: string;
-          expires_at: string | null;
-          revoked_at: string | null;
-        }
-      | undefined;
+    const existing = await db.get<{
+      id: number;
+      label: string;
+      scope: string;
+      expires_at: string | null;
+      revoked_at: string | null;
+    }>(
+      'SELECT id, label, scope, expires_at, revoked_at FROM api_keys WHERE id = ? AND team_id = ?',
+      keyId, teamId,
+    );
     if (!existing) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
     }
@@ -139,20 +134,18 @@ export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): 
       return c.json({ error: 'ALREADY_REVOKED', message: 'Key already revoked' }, 400);
     }
 
-    const rawKey = `ah_${randomBytes(24).toString('hex')}`;
+    const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
     const revokedAt = nowIso();
 
-    const tx = db.transaction(() => {
-      db.prepare('UPDATE api_keys SET revoked_at = ? WHERE id = ?').run(revokedAt, keyId);
-      const info = db
-        .prepare(
-          'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(teamId, keyHash, existing.label, existing.scope, existing.expires_at);
+    const newId = await db.transaction(async (tx) => {
+      await tx.run('UPDATE api_keys SET revoked_at = ? WHERE id = ?', revokedAt, keyId);
+      const info = await tx.run(
+        'INSERT INTO api_keys (team_id, key_hash, label, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
+        teamId, keyHash, existing.label, existing.scope, existing.expires_at,
+      );
       return info.lastInsertRowid;
     });
-    const newId = tx();
 
     return c.json(
       {
@@ -169,21 +162,22 @@ export function createAdminKeyRoutes(db: Database.Database, config: AppConfig): 
   });
 
   // POST /keys/:keyId/revoke — mark a key revoked.
-  router.post('/keys/:keyId/revoke', (c) => {
+  router.post('/keys/:keyId/revoke', async (c) => {
     const keyId = Number(c.req.param('keyId'));
     if (!Number.isFinite(keyId)) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
     }
-    const row = db
-      .prepare('SELECT id, revoked_at FROM api_keys WHERE id = ?')
-      .get(keyId) as { id: number; revoked_at: string | null } | undefined;
+    const row = await db.get<{ id: number; revoked_at: string | null }>(
+      'SELECT id, revoked_at FROM api_keys WHERE id = ?',
+      keyId,
+    );
     if (!row) {
       return c.json({ error: 'NOT_FOUND', message: 'Key not found' }, 404);
     }
     if (row.revoked_at) {
       return c.json({ revoked: true, already: true });
     }
-    db.prepare('UPDATE api_keys SET revoked_at = ? WHERE id = ?').run(nowIso(), keyId);
+    await db.run('UPDATE api_keys SET revoked_at = ? WHERE id = ?', nowIso(), keyId);
     return c.json({ revoked: true });
   });
 

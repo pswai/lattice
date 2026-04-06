@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import { listWorkflowRuns, getWorkflowRun, type WorkflowRunStatus } from '../../models/workflow.js';
 import { ValidationError } from '../../errors.js';
 
 const VALID_STATUSES: WorkflowRunStatus[] = ['running', 'completed', 'failed'];
 
-export function createWorkflowRunRoutes(db: Database.Database): Hono {
+export function createWorkflowRunRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // GET /workflow-runs — list
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
     const statusParam = c.req.query('status');
     const limitParam = c.req.query('limit');
@@ -23,18 +23,18 @@ export function createWorkflowRunRoutes(db: Database.Database): Hono {
     }
 
     const limit = limitParam ? Number(limitParam) : undefined;
-    const result = listWorkflowRuns(db, teamId, { status, limit });
+    const result = await listWorkflowRuns(db, teamId, { status, limit });
     return c.json(result);
   });
 
   // GET /workflow-runs/:id — get one
-  router.get('/:id', (c) => {
+  router.get('/:id', async (c) => {
     const { teamId } = c.get('auth');
     const id = Number(c.req.param('id'));
     if (!Number.isInteger(id) || id <= 0) {
       throw new ValidationError('Invalid workflow run id');
     }
-    const result = getWorkflowRun(db, teamId, id);
+    const result = await getWorkflowRun(db, teamId, id);
     return c.json(result);
   });
 

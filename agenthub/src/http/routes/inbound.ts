@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DbAdapter } from '../../db/adapter.js';
 import {
   defineInboundEndpoint,
   listInboundEndpoints,
@@ -23,12 +23,12 @@ const CreateEndpointSchema = z.object({
  * Public receiver router — mounted BEFORE auth middleware at /api/v1/inbound.
  * The endpoint_key in the URL IS the auth.
  */
-export function createInboundReceiverRoutes(db: Database.Database): Hono {
+export function createInboundReceiverRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   router.post('/:endpoint_key', async (c) => {
     const key = c.req.param('endpoint_key');
-    const endpoint = getInboundEndpointByKey(db, key);
+    const endpoint = await getInboundEndpointByKey(db, key);
     if (!endpoint || !endpoint.active) {
       return c.json({ error: 'NOT_FOUND', message: 'Endpoint not found' }, 404);
     }
@@ -37,7 +37,7 @@ export function createInboundReceiverRoutes(db: Database.Database): Hono {
     const bodyRaw = await c.req.text();
 
     if (endpoint.hmacSecret) {
-      const sig = c.req.header('X-AgentHub-Signature');
+      const sig = c.req.header('X-Lattice-Signature');
       if (!verifyHmacSignature(endpoint.hmacSecret, bodyRaw, sig)) {
         return c.json(
           { error: 'UNAUTHORIZED', message: 'Invalid HMAC signature' },
@@ -67,7 +67,7 @@ export function createInboundReceiverRoutes(db: Database.Database): Hono {
     }
 
     try {
-      const result = processInboundWebhook(db, endpoint, payload);
+      const result = await processInboundWebhook(db, endpoint, payload);
       return c.json({ ok: true, action_taken: result });
     } catch (err) {
       if (err instanceof AppError) {
@@ -84,7 +84,7 @@ export function createInboundReceiverRoutes(db: Database.Database): Hono {
  * Authenticated management router — mounted at /api/v1/inbound behind auth.
  * Lets users create/list/delete endpoints.
  */
-export function createInboundManagementRoutes(db: Database.Database): Hono {
+export function createInboundManagementRoutes(db: DbAdapter): Hono {
   const router = new Hono();
 
   // POST /inbound — create endpoint
@@ -97,7 +97,7 @@ export function createInboundManagementRoutes(db: Database.Database): Hono {
       });
     }
     const { teamId, agentId } = c.get('auth');
-    const endpoint = defineInboundEndpoint(db, teamId, agentId, {
+    const endpoint = await defineInboundEndpoint(db, teamId, agentId, {
       name: parsed.data.name,
       action_type: parsed.data.action_type as InboundActionType,
       action_config: parsed.data.action_config,
@@ -107,20 +107,20 @@ export function createInboundManagementRoutes(db: Database.Database): Hono {
   });
 
   // GET /inbound — list endpoints
-  router.get('/', (c) => {
+  router.get('/', async (c) => {
     const { teamId } = c.get('auth');
-    const result = listInboundEndpoints(db, teamId);
+    const result = await listInboundEndpoints(db, teamId);
     return c.json(result);
   });
 
   // DELETE /inbound/:id — delete endpoint
-  router.delete('/:id', (c) => {
+  router.delete('/:id', async (c) => {
     const { teamId } = c.get('auth');
     const id = parseInt(c.req.param('id'), 10);
     if (!Number.isFinite(id)) {
       throw new ValidationError('id must be a number');
     }
-    const result = deleteInboundEndpoint(db, teamId, id);
+    const result = await deleteInboundEndpoint(db, teamId, id);
     return c.json(result);
   });
 
