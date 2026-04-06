@@ -147,7 +147,10 @@ export function createApp(
     }
 
     const agentId = c.req.header('X-Agent-ID') || 'anonymous';
-    const auth = { workspaceId: result.resolved.workspaceId, agentId, scope: result.resolved.scope };
+    const xff = c.req.header('X-Forwarded-For');
+    const ip = xff ? xff.split(',')[0]?.trim() : c.req.header('X-Real-IP')?.trim() || '';
+    const requestId = c.get('requestId') as string | undefined;
+    const auth = { workspaceId: result.resolved.workspaceId, agentId, scope: result.resolved.scope, ip: ip || undefined, requestId };
 
     // Run the MCP handler within the auth context so tool handlers can access it
     return mcpAuthStorage.run(auth, async () => {

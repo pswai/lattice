@@ -22,6 +22,9 @@ import { exportWorkspaceData } from '../models/export.js';
 import { scanForSecrets } from '../services/secret-scanner.js';
 import { AppError, SecretDetectedError } from '../errors.js';
 import { getMcpAuth } from './auth-context.js';
+import { writeAudit } from '../models/audit.js';
+import { incrementUsage } from '../models/usage.js';
+import { getLogger } from '../logger.js';
 
 /**
  * Wrap an array schema so that MCP clients which stringify array arguments
@@ -47,6 +50,62 @@ export function createMcpServer(db: DbAdapter): McpServer {
     name: 'lattice',
     version: '0.1.0',
   });
+
+  // ─── Audit wrapper for mutating MCP tools ─────────────────────────
+  const TOOL_AUDIT_MAP: Record<string, { resource: string; verb: string }> = {
+    save_context: { resource: 'context', verb: 'create' },
+    broadcast: { resource: 'event', verb: 'create' },
+    create_task: { resource: 'task', verb: 'create' },
+    update_task: { resource: 'task', verb: 'update' },
+    register_agent: { resource: 'agent', verb: 'create' },
+    send_message: { resource: 'message', verb: 'create' },
+    define_playbook: { resource: 'playbook', verb: 'create' },
+    run_playbook: { resource: 'workflow_run', verb: 'create' },
+    define_schedule: { resource: 'schedule', verb: 'create' },
+    delete_schedule: { resource: 'schedule', verb: 'delete' },
+    save_artifact: { resource: 'artifact', verb: 'create' },
+    define_profile: { resource: 'profile', verb: 'create' },
+    delete_profile: { resource: 'profile', verb: 'delete' },
+    define_inbound_endpoint: { resource: 'inbound_endpoint', verb: 'create' },
+    delete_inbound_endpoint: { resource: 'inbound_endpoint', verb: 'delete' },
+  };
+
+  /**
+   * Register a tool that also writes an audit log entry on success.
+   * Signature mirrors server.tool() — drop-in replacement for mutating tools.
+   */
+  /**
+   * Fire-and-forget audit log entry for a successful MCP tool call.
+   * Never throws — audit failures are logged but do not break the request.
+   */
+  async function mcpAudit(toolName: string, actorOverride?: string): Promise<void> {
+    try {
+      const auth = getMcpAuth();
+      const mapping = TOOL_AUDIT_MAP[toolName];
+      const action = mapping ? `${mapping.resource}.${mapping.verb}` : toolName;
+      await Promise.all([
+        writeAudit(db, {
+          workspaceId: auth.workspaceId,
+          actor: actorOverride || auth.agentId,
+          action,
+          resourceType: mapping?.resource ?? null,
+          resourceId: null,
+          metadata: { source: 'mcp', tool: toolName },
+          ip: auth.ip ?? null,
+          requestId: auth.requestId ?? null,
+        }),
+        incrementUsage(db, auth.workspaceId, { apiCall: 1 }),
+      ]);
+    } catch (err) {
+      try {
+        getLogger().error('mcp_audit_write_failed', {
+          component: 'audit',
+          tool: toolName,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } catch { /* swallow logger failures */ }
+    }
+  }
 
   // ─── save_context ─────────────────────────────────────────────────
   server.tool(
@@ -74,6 +133,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
         // saveContext handles both DB write and auto-broadcast of LEARNING event
         const result = await saveContext(db, workspaceId, agentId, params);
+        await mcpAudit('save_context', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -127,6 +187,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
         }
 
         const result = await broadcastEvent(db, workspaceId, agentId, params);
+        await mcpAudit('broadcast', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -201,6 +262,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
       try {
         const result = await createTask(db, workspaceId, agentId, params);
+        await mcpAudit('create_task', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -229,6 +291,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
       try {
         const result = await updateTask(db, workspaceId, agentId, params);
+        await mcpAudit('update_task', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -317,6 +380,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
       try {
         const result = await registerAgent(db, workspaceId, params);
+        await mcpAudit('register_agent', params.agent_id);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -390,6 +454,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           message: params.message,
           tags: params.tags,
         });
+        await mcpAudit('send_message', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -449,6 +514,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           description: params.description,
           tasks: params.tasks,
         });
+        await mcpAudit('define_playbook', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -491,6 +557,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
       try {
         const result = await runPlaybook(db, workspaceId, agentId, params.name, params.vars);
+        await mcpAudit('run_playbook', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -520,6 +587,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           cron_expression: params.cron_expression,
           enabled: params.enabled,
         });
+        await mcpAudit('define_schedule', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -559,6 +627,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
       try {
         const result = await deleteSchedule(db, workspaceId, params.id);
+        await mcpAudit('delete_schedule', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -637,6 +706,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           content: params.content,
           metadata: params.metadata,
         });
+        await mcpAudit('save_artifact', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -741,6 +811,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           default_capabilities: params.default_capabilities,
           default_tags: params.default_tags,
         });
+        await mcpAudit('define_profile', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -802,6 +873,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
 
       try {
         const result = await deleteProfile(db, workspaceId, params.name);
+        await mcpAudit('delete_profile', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -843,6 +915,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
           action_config: params.action_config,
           hmac_secret: params.hmac_secret,
         });
+        await mcpAudit('define_inbound_endpoint', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
@@ -882,6 +955,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
       try {
         const result = await deleteInboundEndpoint(db, workspaceId, params.endpoint_id);
+        await mcpAudit('delete_inbound_endpoint', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);

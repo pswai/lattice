@@ -3,6 +3,7 @@ import { jsonArrayTable } from '../db/adapter.js';
 import type { ContextEntry, SaveContextInput, GetContextInput, SaveContextResponse, GetContextResponse } from './types.js';
 import { broadcastInternal } from './event.js';
 import { ValidationError } from '../errors.js';
+import { incrementUsage } from './usage.js';
 
 /** Max value length returned in search results to prevent response size blowup */
 const SEARCH_VALUE_TRUNCATE = 10_000;
@@ -71,8 +72,8 @@ export async function saveContext(
   input: SaveContextInput,
 ): Promise<SaveContextResponse> {
   // Check if key exists for this team to determine created vs replaced
-  const existing = await db.get<{ id: number }>(
-    'SELECT id FROM context_entries WHERE workspace_id = ? AND key = ?',
+  const existing = await db.get<{ id: number; value: string }>(
+    'SELECT id, value FROM context_entries WHERE workspace_id = ? AND key = ?',
     workspaceId, input.key,
   );
 
@@ -92,6 +93,14 @@ export async function saveContext(
       VALUES (?, ?, ?, ?, ?)
     `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId);
     entryId = Number(result.lastInsertRowid);
+  }
+
+  // Track storage: new bytes on insert, delta on update
+  const newBytes = Buffer.byteLength(input.value, 'utf8');
+  const oldBytes = existing ? Buffer.byteLength(existing.value, 'utf8') : 0;
+  const delta = newBytes - oldBytes;
+  if (delta > 0) {
+    await incrementUsage(db, workspaceId, { storageBytes: delta });
   }
 
   // Auto-broadcast LEARNING event after successful save

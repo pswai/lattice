@@ -10,6 +10,7 @@ import type {
 } from './types.js';
 import { scanForSecrets } from '../services/secret-scanner.js';
 import { SecretDetectedError, ValidationError, NotFoundError } from '../errors.js';
+import { incrementUsage } from './usage.js';
 
 export const MAX_ARTIFACT_SIZE = 1_048_576; // 1 MB
 
@@ -98,8 +99,8 @@ export async function saveArtifact(
 
   const metadataJson = JSON.stringify(input.metadata ?? {});
 
-  const existing = await db.get<{ id: number }>(
-    'SELECT id FROM artifacts WHERE workspace_id = ? AND key = ?',
+  const existing = await db.get<{ id: number; size: number }>(
+    'SELECT id, size FROM artifacts WHERE workspace_id = ? AND key = ?',
     workspaceId, input.key,
   );
 
@@ -118,6 +119,12 @@ export async function saveArtifact(
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `, workspaceId, input.key, input.content_type, input.content, metadataJson, size, agentId);
     artifactId = Number(result.lastInsertRowid);
+  }
+
+  // Track storage: new bytes on insert, delta on update
+  const delta = size - (existing?.size ?? 0);
+  if (delta > 0) {
+    await incrementUsage(db, workspaceId, { storageBytes: delta });
   }
 
   return {

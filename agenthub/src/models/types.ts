@@ -246,6 +246,8 @@ export interface AuthContext {
   workspaceId: string;
   agentId: string;
   scope: ApiKeyScope;
+  ip?: string;
+  requestId?: string;
 }
 
 // ─── Error Types ─────────────────────────────────────────────────────
