@@ -83,7 +83,6 @@ export async function defineProfile(
       system_prompt = excluded.system_prompt,
       default_capabilities = excluded.default_capabilities,
       default_tags = excluded.default_tags,
-      created_by = excluded.created_by,
       updated_at = ?
   `,
     workspaceId,

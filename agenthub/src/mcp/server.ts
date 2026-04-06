@@ -555,7 +555,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
     {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
       name: z.string().min(1).max(100).describe('Playbook name to run'),
-      vars: z.record(z.string()).optional().describe('Template variables substituted into task descriptions — replaces {{vars.KEY}} with the value'),
+      vars: z.record(z.string().max(10_000)).optional().describe('Template variables substituted into task descriptions — replaces {{vars.KEY}} with the value'),
     },
     async (params) => {
       const { workspaceId, agentId: headerAgentId } = getMcpAuth();
@@ -698,7 +698,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
         'text/plain', 'text/markdown', 'text/html', 'application/json',
         'text/x-typescript', 'text/x-javascript', 'text/x-python', 'text/css',
       ]).describe('MIME content type'),
-      content: z.string().min(1).describe('Artifact content (max 1 MB)'),
+      content: z.string().min(1).max(1_048_576).describe('Artifact content (max 1 MB)'),
       metadata: z.record(z.unknown()).optional().describe('Optional structured metadata'),
     },
     async (params) => {
