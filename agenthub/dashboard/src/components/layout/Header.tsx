@@ -1,20 +1,19 @@
+import { NavLink } from 'react-router-dom';
 import { clearApiKey } from '../../lib/api';
 import type { SseStatus } from '../../lib/sse';
-import type { TabId } from '../../lib/types';
-import { cn } from '../../lib/utils';
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'graph', label: 'Task Graph' },
-  { id: 'artifacts', label: 'Artifacts' },
-  { id: 'playbooks', label: 'Playbooks' },
+const TABS = [
+  { to: '/', label: 'Overview' },
+  { to: '/graph', label: 'Task Graph' },
+  { to: '/artifacts', label: 'Artifacts' },
+  { to: '/playbooks', label: 'Playbooks' },
 ];
 
-const ADMIN_TABS: { id: TabId; label: string }[] = [
-  { id: 'members', label: 'Members' },
-  { id: 'audit', label: 'Audit Log' },
-  { id: 'usage', label: 'Usage' },
-  { id: 'keys', label: 'API Keys' },
+const ADMIN_TABS = [
+  { to: '/members', label: 'Members' },
+  { to: '/audit', label: 'Audit Log' },
+  { to: '/usage', label: 'Usage' },
+  { to: '/keys', label: 'API Keys' },
 ];
 
 const SSE_CLASSES: Record<SseStatus, string> = {
@@ -26,11 +25,9 @@ const SSE_CLASSES: Record<SseStatus, string> = {
 interface HeaderProps {
   workspaceName?: string;
   sseStatus: SseStatus;
-  activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
 }
 
-export function Header({ workspaceName, sseStatus, activeTab, onTabChange }: HeaderProps) {
+export function Header({ workspaceName, sseStatus }: HeaderProps) {
   const handleLogout = () => {
     clearApiKey();
     window.location.reload();
@@ -70,23 +67,24 @@ export function Header({ workspaceName, sseStatus, activeTab, onTabChange }: Hea
 
       <nav className="flex gap-1 mt-3 tab-scroll -mb-px">
         {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={cn('tab-btn', activeTab === tab.id && 'active')}
-            onClick={() => onTabChange(tab.id)}
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            end={tab.to === '/'}
+            className={({ isActive }) => `tab-btn${isActive ? ' active' : ''}`}
           >
             {tab.label}
-          </button>
+          </NavLink>
         ))}
         <div className="w-px bg-surface-3 mx-1 self-stretch hidden sm:block" />
         {ADMIN_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={cn('tab-btn', activeTab === tab.id && 'active')}
-            onClick={() => onTabChange(tab.id)}
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            className={({ isActive }) => `tab-btn${isActive ? ' active' : ''}`}
           >
             {tab.label}
-          </button>
+          </NavLink>
         ))}
       </nav>
     </header>

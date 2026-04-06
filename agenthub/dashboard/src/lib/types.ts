@@ -108,5 +108,3 @@ export interface GraphData {
   nodes: (Task & { x?: number; y?: number })[];
   edges: { from: number; to: number }[];
 }
-
-export type TabId = 'overview' | 'graph' | 'artifacts' | 'playbooks' | 'members' | 'audit' | 'usage' | 'keys';
