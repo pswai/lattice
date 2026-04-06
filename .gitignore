@@ -13,6 +13,9 @@ dist/
 agenthub/data/*.db
 agenthub/data/*.db-shm
 agenthub/data/*.db-wal
+agenthub/data/*.db-shm.bak
+agenthub/data/*.db-wal.bak
+agenthub/data/*.db.bak
 agenthub/*.db
 
 # Env files
@@ -26,3 +29,4 @@ agenthub/*.db
 
 # Claude local settings
 .claude/settings.local.json
+.gstack/

@@ -1,5 +1,6 @@
-// Self-contained HTML+CSS+JS dashboard for Lattice.
-// Served at GET / by the Hono app. No build step, no external deps beyond CDN Tailwind.
+// @deprecated — Legacy inline dashboard. Replaced by React app in dashboard/.
+// The Hono backend now serves the built React app from dashboard/dist/.
+// This file is kept temporarily for reference during migration and will be removed.
 export const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>

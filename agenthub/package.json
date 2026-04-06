@@ -9,8 +9,11 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:dashboard": "cd dashboard && npm run build",
+    "build:all": "tsc && cd dashboard && npm run build",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
+    "dev:dashboard": "cd dashboard && npm run dev",
     "test": "vitest run",
     "test:watch": "vitest"
   },

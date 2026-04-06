@@ -43,8 +43,11 @@ import { createAuditRoutes } from './routes/audit.js';
 import { mcpAuthStorage } from '../mcp/auth-context.js';
 import { AppError } from '../errors.js';
 import type { AppConfig } from '../config.js';
-import { DASHBOARD_HTML } from '../dashboard.js';
 import { getLogger } from '../logger.js';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export function createApp(
   db: DbAdapter,
@@ -94,8 +97,32 @@ export function createApp(
     }, 500);
   });
 
-  // Dashboard (no auth required — API key lives in client localStorage)
-  app.get('/', (c) => c.html(DASHBOARD_HTML));
+  // Dashboard — serve React app from dashboard/dist/
+  // Resolve path relative to this file's location (src/http/) → ../../dashboard/dist/
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const dashboardDir = resolve(__dirname, '../../dashboard/dist');
+  const dashboardExists = existsSync(resolve(dashboardDir, 'index.html'));
+
+  // Cache index.html in memory once for both root route and SPA fallback
+  const indexHtml = dashboardExists
+    ? readFileSync(resolve(dashboardDir, 'index.html'), 'utf-8')
+    : null;
+
+  if (indexHtml) {
+    // Serve static assets (JS, CSS, images) from dashboard/dist/assets/
+    app.use('/assets/*', serveStatic({ root: './dashboard/dist/' }));
+
+    // Root route serves the React app
+    app.get('/', (c) => c.html(indexHtml));
+  } else {
+    // Fallback: dashboard not built yet — show a helpful message
+    app.get('/', (c) => c.html(
+      '<html><body style="background:#0a0a0f;color:#e2e2ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">' +
+      '<div style="text-align:center"><h1>Lattice</h1><p>Dashboard not built. Run <code>npm run build:dashboard</code> first.</p></div>' +
+      '</body></html>',
+    ));
+  }
 
   // Health check (no auth required) — legacy; /healthz below is the canonical one
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -200,6 +227,21 @@ export function createApp(
   api.route('/dashboard-snapshot', createDashboardSnapshotRoutes(db));
 
   app.route('/api/v1', api);
+
+  // SPA fallback — any unmatched GET that isn't an API route serves index.html
+  // so client-side routing works (e.g. deep links, browser refresh).
+  if (indexHtml) {
+    app.get('*', (c) => {
+      // Don't intercept API, MCP, admin, auth, or operational routes
+      const path = c.req.path;
+      if (path.startsWith('/api/') || path.startsWith('/mcp') || path.startsWith('/admin') ||
+          path.startsWith('/auth') || path.startsWith('/health') || path.startsWith('/metrics') ||
+          path.startsWith('/readyz') || path.startsWith('/healthz') || path.startsWith('/workspaces')) {
+        return c.notFound();
+      }
+      return c.html(indexHtml);
+    });
+  }
 
   return app;
 }
