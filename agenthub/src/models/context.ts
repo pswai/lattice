@@ -3,7 +3,7 @@ import { jsonArrayTable } from '../db/adapter.js';
 import type { ContextEntry, SaveContextInput, GetContextInput, SaveContextResponse, GetContextResponse } from './types.js';
 import { broadcastInternal } from './event.js';
 import { ValidationError } from '../errors.js';
-import { incrementUsage } from './usage.js';
+import { incrementUsage, decrementUsageForced } from './usage.js';
 
 /** Max value length returned in search results to prevent response size blowup */
 const SEARCH_VALUE_TRUNCATE = 10_000;
@@ -106,6 +106,8 @@ export async function saveContext(
   const delta = newBytes - oldBytes;
   if (delta > 0) {
     await incrementUsage(db, workspaceId, { storageBytes: delta });
+  } else if (delta < 0) {
+    await decrementUsageForced(db, workspaceId, { storageBytes: Math.abs(delta) });
   }
 
   // Auto-broadcast LEARNING event after successful save

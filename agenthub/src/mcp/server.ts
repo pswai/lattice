@@ -268,11 +268,6 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        // Secret scan on description
-        const descScan = scanForSecrets(params.description);
-        if (!descScan.clean) {
-          return errorResult(new SecretDetectedError(descScan.matches[0].pattern, descScan.matches[0].preview));
-        }
         const result = await createTask(db, workspaceId, agentId, params);
         await mcpAudit('create_task', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -303,13 +298,6 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        // Secret scan on result if provided
-        if (params.result) {
-          const resultScan = scanForSecrets(params.result);
-          if (!resultScan.clean) {
-            return errorResult(new SecretDetectedError(resultScan.matches[0].pattern, resultScan.matches[0].preview));
-          }
-        }
         const result = await updateTask(db, workspaceId, agentId, params);
         await mcpAudit('update_task', agentId);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -539,13 +527,6 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        // Secret scan playbook description and task descriptions
-        for (const field of [params.description, ...params.tasks.map((t: { description: string }) => t.description)]) {
-          const scan = scanForSecrets(field);
-          if (!scan.clean) {
-            return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-          }
-        }
         const result = await definePlaybook(db, workspaceId, agentId, {
           name: params.name,
           description: params.description,
@@ -855,13 +836,6 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        // Secret scan system_prompt and description
-        for (const field of [params.description, params.system_prompt]) {
-          const scan = scanForSecrets(field);
-          if (!scan.clean) {
-            return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-          }
-        }
         const result = await defineProfile(db, workspaceId, agentId, {
           name: params.name,
           description: params.description,

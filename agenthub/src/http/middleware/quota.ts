@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { DbAdapter } from '../../db/adapter.js';
 import { getCurrentUsageWithLimits } from '../../models/usage.js';
-import { incrementUsageForced } from '../../models/usage.js';
+import { incrementUsageForced, decrementUsageForced } from '../../models/usage.js';
 import { getLogger } from '../../logger.js';
 
 export interface QuotaMiddlewareConfig {
@@ -61,16 +61,20 @@ export function createQuotaMiddleware(
       if (state.soft) {
         c.header('X-Quota-Warning', 'exceeded-80pct');
       }
+
+      // Pre-increment api_call_count BEFORE the handler runs to close the
+      // TOCTOU window: concurrent requests now see the reserved count.
+      await incrementUsageForced(db, auth.workspaceId, { apiCall: 1 });
     }
 
     await next();
 
-    // Bump api_call_count on successful mutating responses (2xx), fire-and-forget.
+    // Roll back the pre-increment if the response was not successful (non-2xx).
     if (isMutating) {
       const status = c.res.status;
-      if (status >= 200 && status < 300) {
-        incrementUsageForced(db, auth.workspaceId, { apiCall: 1 }).catch((err) => {
-          getLogger().error('quota_counter_bump_failed', {
+      if (status < 200 || status >= 300) {
+        decrementUsageForced(db, auth.workspaceId, { apiCall: 1 }).catch((err) => {
+          getLogger().error('quota_counter_rollback_failed', {
             error: err instanceof Error ? err.message : String(err),
           });
         });

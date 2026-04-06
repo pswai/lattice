@@ -80,7 +80,7 @@ describe('Usage tracking', () => {
       expect(usageAfterUpdate.storageBytes).toBe(smallBytes + expectedDelta);
     });
 
-    it('update with smaller value does NOT decrease storage_bytes (delta <= 0 skipped)', async () => {
+    it('update with smaller value decreases storage_bytes by the delta', async () => {
       const largeValue = 'this is a large value for the first save';
       const smallValue = 'tiny';
       const largeBytes = Buffer.byteLength(largeValue, 'utf8');
@@ -94,14 +94,15 @@ describe('Usage tracking', () => {
       const usageAfterFirst = await getUsage(ctx.db, ctx.workspaceId);
       expect(usageAfterFirst.storageBytes).toBe(largeBytes);
 
-      // Update with smaller value — storage should NOT decrease
+      // Update with smaller value — storage should decrease by the delta
       await request(ctx.app, 'POST', '/api/v1/context', {
         headers: authHeaders(ctx.apiKey),
         body: { key: 'shrink-test', value: smallValue, tags: [] },
       });
 
+      const smallBytes = Buffer.byteLength(smallValue, 'utf8');
       const usageAfterShrink = await getUsage(ctx.db, ctx.workspaceId);
-      expect(usageAfterShrink.storageBytes).toBe(largeBytes);
+      expect(usageAfterShrink.storageBytes).toBe(smallBytes);
     });
   });
 

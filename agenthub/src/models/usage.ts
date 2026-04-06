@@ -100,6 +100,27 @@ export async function incrementUsageForced(
   `, workspaceId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
+/** Roll back a prior incrementUsageForced — subtracts from counters, flooring at 0. */
+export async function decrementUsageForced(
+  db: DbAdapter,
+  workspaceId: string,
+  input: IncrementInput,
+): Promise<void> {
+  const exec = input.exec ?? 0;
+  const apiCall = input.apiCall ?? 0;
+  const storage = input.storageBytes ?? 0;
+  if (exec === 0 && apiCall === 0 && storage === 0) return;
+  const periodYm = currentPeriodYm();
+  await db.run(`
+    UPDATE usage_counters
+    SET exec_count = MAX(0, exec_count - ?),
+        api_call_count = MAX(0, api_call_count - ?),
+        storage_bytes = MAX(0, storage_bytes - ?),
+        updated_at = ?
+    WHERE workspace_id = ? AND period_ym = ?
+  `, exec, apiCall, storage, new Date().toISOString(), workspaceId, periodYm);
+}
+
 export async function getUsage(
   db: DbAdapter,
   workspaceId: string,
