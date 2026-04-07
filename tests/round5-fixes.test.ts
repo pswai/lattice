@@ -1,3 +1,9 @@
+/**
+ * Tests for: scheduler lifecycle and MCP read tool protocol coverage
+ * - Service lifecycle: startScheduler returns clearable timer handle
+ * - MCP read tool direct tests (get_context, list_tasks, get_task, list_agents, get_messages, get_updates)
+ * - MCP list_tasks status filtering
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, testConfig, type TestContext } from './helpers.js';
 import { createTask } from '../src/models/task.js';

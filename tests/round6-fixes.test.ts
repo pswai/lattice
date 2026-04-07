@@ -1,3 +1,9 @@
+/**
+ * Tests for: rate-limit bucket cleanup, NaN query parameter validation, and deleteArtifact storage decrement
+ * - Rate-limit bucket cleanup (sweepStaleBuckets) -- add entries, limit after hits, reset, memory leak prevention
+ * - NaN/invalid limit params across REST routes (tasks, artifacts, context, events) return 400
+ * - deleteArtifact storage decrement coverage placeholder
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
 import { __resetRateLimit, checkRateLimit } from '../src/http/middleware/rate-limit.js';

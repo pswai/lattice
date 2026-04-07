@@ -1,3 +1,12 @@
+/**
+ * Tests for: MCP scope enforcement, rate-limit bucket sharing, secret scanning (tasks, playbooks, profiles), context timestamp consistency, and cross-workspace task dependency isolation
+ * - MCP read-only scope blocks all mutating tools (save_context, broadcast, create_task, etc.)
+ * - MCP and REST share the same rate-limit bucket
+ * - Secret scanning in create_task/update_task (MCP layer)
+ * - Secret scanning in define_playbook and define_profile (MCP layer)
+ * - Context timestamps use consistent ISO 8601 clock
+ * - Task dependency blocker query respects workspace_id filter
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, addApiKey, authHeaders, request, testConfig, type TestContext } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';

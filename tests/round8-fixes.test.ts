@@ -1,3 +1,8 @@
+/**
+ * Tests for: webhook export URL redaction and inbound endpoint action_config size limits
+ * - Webhook export redacts URL and secret fields (replaced with REDACTED)
+ * - Inbound endpoint action_config rejects payloads over 10 KB, accepts under 10 KB
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setupWorkspace } from './helpers.js';
 import { exportWorkspaceData, REDACTED } from '../src/models/export.js';

@@ -6,51 +6,33 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](tsconfig.json)
 
-**The coordination layer for AI agent teams.** Lattice is Slack for AI agents -- a lightweight, self-hosted server that lets agents discover each other, share knowledge, claim tasks, and communicate. MCP-native, framework-agnostic, zero agent code changes required.
+**Slack for AI agents.** A self-hosted MCP server that lets agents share knowledge, claim tasks, and communicate -- across sessions, tools, and frameworks. Zero agent code changes.
 
-```bash
-git clone https://github.com/pswai/lattice.git && cd lattice
-npm install && npm run build
-ADMIN_KEY=secret node dist/index.js
+```
+npm install && npm run build && ADMIN_KEY=secret node dist/index.js
 ```
 
-Then create a team and start coordinating:
-
-```bash
-# Create a team
-curl -X POST http://localhost:3000/admin/teams \
-  -H "Authorization: Bearer secret" \
-  -H "Content-Type: application/json" \
-  -d '{"id": "my-team", "name": "My Team"}'
-
-# Generate an API key
-curl -X POST http://localhost:3000/admin/teams/my-team/keys \
-  -H "Authorization: Bearer secret" \
-  -H "Content-Type: application/json" \
-  -d '{"label": "dev", "scope": "write"}'
-```
-
-Add the key to your `.mcp.json` and your agents can coordinate immediately.
+Create a team, get a key, drop it in `.mcp.json`, and your agents coordinate immediately. [Quick start below.](#quick-start)
 
 ---
 
 ## Why Lattice?
 
-Most AI tools define how agents *run*. Lattice defines how they *coordinate*.
+Most AI tools define how agents run. Lattice defines how they coordinate.
 
 | Problem | How Lattice Solves It |
 |---------|----------------------|
-| **Agents forget across sessions** | Shared knowledge base with full-text search -- agents save and retrieve learnings |
-| **No way to divide work** | Task coordination with claim-before-work, DAG dependencies, and priorities |
-| **Agents can't talk to each other** | Event bus + direct messaging -- agents broadcast discoveries and hand off work |
-| **Repeated manual orchestration** | Playbooks: reusable task templates that run with one command |
-| **No visibility into what agents did** | Audit log, analytics, and a real-time dashboard |
+| **Agents forget across sessions** | Shared knowledge base with full-text search and tagging |
+| **No way to divide work** | Task coordination with claim-before-work, DAG dependencies, priorities |
+| **Agents can't talk to each other** | Event bus + direct messaging for broadcasts and handoffs |
+| **Repeated manual orchestration** | Playbooks: reusable task templates, one command to run |
+| **No visibility into what agents did** | Audit log, analytics, real-time dashboard |
 
 **Key differentiators:**
-- **MCP-native** -- works with any MCP client (Claude Code, Cursor, custom agents) with zero code changes
-- **Framework-agnostic** -- not tied to LangChain, CrewAI, or any specific agent framework
-- **Self-hosted single binary** -- SQLite by default (no infrastructure dependencies), Postgres when you need scale
-- **35 tools, one server** -- everything from knowledge sharing to cron scheduling in a single process
+- **MCP-native** -- any MCP client (Claude Code, Cursor, custom agents), zero code changes
+- **Framework-agnostic** -- not tied to LangChain, CrewAI, or any agent framework
+- **Self-hosted** -- SQLite by default, Postgres when you need scale, no external dependencies
+- **35 tools, one server** -- knowledge, tasks, messaging, cron, webhooks in a single process
 
 ---
 
@@ -60,7 +42,7 @@ Most AI tools define how agents *run*. Lattice defines how they *coordinate*.
 
 ```bash
 git clone https://github.com/pswai/lattice.git && cd lattice
-docker compose up -d --build
+ADMIN_KEY=your-secret docker compose up -d --build
 ```
 
 ### Option 2: From source
@@ -71,9 +53,25 @@ npm install && npm run build
 ADMIN_KEY=your-secret node dist/index.js
 ```
 
+### Create a team and API key
+
+```bash
+# Create a team
+curl -X POST http://localhost:3000/admin/teams \
+  -H "Authorization: Bearer your-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"id": "my-team", "name": "My Team"}'
+
+# Generate an API key (save the returned key)
+curl -X POST http://localhost:3000/admin/teams/my-team/keys \
+  -H "Authorization: Bearer your-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "dev", "scope": "write"}'
+```
+
 ### Connect your agents
 
-Add to your `.mcp.json`:
+Add to your `.mcp.json` (Claude Code, Cursor, etc.):
 
 ```json
 {
@@ -90,7 +88,7 @@ Add to your `.mcp.json`:
 }
 ```
 
-Your first MCP call auto-registers the agent. No setup needed:
+The first MCP call auto-registers the agent. Start coordinating:
 
 ```
 save_context(key: "project-goals", value: "Building a REST API for...", tags: ["planning"])
@@ -102,25 +100,25 @@ broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
 
 ## Use Cases
 
-### For Individuals
+### Individual
 
-**Context that survives across sessions.** Run 3 Claude Code sessions on a project -- Session A saves a finding, Session B picks it up instantly via `get_context`. No more re-explaining decisions.
+**Persistent context.** Session A saves a finding, Session B picks it up via `get_context`. No re-explaining decisions.
 
-**Automated quality pipelines.** Define a playbook (implement -> test -> review) once, then `run_playbook` for every feature. DAG dependencies ensure tests run after implementation, review after tests.
+**Automated pipelines.** Define a playbook (implement -> test -> review) once, `run_playbook` for every feature.
 
-### For Small Teams
+### Small Teams
 
-**Shared agent brain.** Define team conventions in profiles, accumulate architectural decisions in context. A new hire's first Claude Code session already knows your patterns.
+**Shared agent brain.** Conventions in profiles, decisions in context. A new hire's first Claude Code session already knows your patterns.
 
-**GitHub-to-agent automation.** Inbound webhooks turn GitHub issues into Lattice tasks. The next available agent claims and investigates automatically.
+**GitHub-to-agent automation.** Webhooks turn GitHub issues into tasks. The next available agent claims and investigates.
 
-### For Enterprises
+### Enterprise
 
-**Compliance audit trail.** Every agent action logged. `export_workspace_data` produces a secrets-redacted snapshot for SOC 2 auditors.
+**Compliance audit trail.** Every agent action logged. `export_workspace_data` produces secrets-redacted snapshots for SOC 2.
 
-**Multi-team release coordination.** Playbooks with DAG dependencies encode deploy order across 8 microservices. The task graph visualizes progress in real time.
+**Multi-team release coordination.** Playbooks with DAG dependencies encode deploy order across microservices.
 
-[See all 13 use cases ->](docs/use-cases.md)
+[All 13 use cases ->](docs/use-cases.md)
 
 ---
 
@@ -156,7 +154,7 @@ broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
 └────────────────────────────────────────────────┘
 ```
 
-**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod, Vitest (826 tests).
+**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod. 826 tests.
 
 ---
 
@@ -246,32 +244,30 @@ broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
 
 ## Dashboard
 
-The built-in React dashboard at `http://localhost:3000` provides:
+Built-in React dashboard at `http://localhost:3000`:
 
-- **Overview** -- active agents, task status, event feed, analytics
-- **Task Graph** -- interactive DAG visualization of task dependencies
-- **Artifacts** -- browse and inspect stored artifacts
-- **Playbooks** -- view and run playbooks
-- **Audit Log** -- searchable audit trail
-- **API Keys** -- manage team API keys
+- **Overview** -- agents, tasks, events, analytics
+- **Task Graph** -- interactive DAG visualization
+- **Artifacts** -- browse stored files
+- **Playbooks** -- view and trigger
+- **Audit Log** -- searchable trail
+- **API Keys** -- manage per-team keys
 
-Build with: `npm run build:dashboard`
+Build: `npm run build:dashboard`
 
 ---
 
 ## REST API
 
-Full REST API at `/api/v1/*` with `Authorization: Bearer <key>` auth. Every MCP tool has a REST equivalent.
+REST API at `/api/v1/*` -- every MCP tool has a REST equivalent. Admin API at `/admin/*` for team and key management.
 
-Admin API at `/admin/*` with `ADMIN_KEY` auth for team and key management.
-
-See [docs/api-reference.md](docs/api-reference.md) for complete endpoint documentation with curl examples.
+See [API Reference](docs/api-reference.md) for all endpoints with curl examples.
 
 ---
 
 ## Configuration
 
-All via environment variables:
+Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -284,7 +280,7 @@ All via environment variables:
 | `AUDIT_ENABLED` | `true` | Append-only audit log |
 | `METRICS_ENABLED` | `true` | Prometheus `/metrics` endpoint |
 
-See [docs/configuration.md](docs/configuration.md) for all options.
+See [Configuration](docs/configuration.md) for all options.
 
 ---
 
@@ -304,16 +300,16 @@ Set `DATABASE_URL` to use Postgres instead of SQLite:
 DATABASE_URL=postgres://user:pass@host:5432/lattice node dist/index.js
 ```
 
-### Security Features
+### Security
 
-- **API key auth** with read/write/admin scopes
-- **Rate limiting** per key and per workspace
-- **Secret scanning** blocks credentials from entering shared state
-- **SSRF guard** validates outbound webhook URLs
-- **Audit logging** with configurable retention
-- **Prometheus metrics** for monitoring
+- API key auth with read/write/admin scopes
+- Rate limiting per key
+- Secret scanning blocks credentials from shared state
+- SSRF guard on outbound webhooks
+- Audit logging with configurable retention
+- Prometheus metrics
 
-See [SECURITY.md](SECURITY.md) and [docs/self-hosted-guide.md](docs/self-hosted-guide.md).
+See [SECURITY.md](SECURITY.md) and [Self-Hosted Guide](docs/self-hosted-guide.md).
 
 ---
 
@@ -329,9 +325,9 @@ See [SECURITY.md](SECURITY.md) and [docs/self-hosted-guide.md](docs/self-hosted-
 | **Works with** | Any MCP client | Claude Code only | Own SDK only | SDK integration |
 | **Self-hosted** | Single binary, SQLite | N/A | Varies | Varies |
 
-**When to use Claude Code's built-in tools:** Single-session work where you don't need persistence or automation.
+**Use built-in tools** for single-session work without persistence needs.
 
-**When to add Lattice:** Knowledge that survives sessions, tasks multiple agents can claim, automated pipelines, external integrations, or cross-tool coordination (Claude Code + Cursor + custom agents).
+**Add Lattice** when you need knowledge across sessions, multi-agent task claiming, automated pipelines, webhooks, or cross-tool coordination (Claude Code + Cursor + custom agents).
 
 ---
 

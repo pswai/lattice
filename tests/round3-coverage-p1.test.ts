@@ -1,3 +1,9 @@
+/**
+ * Tests for: analytics cross-filtering, webhook deliveries, and workflow completion
+ * - Analytics multi-dimension cross-filtering (status+time, agent producers, event aggregation, context stats)
+ * - Webhook delivery listing (empty, pagination, limit cap, cross-workspace rejection, status transitions)
+ * - Workflow checkWorkflowCompletion edge cases (all-complete, escalated=failed, concurrent race, idempotency, abandoned)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, type TestContext } from './helpers.js';
 import { getWorkspaceAnalytics, parseSinceDuration } from '../src/models/analytics.js';

@@ -1,13 +1,9 @@
 /**
- * Round 2 Coverage Gaps — Tests for remaining gaps identified by test-auditor.
- *
- * Covers 13 specific gaps (P0–P2):
- *   P0: Negative usage rejection, email template variable rendering
- *   P1: Rate-limit sliding window, quota soft-limit warning
- *   P2: Secret scanner false positives, audit future date, agent metadata boundary
- *
- * Gaps already addressed by service-layer.test.ts (scheduler, reaper, webhooks,
- * audit cleanup) are NOT duplicated here.
+ * Tests for: rate limiting, secret scanning, audit pruning, and agent metadata validation
+ * - Rate-limit sliding window behavior (allow/block/retry, disabled when perMinute=0)
+ * - Secret scanner false-positive resilience and true-positive detection
+ * - Audit log pruning: future-date rejection, invalid ISO strings, valid past dates
+ * - Agent metadata REST 10KB size boundary enforcement
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {

@@ -1,3 +1,8 @@
+/**
+ * Tests for: artifact deletion and stale agent detection
+ * - deleteArtifact (removes artifact, NotFoundError for missing, does not affect other artifacts)
+ * - markStaleAgents (offline after heartbeat timeout, already-offline skip, busy agents marked stale)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, type TestContext } from './helpers.js';
 import { saveArtifact, getArtifact, deleteArtifact, listArtifacts } from '../src/models/artifact.js';

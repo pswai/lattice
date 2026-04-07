@@ -1,3 +1,9 @@
+/**
+ * Tests for: data export, event cleanup, and event emitter services
+ * - Export incremental/delta behavior (snapshot growth, update reflection, event cap, metadata)
+ * - Event cleanup service (retention-based deletion, boundary precision, zero-retention bypass)
+ * - EventEmitter (eventBus) pub/sub (emit/receive, multi-listener, unsubscribe, isolation)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, type TestContext } from './helpers.js';
 import { exportWorkspaceData, EVENT_EXPORT_LIMIT } from '../src/models/export.js';

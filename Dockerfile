@@ -13,15 +13,29 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx tsc
-RUN npm prune --production
+
+# ---- Dashboard build stage ----
+FROM node:20-alpine AS dashboard
+WORKDIR /app/dashboard
+
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci
+
+COPY dashboard/ ./
+RUN npm run build
 
 # ---- Runtime stage ----
 FROM node:20-alpine
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
+# Re-install production deps with native modules compiled for the runtime image
+COPY package.json package-lock.json ./
+RUN apk add --no-cache python3 make g++ && \
+    npm ci --production && \
+    apk del python3 make g++
+
 COPY --from=builder /app/dist ./dist
-COPY package.json ./
+COPY --from=dashboard /app/dashboard/dist ./dashboard/dist
 
 EXPOSE 3000
 

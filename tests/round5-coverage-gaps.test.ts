@@ -1,3 +1,14 @@
+/**
+ * Tests for: MCP read tool direct protocol coverage
+ * - get_task_graph (empty workspace, nodes+edges with dependencies)
+ * - get_analytics (empty workspace, since parameter)
+ * - list_profiles / get_profile (empty, populated, not-found)
+ * - list_inbound_endpoints (empty, populated)
+ * - list_playbooks (empty, populated)
+ * - list_artifacts / get_artifact (empty, populated, not-found)
+ * - list_schedules (empty)
+ * - list_workflow_runs / get_workflow_run (empty, not-found)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, addApiKey, type TestContext } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';

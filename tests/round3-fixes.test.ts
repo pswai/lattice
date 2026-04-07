@@ -1,3 +1,12 @@
+/**
+ * Tests for: context update tracking, playbook creator preservation, inbound webhook secret scanning, export caps, scheduler mutex, and MCP playbook vars scanning
+ * - Context UPDATE tracks updated_by/updated_at (model + REST + search results)
+ * - Playbook created_by preserved when a different agent updates
+ * - Inbound webhook payload secret scanning (AWS keys, Stripe keys, nested fields)
+ * - Export context entries capped at 10,000
+ * - Scheduler runDueSchedules mutex prevents duplicate concurrent runs
+ * - MCP run_playbook vars scanned for secrets (AWS, GitHub PAT, clean passthrough)
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
 import { saveContext, getContext } from '../src/models/context.js';

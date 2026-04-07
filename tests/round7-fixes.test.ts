@@ -1,3 +1,10 @@
+/**
+ * Tests for: heartbeat MCP scope enforcement, workflow race conditions, NaN route param validation, and safeJsonParse
+ * - Heartbeat MCP tool requires write scope (blocks read-only, allows write)
+ * - Workflow race: task completes before setWorkflowRunTaskIds (completed, failed, still-running, integration)
+ * - NaN/invalid limit/offset params return 400 across all REST routes (tasks, artifacts, messages, context, events)
+ * - safeJsonParse returns fallback for truncated, invalid, empty, and corrupt JSON
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createTestContext,

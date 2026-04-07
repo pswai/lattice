@@ -1,3 +1,8 @@
+/**
+ * Tests for: per-workspace rate limiting and dashboard snapshot endpoint
+ * - Per-workspace rate limiter (429 on exceed, aggregates across API keys in same workspace)
+ * - Dashboard snapshot endpoint (combined agents/tasks/analytics/events, requires auth)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, testConfig, setupWorkspace, createTestContext } from './helpers.js';
 import { createApp } from '../src/http/app.js';

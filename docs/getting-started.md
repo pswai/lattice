@@ -33,7 +33,7 @@ cd lattice
 ADMIN_KEY=your-secret-key docker compose up -d --build
 ```
 
-The bundled `docker-compose.yml` includes a healthcheck and a named volume for SQLite persistence.
+The bundled `docker-compose.yml` includes a healthcheck and a bind mount (`./data`) for SQLite persistence.
 
 Then create a team and API key via the admin API:
 

@@ -1,3 +1,10 @@
+/**
+ * Tests for: model-layer secret scanning (REST + model) and body-limit stream validation
+ * - createTask secret scanning at model layer and REST route (422 SECRET_DETECTED)
+ * - definePlaybook secret scanning at model layer and REST route
+ * - defineProfile secret scanning at model layer and REST route
+ * - Body-limit stream validation (Content-Length reject, within-limit allow, GET skip, disabled when 0)
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, addApiKey, type TestContext } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';
