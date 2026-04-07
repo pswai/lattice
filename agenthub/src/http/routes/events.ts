@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { broadcastEvent, getUpdates, waitForEvent } from '../../models/event.js';
-import { scanForSecrets } from '../../services/secret-scanner.js';
-import { SecretDetectedError, ValidationError } from '../../errors.js';
+import { throwIfSecretsFound } from '../../services/secret-scanner.js';
+import { ValidationError } from '../../errors.js';
 import type { EventType } from '../../models/types.js';
 
 const EVENT_TYPES: EventType[] = ['LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE'];
@@ -28,10 +28,7 @@ export function createEventRoutes(db: DbAdapter): Hono {
     const { workspaceId, agentId } = c.get('auth');
 
     // Secret scan on message
-    const scan = scanForSecrets(parsed.data.message);
-    if (!scan.clean) {
-      throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-    }
+    throwIfSecretsFound(parsed.data.message);
 
     const result = await broadcastEvent(db, workspaceId, agentId, parsed.data);
     return c.json(result, 201);
@@ -79,9 +76,9 @@ export function createEventRoutes(db: DbAdapter): Hono {
     const limitParam = c.req.query('limit');
     const includeContextParam = c.req.query('include_context');
 
-    const since_id = sinceIdParam ? parseInt(sinceIdParam, 10) : undefined;
+    const since_id = sinceIdParam ? (parseInt(sinceIdParam, 10) || 0) : undefined;
     const topics = topicsParam ? topicsParam.split(',').filter(Boolean) : undefined;
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const limit = limitParam ? (parseInt(limitParam, 10) || 50) : undefined;
     const include_context = includeContextParam === 'false' ? false : true;
 
     const result = await getUpdates(db, workspaceId, {

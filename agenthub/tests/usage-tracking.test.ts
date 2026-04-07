@@ -159,10 +159,10 @@ describe('Usage tracking', () => {
       expect(usageSecond.storageBytes).toBe(smallBytes + (largeBytes - smallBytes));
     });
 
-    it('update artifact with smaller content does NOT decrease storage', async () => {
+    it('update artifact with smaller content decreases storage by the delta', async () => {
       const largeContent = 'A'.repeat(1000);
       const smallContent = 'B';
-      const largeBytes = Buffer.byteLength(largeContent, 'utf8');
+      const smallBytes = Buffer.byteLength(smallContent, 'utf8');
 
       await request(ctx.app, 'POST', '/api/v1/artifacts', {
         headers: authHeaders(ctx.apiKey),
@@ -183,7 +183,7 @@ describe('Usage tracking', () => {
       });
 
       const usage = await getUsage(ctx.db, ctx.workspaceId);
-      expect(usage.storageBytes).toBe(largeBytes);
+      expect(usage.storageBytes).toBe(smallBytes);
     });
   });
 

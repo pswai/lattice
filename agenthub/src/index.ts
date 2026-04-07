@@ -37,7 +37,7 @@ startEventCleanup(adapter, config);
 startWebhookDispatcher(adapter);
 startScheduler(adapter);
 startAuditCleanup(adapter, config);
-startSessionCleanup(adapter);
+const sessionCleanupTimer = startSessionCleanup(adapter);
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   getLogger().info('lattice_started', {

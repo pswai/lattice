@@ -43,16 +43,11 @@ export interface IncrementInput {
   storageBytes?: number;
 }
 
-/**
- * Add to the current-period counters for a team. UPSERTs the row.
- * No-op when usage tracking is disabled (test default).
- */
-export async function incrementUsage(
+async function upsertUsage(
   db: DbAdapter,
   workspaceId: string,
   input: IncrementInput,
 ): Promise<void> {
-  if (!usageTrackingEnabled) return;
   const exec = input.exec ?? 0;
   const apiCall = input.apiCall ?? 0;
   const storage = input.storageBytes ?? 0;
@@ -73,6 +68,19 @@ export async function incrementUsage(
   `, workspaceId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
 }
 
+/**
+ * Add to the current-period counters for a team. UPSERTs the row.
+ * No-op when usage tracking is disabled (test default).
+ */
+export async function incrementUsage(
+  db: DbAdapter,
+  workspaceId: string,
+  input: IncrementInput,
+): Promise<void> {
+  if (!usageTrackingEnabled) return;
+  return upsertUsage(db, workspaceId, input);
+}
+
 /** Force an increment regardless of the global flag — used by the quota
  *  middleware's post-response api_call_count bump. */
 export async function incrementUsageForced(
@@ -80,24 +88,7 @@ export async function incrementUsageForced(
   workspaceId: string,
   input: IncrementInput,
 ): Promise<void> {
-  const exec = input.exec ?? 0;
-  const apiCall = input.apiCall ?? 0;
-  const storage = input.storageBytes ?? 0;
-  if (exec < 0 || apiCall < 0 || storage < 0) {
-    throw new Error('Usage increments must be non-negative');
-  }
-  if (exec === 0 && apiCall === 0 && storage === 0) return;
-  const periodYm = currentPeriodYm();
-  await db.run(`
-    INSERT INTO usage_counters
-      (workspace_id, period_ym, exec_count, api_call_count, storage_bytes, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(workspace_id, period_ym) DO UPDATE SET
-      exec_count = exec_count + excluded.exec_count,
-      api_call_count = api_call_count + excluded.api_call_count,
-      storage_bytes = storage_bytes + excluded.storage_bytes,
-      updated_at = ?
-  `, workspaceId, periodYm, exec, apiCall, storage, new Date().toISOString(), new Date().toISOString());
+  return upsertUsage(db, workspaceId, input);
 }
 
 /** Roll back a prior incrementUsageForced — subtracts from counters, flooring at 0. */

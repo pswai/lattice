@@ -19,8 +19,8 @@ import {
   type InboundActionType,
 } from '../models/inbound.js';
 import { exportWorkspaceData } from '../models/export.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
-import { AppError, SecretDetectedError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
+import { AppError } from '../errors.js';
 import { getMcpAuth, requireWriteScope } from './auth-context.js';
 import { writeAudit } from '../models/audit.js';
 import { incrementUsage } from '../models/usage.js';
@@ -130,10 +130,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       try {
         // Secret scan on key and value
         for (const field of [params.key, params.value]) {
-          const scan = scanForSecrets(field);
-          if (!scan.clean) {
-            return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-          }
+          throwIfSecretsFound(field);
         }
 
         // saveContext handles both DB write and auto-broadcast of LEARNING event
@@ -187,10 +184,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const scan = scanForSecrets(params.message);
-        if (!scan.clean) {
-          return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-        }
+        throwIfSecretsFound(params.message);
 
         const result = await broadcastEvent(db, workspaceId, agentId, params);
         await mcpAudit('broadcast', agentId);
@@ -462,10 +456,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
       await autoRegisterAgent(db, workspaceId, agentId);
 
       try {
-        const scan = scanForSecrets(params.message);
-        if (!scan.clean) {
-          return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-        }
+        throwIfSecretsFound(params.message);
         const result = await sendMessage(db, workspaceId, agentId, {
           to: params.to,
           message: params.message,
@@ -578,10 +569,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
         // Scan var values for secrets before substitution into task descriptions
         if (params.vars) {
           for (const val of Object.values(params.vars)) {
-            const scan = scanForSecrets(val);
-            if (!scan.clean) {
-              return errorResult(new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview));
-            }
+            throwIfSecretsFound(val);
           }
         }
         const result = await runPlaybook(db, workspaceId, agentId, params.name, params.vars);

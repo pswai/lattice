@@ -33,8 +33,8 @@ export function createMessageRoutes(db: DbAdapter): Hono {
     const sinceIdParam = c.req.query('since_id');
     const limitParam = c.req.query('limit');
 
-    const since_id = sinceIdParam ? parseInt(sinceIdParam, 10) : undefined;
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const since_id = sinceIdParam ? (parseInt(sinceIdParam, 10) || 0) : undefined;
+    const limit = limitParam ? (parseInt(limitParam, 10) || 50) : undefined;
 
     const result = await getMessages(db, workspaceId, agentId, { since_id, limit });
     return c.json(result);

@@ -1,3 +1,5 @@
+import { SecretDetectedError } from '../errors.js';
+
 export interface SecretMatch {
   pattern: string;
   preview: string;
@@ -48,6 +50,18 @@ const SECRET_PATTERNS: Array<{ name: string; regex: RegExp }> = [
   // Google
   { name: 'Google API Key', regex: /\bAIza[A-Za-z0-9_\-]{35}\b/ },
 ];
+
+/**
+ * Scan text and throw SecretDetectedError if a secret pattern is found.
+ * Convenience wrapper used by models + MCP handlers to enforce the
+ * scan-then-throw pattern in a single call.
+ */
+export function throwIfSecretsFound(text: string): void {
+  const scan = scanForSecrets(text);
+  if (!scan.clean) {
+    throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
+  }
+}
 
 export function scanForSecrets(text: string): ScanResult {
   const matches: SecretMatch[] = [];

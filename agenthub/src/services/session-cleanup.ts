@@ -4,6 +4,8 @@ import { getLogger } from '../logger.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 
+let cleanupRunning = false;
+
 /**
  * Prune expired/revoked sessions immediately, then hourly.
  * Returns the timer handle so callers can clearInterval on shutdown.
@@ -26,11 +28,17 @@ export function startSessionCleanup(db: DbAdapter): NodeJS.Timeout {
 }
 
 async function runOnce(db: DbAdapter): Promise<void> {
-  const removed = await pruneExpiredSessions(db);
-  if (removed > 0) {
-    getLogger().info('session_cleanup', {
-      component: 'session-cleanup',
-      removed,
-    });
+  if (cleanupRunning) return;
+  cleanupRunning = true;
+  try {
+    const removed = await pruneExpiredSessions(db);
+    if (removed > 0) {
+      getLogger().info('session_cleanup', {
+        component: 'session-cleanup',
+        removed,
+      });
+    }
+  } finally {
+    cleanupRunning = false;
   }
 }

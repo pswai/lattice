@@ -8,9 +8,9 @@ import type {
   ListArtifactsInput,
   ListArtifactsResponse,
 } from './types.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
-import { SecretDetectedError, ValidationError, NotFoundError } from '../errors.js';
-import { incrementUsage } from './usage.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
+import { ValidationError, NotFoundError } from '../errors.js';
+import { incrementUsage, decrementUsageForced } from './usage.js';
 
 export const MAX_ARTIFACT_SIZE = 1_048_576; // 1 MB
 
@@ -92,10 +92,7 @@ export async function saveArtifact(
     );
   }
 
-  const scan = scanForSecrets(input.content);
-  if (!scan.clean) {
-    throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-  }
+  throwIfSecretsFound(input.content);
 
   const metadataJson = JSON.stringify(input.metadata ?? {});
 
@@ -125,6 +122,8 @@ export async function saveArtifact(
   const delta = size - (existing?.size ?? 0);
   if (delta > 0) {
     await incrementUsage(db, workspaceId, { storageBytes: delta });
+  } else if (delta < 0) {
+    await decrementUsageForced(db, workspaceId, { storageBytes: Math.abs(delta) });
   }
 
   return {
@@ -205,12 +204,23 @@ export async function deleteArtifact(
   workspaceId: string,
   key: string,
 ): Promise<{ deleted: boolean }> {
-  const result = await db.run(
+  // Read size before deleting so we can decrement storage usage
+  const existing = await db.get<{ size: number }>(
+    'SELECT size FROM artifacts WHERE workspace_id = ? AND key = ?',
+    workspaceId, key,
+  );
+  if (!existing) {
+    throw new NotFoundError('Artifact', key);
+  }
+
+  await db.run(
     'DELETE FROM artifacts WHERE workspace_id = ? AND key = ?',
     workspaceId, key,
   );
-  if (result.changes === 0) {
-    throw new NotFoundError('Artifact', key);
+
+  if (existing.size > 0) {
+    await decrementUsageForced(db, workspaceId, { storageBytes: existing.size });
   }
+
   return { deleted: true };
 }

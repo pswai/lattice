@@ -59,7 +59,7 @@ export function createWebhookRoutes(db: DbAdapter): Hono {
     const { workspaceId } = c.get('auth');
     const id = c.req.param('id');
     const limitParam = c.req.query('limit');
-    const limit = limitParam ? parseInt(limitParam, 10) : 100;
+    const limit = limitParam ? (parseInt(limitParam, 10) || 100) : 100;
     const deliveries = await listDeliveries(db, workspaceId, id, limit);
     return c.json({ deliveries, total: deliveries.length });
   });

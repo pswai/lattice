@@ -31,7 +31,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
     const claimedBy = c.req.query('claimed_by');
     const assignedTo = c.req.query('assigned_to');
     const limitParam = c.req.query('limit');
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const limit = limitParam ? (parseInt(limitParam, 10) || 50) : undefined;
 
     const result = await listTasks(db, workspaceId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
     return c.json(result);

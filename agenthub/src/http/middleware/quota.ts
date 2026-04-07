@@ -36,8 +36,14 @@ export function createQuotaMiddleware(
     const isMutating = MUTATING_METHODS.has(method);
 
     if (isMutating) {
+      // Increment FIRST to close the TOCTOU window: concurrent requests
+      // now see the reserved count before the quota check.
+      await incrementUsageForced(db, auth.workspaceId, { apiCall: 1 });
+
       const state = await getCurrentUsageWithLimits(db, auth.workspaceId);
       if (state.hard) {
+        // Over quota — roll back the pre-increment and reject.
+        await decrementUsageForced(db, auth.workspaceId, { apiCall: 1 });
         c.header('Retry-After', String(secondsToNextPeriod()));
         return c.json(
           {
@@ -61,10 +67,6 @@ export function createQuotaMiddleware(
       if (state.soft) {
         c.header('X-Quota-Warning', 'exceeded-80pct');
       }
-
-      // Pre-increment api_call_count BEFORE the handler runs to close the
-      // TOCTOU window: concurrent requests now see the reserved count.
-      await incrementUsageForced(db, auth.workspaceId, { apiCall: 1 });
     }
 
     await next();

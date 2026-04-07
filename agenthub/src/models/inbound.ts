@@ -1,7 +1,7 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { randomBytes, createHmac, timingSafeEqual } from 'crypto';
-import { NotFoundError, ValidationError, SecretDetectedError } from '../errors.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
+import { NotFoundError, ValidationError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { createTask } from './task.js';
 import { broadcastEvent } from './event.js';
 import { saveContext } from './context.js';
@@ -208,11 +208,7 @@ export async function processInboundWebhook(
   payload: Record<string, unknown>,
 ): Promise<ProcessInboundResult> {
   // Scan payload content for leaked secrets before processing
-  const payloadStr = JSON.stringify(payload);
-  const scan = scanForSecrets(payloadStr);
-  if (!scan.clean) {
-    throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-  }
+  throwIfSecretsFound(JSON.stringify(payload));
 
   const agentId = `inbound:${endpoint.name}`;
   const cfg = endpoint.actionConfig;

@@ -1,6 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
-import { ValidationError, NotFoundError, SecretDetectedError } from '../errors.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
+import { ValidationError, NotFoundError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { createTask } from './task.js';
 import { createWorkflowRun, setWorkflowRunTaskIds } from './workflow.js';
 import { incrementUsage } from './usage.js';
@@ -89,10 +89,7 @@ export async function definePlaybook(
 
   // Scan description and task descriptions for secrets
   for (const field of [input.description, ...input.tasks.map(t => t.description)]) {
-    const scan = scanForSecrets(field);
-    if (!scan.clean) {
-      throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-    }
+    throwIfSecretsFound(field);
   }
 
   const tasksJson = JSON.stringify(input.tasks);

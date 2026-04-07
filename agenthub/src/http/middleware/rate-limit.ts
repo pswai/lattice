@@ -20,6 +20,33 @@ export function __resetRateLimit(): void {
   workspaceBuckets.clear();
 }
 
+/** Sweep interval for pruning stale bucket entries (every 5 minutes). */
+const SWEEP_INTERVAL_MS = 5 * 60_000;
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+function sweepStaleBuckets(windowMs: number): void {
+  const cutoff = Date.now() - windowMs * 2;
+  for (const [key, bucket] of buckets) {
+    if (bucket.hits.length === 0 || bucket.hits[bucket.hits.length - 1] < cutoff) {
+      buckets.delete(key);
+    }
+  }
+  for (const [key, bucket] of workspaceBuckets) {
+    if (bucket.hits.length === 0 || bucket.hits[bucket.hits.length - 1] < cutoff) {
+      workspaceBuckets.delete(key);
+    }
+  }
+}
+
+function ensureSweep(windowMs: number): void {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(() => sweepStaleBuckets(windowMs), SWEEP_INTERVAL_MS);
+  // Don't keep the process alive just for sweeping.
+  if (sweepTimer && typeof sweepTimer === 'object' && 'unref' in sweepTimer) {
+    sweepTimer.unref();
+  }
+}
+
 function pruneOld(bucket: Bucket, windowStart: number): void {
   // Hits are pushed in order, so drop from the front while stale.
   let drop = 0;
@@ -36,6 +63,7 @@ export interface RateLimitOptions {
 }
 
 export function createRateLimitMiddleware({ perMinute, windowMs = 60_000 }: RateLimitOptions) {
+  ensureSweep(windowMs);
   return createMiddleware(async (c, next) => {
     if (perMinute <= 0) {
       await next();
@@ -113,6 +141,7 @@ export function checkRateLimit(
  * is available. Aggregates all requests for a given workspaceId.
  */
 export function createWorkspaceRateLimitMiddleware({ perMinute, windowMs = 60_000 }: RateLimitOptions) {
+  ensureSweep(windowMs);
   return createMiddleware(async (c, next) => {
     if (perMinute <= 0) {
       await next();

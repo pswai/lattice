@@ -1,7 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
 import type { Message, SendMessageInput, SendMessageResponse, GetMessagesInput, GetMessagesResponse } from './types.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
-import { SecretDetectedError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
 
 interface MessageRow {
   id: number;
@@ -32,10 +31,7 @@ export async function sendMessage(
   input: SendMessageInput,
 ): Promise<SendMessageResponse> {
   // Scan message content for secrets
-  const scan = scanForSecrets(input.message);
-  if (!scan.clean) {
-    throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-  }
+  throwIfSecretsFound(input.message);
 
   const result = await db.run(`
     INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags)

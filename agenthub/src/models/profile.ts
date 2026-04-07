@@ -1,6 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
-import { ValidationError, NotFoundError, SecretDetectedError } from '../errors.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
+import { ValidationError, NotFoundError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
 
 export interface AgentProfile {
   id: number;
@@ -75,10 +75,7 @@ export async function defineProfile(
 
   // Scan description and system_prompt for secrets
   for (const field of [input.description, input.system_prompt]) {
-    const scan = scanForSecrets(field);
-    if (!scan.clean) {
-      throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-    }
+    throwIfSecretsFound(field);
   }
 
   const capabilitiesJson = JSON.stringify(input.default_capabilities ?? []);

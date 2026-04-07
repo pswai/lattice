@@ -1,8 +1,8 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
 import type { Task, TaskStatus, TaskPriority, CreateTaskInput, UpdateTaskInput, CreateTaskResponse, UpdateTaskResponse } from './types.js';
-import { TaskConflictError, InvalidTransitionError, NotFoundError, ForbiddenError, ValidationError, SecretDetectedError } from '../errors.js';
-import { scanForSecrets } from '../services/secret-scanner.js';
+import { TaskConflictError, InvalidTransitionError, NotFoundError, ForbiddenError, ValidationError } from '../errors.js';
+import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { broadcastInternal } from './event.js';
 import { saveContext } from './context.js';
 import { checkWorkflowCompletion } from './workflow.js';
@@ -224,10 +224,7 @@ export async function createTask(
   input: CreateTaskInput,
 ): Promise<CreateTaskResponse> {
   // Scan description for secrets
-  const descScan = scanForSecrets(input.description);
-  if (!descScan.clean) {
-    throw new SecretDetectedError(descScan.matches[0].pattern, descScan.matches[0].preview);
-  }
+  throwIfSecretsFound(input.description);
 
   const status = input.status ?? 'claimed';
   const priority = input.priority ?? 'P2';
@@ -336,10 +333,7 @@ export async function updateTask(
 
   // Scan result for secrets if provided
   if (input.result) {
-    const resultScan = scanForSecrets(input.result);
-    if (!resultScan.clean) {
-      throw new SecretDetectedError(resultScan.matches[0].pattern, resultScan.matches[0].preview);
-    }
+    throwIfSecretsFound(input.result);
   }
 
   // Build update fields based on new status

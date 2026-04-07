@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { saveContext, getContext } from '../../models/context.js';
-import { scanForSecrets } from '../../services/secret-scanner.js';
-import { SecretDetectedError, ValidationError } from '../../errors.js';
+import { throwIfSecretsFound } from '../../services/secret-scanner.js';
+import { ValidationError } from '../../errors.js';
 
 const SaveContextSchema = z.object({
   key: z.string().min(1).max(255),
@@ -26,10 +26,7 @@ export function createContextRoutes(db: DbAdapter): Hono {
 
     // Secret scan on both key and value
     for (const field of [parsed.data.key, parsed.data.value]) {
-      const scan = scanForSecrets(field);
-      if (!scan.clean) {
-        throw new SecretDetectedError(scan.matches[0].pattern, scan.matches[0].preview);
-      }
+      throwIfSecretsFound(field);
     }
 
     // saveContext handles both DB write and auto-broadcast of LEARNING event
@@ -47,7 +44,7 @@ export function createContextRoutes(db: DbAdapter): Hono {
     const limitParam = c.req.query('limit');
 
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const limit = limitParam ? (parseInt(limitParam, 10) || 20) : undefined;
 
     const result = await getContext(db, workspaceId, { query, tags, limit });
     return c.json(result);
