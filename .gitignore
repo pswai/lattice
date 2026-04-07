@@ -10,13 +10,13 @@ dist/
 *.tsbuildinfo
 
 # Runtime databases (SQLite)
-agenthub/data/*.db
-agenthub/data/*.db-shm
-agenthub/data/*.db-wal
-agenthub/data/*.db-shm.bak
-agenthub/data/*.db-wal.bak
-agenthub/data/*.db.bak
-agenthub/*.db
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-shm.bak
+data/*.db-wal.bak
+data/*.db.bak
+*.db
 
 # Env files
 .env

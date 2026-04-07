@@ -120,7 +120,7 @@ broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
 
 **Multi-team release coordination.** Playbooks with DAG dependencies encode deploy order across 8 microservices. The task graph visualizes progress in real time.
 
-[See all 15 use cases ->](docs/use-cases.md)
+[See all 13 use cases ->](docs/use-cases.md)
 
 ---
 
@@ -319,15 +319,19 @@ See [SECURITY.md](SECURITY.md) and [docs/self-hosted-guide.md](docs/self-hosted-
 
 ## Lattice vs Others
 
-| | Lattice | CrewAI / LangGraph | n8n / Temporal |
-|---|---|---|---|
-| **What it is** | Coordination infrastructure | Agent frameworks | Workflow engines |
-| **How agents connect** | MCP (standard protocol) | Framework-specific SDK | Custom connectors |
-| **Agent code changes** | None | Must use their APIs | Must write nodes/workflows |
-| **Self-hosted** | Single binary, SQLite | Varies | Complex infra |
-| **Use with any framework** | Yes | No (locked in) | Partially |
+| | Lattice | Claude Code Built-in | CrewAI / LangGraph | Mem0 / Zep |
+|---|---|---|---|---|
+| **What it is** | Coordination infrastructure | Session-local tools | Agent frameworks | Memory platforms |
+| **Persistence** | Across sessions | Session only | Framework-managed | Cloud/self-hosted |
+| **Knowledge search** | FTS5 + tags | Flat MEMORY.md | None | Vector/graph search |
+| **Task coordination** | DAG deps, claim-before-work | Session-local list | Role-based | None |
+| **Automation** | Playbooks, cron, webhooks | None | Workflow-defined | None |
+| **Works with** | Any MCP client | Claude Code only | Own SDK only | SDK integration |
+| **Self-hosted** | Single binary, SQLite | N/A | Varies | Varies |
 
-Lattice doesn't replace agent frameworks -- it sits alongside them. Use CrewAI to build agents, Lattice to coordinate them.
+**When to use Claude Code's built-in tools:** Single-session work where you don't need persistence or automation.
+
+**When to add Lattice:** Knowledge that survives sessions, tasks multiple agents can claim, automated pipelines, external integrations, or cross-tool coordination (Claude Code + Cursor + custom agents).
 
 ---
 
@@ -336,11 +340,12 @@ Lattice doesn't replace agent frameworks -- it sits alongside them. Use CrewAI t
 - [Getting Started](docs/getting-started.md) -- zero to running in 5 minutes
 - [Configuration](docs/configuration.md) -- all environment variables
 - [API Reference](docs/api-reference.md) -- every REST endpoint
-- [Use Cases](docs/use-cases.md) -- 15 scenarios across individuals, teams, and enterprises
+- [Use Cases](docs/use-cases.md) -- 13 scenarios across individuals, teams, and enterprises
 - [LLM Reference](docs/llm-reference.md) -- MCP tool docs optimized for AI agents
 - [LLM Examples](docs/llm-examples.md) -- multi-agent coordination patterns
 - [Self-Hosted Guide](docs/self-hosted-guide.md) -- production deployment
-- [Agent Protocol](CLAUDE.md) -- how agents should use Lattice
+- [Agent Protocol](docs/agent-protocol.md) -- how agents should use Lattice
+- [Agent Preamble](docs/agent-preamble.md) -- template for teaching agents the protocol
 
 ## Contributing
 
