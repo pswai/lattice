@@ -155,53 +155,46 @@ describe('M3 — NaN limit parameters get safe defaults', () => {
     ctx = createTestContext();
   });
 
-  it('GET /tasks?limit=abc should return 200 with default limit (not NaN error)', async () => {
+  it('GET /tasks?limit=abc should return 400 (R7: proper validation)', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=abc', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.tasks).toBeInstanceOf(Array);
+    expect(res.status).toBe(400);
   });
 
-  it('GET /tasks?limit= (empty) should return 200 with default limit', async () => {
+  it('GET /tasks?limit= (empty) should return 400 (R7: proper validation)', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
-  it('GET /artifacts?limit=NaN should return 200 with default limit', async () => {
+  it('GET /artifacts?limit=NaN should return 400 (R7: proper validation)', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/artifacts?limit=NaN', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.artifacts).toBeInstanceOf(Array);
+    expect(res.status).toBe(400);
   });
 
-  it('GET /context?limit=undefined should return 200 with default limit', async () => {
+  it('GET /context?limit=undefined should return 400 (R7: proper validation)', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/context?query=test&limit=undefined', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
-  it('GET /events?limit=foo&since_id=bar should return 200 with safe defaults', async () => {
-    const res = await request(ctx.app, 'GET', '/api/v1/events?limit=foo&since_id=bar', {
+  it('GET /events?since_id=bar should return 400 (R7: proper validation)', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/events?since_id=bar', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
-  it('GET /tasks?limit=0 should use fallback default (0 is falsy)', async () => {
+  it('GET /tasks?limit=0 should return 400 (R7: 0 is not a valid positive limit)', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=0', {
       headers: authHeaders(ctx.apiKey),
     });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    // With || 50 pattern, limit=0 falls back to 50 (0 is falsy)
-    expect(data.tasks).toBeInstanceOf(Array);
+    expect(res.status).toBe(400);
   });
 });
 

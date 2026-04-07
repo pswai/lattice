@@ -2,7 +2,7 @@ import type { DbAdapter } from '../db/adapter.js';
 import { ValidationError, NotFoundError } from '../errors.js';
 import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { createTask } from './task.js';
-import { createWorkflowRun, setWorkflowRunTaskIds } from './workflow.js';
+import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion } from './workflow.js';
 import { incrementUsage } from './usage.js';
 
 export interface PlaybookTaskTemplate {
@@ -182,6 +182,12 @@ export async function runPlaybook(
   }
 
   await setWorkflowRunTaskIds(db, workflowRunId, createdIds);
+
+  // Re-check completion for all tasks in case any finished during the race
+  // window between workflow creation (with empty task_ids) and now.
+  for (const taskId of createdIds) {
+    await checkWorkflowCompletion(db, taskId);
+  }
 
   // Billing: count 1 for the run itself (individual tasks are already counted
   // by createTask). Spec asks for: tasks spawned + 1 for the run.

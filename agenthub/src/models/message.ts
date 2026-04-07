@@ -1,6 +1,7 @@
 import type { DbAdapter } from '../db/adapter.js';
 import type { Message, SendMessageInput, SendMessageResponse, GetMessagesInput, GetMessagesResponse } from './types.js';
 import { throwIfSecretsFound } from '../services/secret-scanner.js';
+import { safeJsonParse } from '../safe-json.js';
 
 interface MessageRow {
   id: number;
@@ -19,7 +20,7 @@ function rowToMessage(row: MessageRow): Message {
     fromAgent: row.from_agent,
     toAgent: row.to_agent,
     message: row.message,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdAt: row.created_at,
   };
 }

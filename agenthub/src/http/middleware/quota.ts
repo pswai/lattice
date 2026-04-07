@@ -75,7 +75,7 @@ export function createQuotaMiddleware(
     if (isMutating) {
       const status = c.res.status;
       if (status < 200 || status >= 300) {
-        decrementUsageForced(db, auth.workspaceId, { apiCall: 1 }).catch((err) => {
+        await decrementUsageForced(db, auth.workspaceId, { apiCall: 1 }).catch((err) => {
           getLogger().error('quota_counter_rollback_failed', {
             error: err instanceof Error ? err.message : String(err),
           });

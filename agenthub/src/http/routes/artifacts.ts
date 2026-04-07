@@ -38,7 +38,10 @@ export function createArtifactRoutes(db: DbAdapter): Hono {
     const limitParam = c.req.query('limit');
 
     const content_type = contentTypeParam ? (contentTypeParam as ArtifactContentType) : undefined;
-    const limit = limitParam ? (parseInt(limitParam, 10) || 50) : undefined;
+    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
+      throw new ValidationError('limit must be a positive integer');
+    }
 
     const result = await listArtifacts(db, workspaceId, { content_type, limit });
     return c.json(result);

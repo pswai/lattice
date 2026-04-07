@@ -426,6 +426,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
     },
     async (params) => {
       const { workspaceId } = getMcpAuth();
+      requireWriteScope();
 
       await autoRegisterAgent(db, workspaceId, params.agent_id);
 

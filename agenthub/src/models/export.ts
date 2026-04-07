@@ -5,6 +5,7 @@ import type { Playbook, PlaybookTaskTemplate } from './playbook.js';
 import type { WorkflowRun, WorkflowRunStatus } from './workflow.js';
 import type { AgentProfile } from './profile.js';
 import type { Schedule } from './schedule.js';
+import { safeJsonParse } from '../safe-json.js';
 
 export const EXPORT_VERSION = '1';
 export const EVENT_EXPORT_LIMIT = 1000;
@@ -105,7 +106,7 @@ async function exportContextEntries(db: DbAdapter, workspaceId: string): Promise
     workspaceId: row.workspace_id,
     key: row.key,
     value: row.value,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedBy: row.updated_by,
@@ -133,7 +134,7 @@ async function exportEvents(db: DbAdapter, workspaceId: string): Promise<Event[]
     workspaceId: row.workspace_id,
     eventType: row.event_type as EventType,
     message: row.message,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
   }));
@@ -202,9 +203,9 @@ async function exportAgents(db: DbAdapter, workspaceId: string): Promise<Agent[]
   return rows.map((row) => ({
     id: row.id,
     workspaceId: row.workspace_id,
-    capabilities: JSON.parse(row.capabilities) as string[],
+    capabilities: safeJsonParse<string[]>(row.capabilities, []),
     status: row.status as AgentStatus,
-    metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+    metadata: safeJsonParse<Record<string, unknown>>(row.metadata, {}),
     lastHeartbeat: row.last_heartbeat,
     registeredAt: row.registered_at,
   }));
@@ -229,7 +230,7 @@ async function exportMessages(db: DbAdapter, workspaceId: string): Promise<Messa
     fromAgent: row.from_agent,
     toAgent: row.to_agent,
     message: row.message,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdAt: row.created_at,
   }));
 }
@@ -274,7 +275,7 @@ async function exportPlaybooks(db: DbAdapter, workspaceId: string): Promise<Play
     workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
-    tasks: JSON.parse(row.tasks_json) as PlaybookTaskTemplate[],
+    tasks: safeJsonParse<PlaybookTaskTemplate[]>(row.tasks_json, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
   }));
@@ -299,7 +300,7 @@ async function exportWorkflowRuns(db: DbAdapter, workspaceId: string): Promise<W
     workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     startedBy: row.started_by,
-    taskIds: JSON.parse(row.task_ids) as number[],
+    taskIds: safeJsonParse<number[]>(row.task_ids, []),
     status: row.status as WorkflowRunStatus,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -328,8 +329,8 @@ async function exportAgentProfiles(db: DbAdapter, workspaceId: string): Promise<
     name: row.name,
     description: row.description,
     systemPrompt: row.system_prompt,
-    defaultCapabilities: JSON.parse(row.default_capabilities) as string[],
-    defaultTags: JSON.parse(row.default_tags) as string[],
+    defaultCapabilities: safeJsonParse<string[]>(row.default_capabilities, []),
+    defaultTags: safeJsonParse<string[]>(row.default_tags, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -389,7 +390,7 @@ async function exportInboundEndpoints(db: DbAdapter, workspaceId: string): Promi
     id: row.id,
     name: row.name,
     action_type: row.action_type,
-    action_config: JSON.parse(row.action_config) as Record<string, unknown>,
+    action_config: safeJsonParse<Record<string, unknown>>(row.action_config, {}),
     endpoint_key: REDACTED,
     hmac_secret: row.hmac_secret === null ? null : REDACTED,
     active: row.active === 1,
@@ -419,7 +420,7 @@ async function exportWebhooks(db: DbAdapter, workspaceId: string): Promise<Expor
     id: row.id,
     url: row.url,
     secret: REDACTED,
-    event_types: JSON.parse(row.event_types) as string[],
+    event_types: safeJsonParse<string[]>(row.event_types, []),
     active: row.active === 1,
     failure_count: row.failure_count,
     created_by: row.created_by,

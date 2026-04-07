@@ -1,5 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { FREE_PLAN_FALLBACK, type Plan } from './plan.js';
+import { ValidationError } from '../errors.js';
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
 
@@ -66,6 +67,9 @@ export async function upsertWorkspaceSubscription(
   db: DbAdapter,
   input: UpsertSubscriptionInput,
 ): Promise<WorkspaceSubscription> {
+  if (input.periodStart && input.periodEnd && input.periodStart > input.periodEnd) {
+    throw new ValidationError('periodStart must be before or equal to periodEnd');
+  }
   const status = input.status ?? 'active';
   await db.run(`
     INSERT INTO workspace_subscriptions

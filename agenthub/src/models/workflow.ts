@@ -1,6 +1,7 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
 import { NotFoundError } from '../errors.js';
+import { safeJsonParse } from '../safe-json.js';
 
 export type WorkflowRunStatus = 'running' | 'completed' | 'failed';
 
@@ -32,7 +33,7 @@ function rowToRun(row: WorkflowRunRow): WorkflowRun {
     workspaceId: row.workspace_id,
     playbookName: row.playbook_name,
     startedBy: row.started_by,
-    taskIds: JSON.parse(row.task_ids) as number[],
+    taskIds: safeJsonParse<number[]>(row.task_ids, []),
     status: row.status as WorkflowRunStatus,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -156,7 +157,7 @@ export async function checkWorkflowCompletion(
   `, taskId);
 
   for (const row of rows) {
-    const taskIds = JSON.parse(row.task_ids) as number[];
+    const taskIds = safeJsonParse<number[]>(row.task_ids, []);
     if (taskIds.length === 0) continue;
 
     const placeholders = taskIds.map(() => '?').join(',');

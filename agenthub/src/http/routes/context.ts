@@ -44,7 +44,10 @@ export function createContextRoutes(db: DbAdapter): Hono {
     const limitParam = c.req.query('limit');
 
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
-    const limit = limitParam ? (parseInt(limitParam, 10) || 20) : undefined;
+    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
+      throw new ValidationError('limit must be a positive integer');
+    }
 
     const result = await getContext(db, workspaceId, { query, tags, limit });
     return c.json(result);

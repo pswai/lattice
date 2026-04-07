@@ -3,6 +3,7 @@ import { jsonArrayTable } from '../db/adapter.js';
 import type { Event, EventType, BroadcastInput, GetUpdatesInput, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
 import { eventBus } from '../services/event-emitter.js';
 import { incrementUsage } from './usage.js';
+import { safeJsonParse } from '../safe-json.js';
 
 const RECOMMENDED_CONTEXT_LIMIT = 3;
 const RECOMMENDED_ACTIVITY_LOOKBACK = 10;
@@ -25,7 +26,7 @@ function rowToRecommended(row: ContextEntryRow): RecommendedContextEntry {
     preview: value.length > RECOMMENDED_PREVIEW_CHARS
       ? value.slice(0, RECOMMENDED_PREVIEW_CHARS)
       : value,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
@@ -47,7 +48,7 @@ async function computeRecommendedContext(
 
   const activeTags = new Set<string>();
   for (const row of recentEventRows) {
-    const tags = JSON.parse(row.tags) as string[];
+    const tags = safeJsonParse<string[]>(row.tags, []);
     for (const t of tags) activeTags.add(t);
   }
 
@@ -97,7 +98,7 @@ function rowToEvent(row: EventRow): Event {
     workspaceId: row.workspace_id,
     eventType: row.event_type as EventType,
     message: row.message,
-    tags: JSON.parse(row.tags) as string[],
+    tags: safeJsonParse<string[]>(row.tags, []),
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
