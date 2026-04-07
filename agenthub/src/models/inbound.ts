@@ -89,6 +89,9 @@ export async function defineInboundEndpoint(
   if (typeof config !== 'object' || Array.isArray(config)) {
     throw new ValidationError('action_config must be an object');
   }
+  if (JSON.stringify(config).length > 10_240) {
+    throw new ValidationError('action_config exceeds maximum size of 10 KB');
+  }
 
   const endpointKey = randomBytes(16).toString('hex');
 

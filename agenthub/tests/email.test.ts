@@ -75,12 +75,10 @@ describe('email service', () => {
     await expect(sender.send('to@example.com', 's', 'b')).rejects.toThrow(/401/);
   });
 
-  it('falls back to stub when emailProvider=resend but no apiKey', async () => {
-    const sender = createEmailSender(
-      testConfig({ emailProvider: 'resend', emailResendApiKey: '' }),
-    );
-    await sender.send('x@y.com', 's', 'b');
-    expect(getLastStubEmails()).toHaveLength(1);
+  it('throws when emailProvider=resend but no apiKey', () => {
+    expect(() =>
+      createEmailSender(testConfig({ emailProvider: 'resend', emailResendApiKey: '' })),
+    ).toThrow('RESEND_API_KEY is not set');
   });
 
   it('stub sender returns a resolved promise', async () => {

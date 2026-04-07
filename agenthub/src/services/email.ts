@@ -73,10 +73,9 @@ class ResendEmailSender implements EmailSender {
 export function createEmailSender(config: AppConfig): EmailSender {
   if (config.emailProvider === 'resend') {
     if (!config.emailResendApiKey) {
-      // Misconfiguration: resend chosen but no key. Log and fall back to stub
-      // so signup/invite don't blow up in production.
-      getLogger().warn('email_resend_missing_key_fallback_stub');
-      return new StubEmailSender();
+      throw new Error(
+        "emailProvider is 'resend' but RESEND_API_KEY is not set. Either provide the key or remove the emailProvider setting.",
+      );
     }
     return new ResendEmailSender(config.emailResendApiKey, config.emailFromAddress);
   }

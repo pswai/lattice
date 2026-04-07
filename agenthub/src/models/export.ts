@@ -418,7 +418,7 @@ async function exportWebhooks(db: DbAdapter, workspaceId: string): Promise<Expor
   );
   return rows.map((row) => ({
     id: row.id,
-    url: row.url,
+    url: REDACTED,
     secret: REDACTED,
     event_types: safeJsonParse<string[]>(row.event_types, []),
     active: row.active === 1,

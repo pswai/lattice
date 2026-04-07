@@ -50,6 +50,8 @@ export interface CreateSessionResult {
   expiresAt: string;
 }
 
+const MAX_SESSIONS_PER_USER = 10;
+
 export async function createSession(
   db: DbAdapter,
   userId: string,
@@ -63,6 +65,17 @@ export async function createSession(
   await db.run(
     'INSERT INTO sessions (id, user_id, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)',
     sessionId, userId, expiresAt, opts.ip ?? null, opts.userAgent ?? null,
+  );
+
+  // Trim oldest sessions beyond the per-user limit
+  await db.run(
+    `DELETE FROM sessions WHERE id IN (
+       SELECT id FROM sessions
+       WHERE user_id = ? AND revoked_at IS NULL
+       ORDER BY rowid DESC
+       LIMIT -1 OFFSET ?
+     )`,
+    userId, MAX_SESSIONS_PER_USER,
   );
 
   return { raw, sessionId, expiresAt };

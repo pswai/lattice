@@ -149,7 +149,7 @@ export function createMcpServer(db: DbAdapter): McpServer {
     'get_context',
     'Search the shared team knowledge base using full-text search and optional tag filtering.',
     {
-      query: z.string().describe('Full-text search query'),
+      query: z.string().min(1).describe('Full-text search query'),
       tags: arrayParam(z.array(z.string())).optional().default([]).describe('Optional tag filter (OR matching)'),
       limit: z.number().optional().describe('Max results (default 20, max 100)'),
     },
