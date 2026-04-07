@@ -399,8 +399,7 @@ When `AUDIT_ENABLED=true` (default), Lattice records every mutating request to a
 - Timestamp
 
 Query the audit log via:
-- `GET /workspaces/:id/audit` (session auth, workspace-scoped)
-- `GET /admin/audit-log` (admin key, cross-workspace)
+- `GET /admin/audit-log?workspace_id=<id>` (admin key, supports workspace filtering)
 
 Retention is controlled by `AUDIT_RETENTION_DAYS` (default 365, `0` = keep forever).
 

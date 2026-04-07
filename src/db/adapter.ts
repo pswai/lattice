@@ -1,6 +1,6 @@
 /**
  * Database adapter abstraction — allows Lattice to run against
- * either SQLite (self-hosted / dev) or Postgres (cloud / SaaS).
+ * either SQLite (default, self-hosted) or Postgres.
  *
  * Model code uses:
  *   await db.get<Row>('SELECT * FROM t WHERE id = ?', id)

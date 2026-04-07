@@ -15,8 +15,7 @@ export type { DbAdapter } from './adapter.js';
 export { SqliteAdapter } from './adapter.js';
 
 /**
- * Legacy sync init — returns raw better-sqlite3 Database for backward compat.
- * Used by all existing model/route/service code until the Slice 2 migration.
+ * Sync init — returns raw better-sqlite3 Database for backward compat.
  */
 export function initDatabase(dbPath: string): Database.Database {
   return createSqliteAdapter(dbPath).rawDb;
@@ -43,8 +42,7 @@ export async function createAdapter(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Original SQLite init path — preserved exactly for backward compat.
- * Returns a SqliteAdapter wrapping the better-sqlite3 Database.
+ * Create a SqliteAdapter: runs schema init and column migrations.
  */
 export function createSqliteAdapter(dbPath: string): SqliteAdapter {
   mkdirSync(dirname(dbPath), { recursive: true });

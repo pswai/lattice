@@ -100,7 +100,7 @@ X-Agent-ID: <your-agent-id>
 | GET | `/context?query=...&tags=...` | `get_context` |
 | POST | `/events` | `broadcast` |
 | GET | `/events?since_id=...` | `get_updates` |
-| POST | `/events/wait` | `wait_for_event` |
+| GET | `/events/wait` | `wait_for_event` |
 | POST | `/tasks` | `create_task` |
 | PATCH | `/tasks/:id` | `update_task` |
 | GET | `/tasks` | `list_tasks` |

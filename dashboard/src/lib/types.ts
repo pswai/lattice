@@ -44,14 +44,6 @@ export interface Playbook {
   createdBy: string;
 }
 
-export interface Member {
-  userId: string;
-  name?: string;
-  email?: string;
-  role: 'owner' | 'admin' | 'member' | 'viewer';
-  joinedAt?: string;
-}
-
 export interface AuditEntry {
   id: number;
   action: string;
@@ -59,20 +51,6 @@ export interface AuditEntry {
   resource?: string;
   ip?: string;
   createdAt: string;
-}
-
-export interface UsageData {
-  exec_count: number;
-  api_call_count: number;
-  storage_bytes: number;
-}
-
-export interface UsageLimits {
-  plan_name: string;
-  exec_quota: number;
-  api_call_quota: number;
-  storage_bytes_quota: number;
-  seat_quota: number;
 }
 
 export interface ApiKey {
@@ -97,10 +75,7 @@ export interface DashboardSnapshot {
   tasks: Task[];
   recentEvents: LatticeEvent[];
   analytics: Analytics;
-  members: Member[];
   auditLog: AuditEntry[];
-  usage: UsageData;
-  limits: UsageLimits;
   apiKeys: ApiKey[];
 }
 

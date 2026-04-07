@@ -14,7 +14,7 @@ asset: context entries, messages, artifacts, tasks, events. The main threats:
 | Credential theft / unauthorized team access | Hashed API keys, scopes (read/write/admin), expiry, revocation |
 | Key leakage via logs | Automatic secret redaction on every emitted log line |
 | Stolen key kept live indefinitely | Key rotation + revocation endpoints + `expires_at` |
-| Tenant data crossover | All queries scoped by `team_id`; no cross-team access paths |
+| Tenant data crossover | All queries scoped by `workspace_id`; no cross-team access paths |
 | Abuse / DoS from compromised client | Per-key rate limiting + body-size limits |
 | Webhook spoofing (inbound/outbound) | HMAC-SHA256 signatures |
 | Untracked privileged actions | Append-only audit log of every mutating request |
@@ -95,7 +95,7 @@ scripts would need allowlisting first. Add it via a reverse proxy if you need it
 Every successful mutating request (`POST`/`PUT`/`PATCH`/`DELETE` with status
 `< 400`) is recorded to an append-only `audit_log` table.
 
-Fields captured: `team_id`, `actor` (agent_id), `action` (e.g. `task.create`),
+Fields captured: `workspace_id`, `actor` (agent_id), `action` (e.g. `task.create`),
 `resource_type`, `resource_id`, `metadata` (query params), `ip`, `request_id`,
 `created_at`. Request bodies are **never** recorded.
 
@@ -104,7 +104,7 @@ AUDIT_ENABLED            default true
 AUDIT_RETENTION_DAYS     default 365    (0 keeps forever)
 ```
 
-Query via `GET /admin/audit-log?team_id=…` with optional filters: `actor`,
+Query via `GET /admin/audit-log?workspace_id=…` with optional filters: `actor`,
 `action`, `resource_type`, `since`, `until`, `limit` (max 1000), `before_id`
 (cursor pagination).
 

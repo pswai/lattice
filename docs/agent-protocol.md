@@ -215,7 +215,7 @@ define_inbound_endpoint(
 |----------|-------------|---------|
 | `PORT` | HTTP server port | `3000` |
 | `DATABASE_URL` | PostgreSQL connection string (if using Postgres) | SQLite file |
-| `LATTICE_DB` | SQLite database path | `lattice.db` |
+| `DB_PATH` | SQLite database path | `./data/lattice.db` |
 
 ### MCP Config (.mcp.json)
 

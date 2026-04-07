@@ -12,8 +12,8 @@ is persisted to a host-mounted volume.
 ## 1. Clone and enter the repo
 
 ```bash
-git clone https://github.com/your-org/tools-for-ai.git
-cd tools-for-ai/lattice
+git clone https://github.com/pswai/lattice.git
+cd lattice
 ```
 
 ## 2. Set your admin key
@@ -69,7 +69,7 @@ curl -X POST http://localhost:3000/admin/teams \
 Response:
 
 ```json
-{ "team_id": "my-team", "api_key": "lt_<64-hex-chars>" }
+{ "workspace_id": "my-team", "api_key": "lt_<64-hex-chars>", "scope": "write" }
 ```
 
 **Save the `api_key`** — it is shown only once. If you lose it, mint a new one:
@@ -95,7 +95,7 @@ token.
 
 ## 7. Open the dashboard
 
-Visit [http://localhost:3000/dashboard](http://localhost:3000/dashboard) in a
+Visit [http://localhost:3000](http://localhost:3000) in a
 browser to see live tasks, agents, events, and context for your team.
 
 ## Data persistence

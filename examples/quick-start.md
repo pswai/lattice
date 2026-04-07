@@ -19,8 +19,12 @@ Add to your MCP config (`.mcp.json`):
 {
   "mcpServers": {
     "lattice": {
-      "type": "streamable-http",
-      "url": "http://localhost:3000/mcp"
+      "type": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer lt_your_api_key",
+        "X-Agent-ID": "my-agent"
+      }
     }
   }
 }

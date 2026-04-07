@@ -7,7 +7,7 @@ probes out of the box. No agents to install. No external services required.
 
 - **Format:** one JSON object per line, on stdout.
 - **Fields:** `ts`, `level`, `msg`, plus any request/service context
-  (`req_id`, `team_id`, `agent_id`, `component`, `method`, `path`, `status`,
+  (`req_id`, `workspace_id`, `agent_id`, `component`, `method`, `path`, `status`,
   `duration_ms`, …).
 - **Auto-redacted:** API keys, bearer tokens, Stripe/OpenAI/Anthropic/AWS/
   GitHub/Google API keys, JWTs, and private-key blocks are scrubbed before
@@ -24,7 +24,7 @@ Every HTTP request emits exactly one `http_request` line:
 {"ts":"2026-04-05T10:12:34.567Z","level":"info","msg":"http_request",
  "req_id":"550e8400-e29b-41d4-a716-446655440000","method":"POST",
  "path":"/api/v1/tasks","status":201,"duration_ms":12,
- "team_id":"research","agent_id":"code-reviewer"}
+ "workspace_id":"research","agent_id":"code-reviewer"}
 ```
 
 ## Request IDs
@@ -106,9 +106,9 @@ readinessProbe:
 ## Audit trail
 
 See [SECURITY.md § Audit log](./SECURITY.md#audit-log). Every mutating call
-records `team_id`, `actor`, `action`, `resource_type`, `resource_id`, `ip`,
+records `workspace_id`, `actor`, `action`, `resource_type`, `resource_id`, `ip`,
 `request_id`, and the request query. Query via
-`GET /admin/audit-log?team_id=…`.
+`GET /admin/audit-log?workspace_id=…`.
 
 ## Stats endpoint (legacy)
 
@@ -141,9 +141,9 @@ scrape_configs:
       - json:
           expressions:
             level: level
-            team_id: team_id
+            workspace_id: workspace_id
             req_id: req_id
-      - labels: { level, team_id }
+      - labels: { level, workspace_id }
 ```
 
 ## What Lattice intentionally does NOT ship

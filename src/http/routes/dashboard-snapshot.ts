@@ -7,15 +7,15 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
 
   /**
    * GET /dashboard-snapshot — single request combining agents, tasks, analytics,
-   * recent events, workspace info, members, recent audit entries, usage/quota,
-   * and API keys into one payload. Designed to replace the multiple
-   * parallel requests the dashboard fires on page load.
+   * recent events, workspace info, recent audit entries, and API keys into one
+   * payload. Replaces the multiple parallel requests the dashboard fires on
+   * page load.
    */
   router.get('/', async (c) => {
     const { workspaceId, scope } = c.get('auth');
     const sinceIso = parseSinceDuration('24h');
 
-    const [agents, tasks, events, analytics, workspace, members, auditRows, apiKeys] = await Promise.all([
+    const [agents, tasks, events, analytics, workspace, auditRows, apiKeys] = await Promise.all([
       db.all<{
         id: string;
         workspace_id: string;
@@ -54,28 +54,10 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
 
       getWorkspaceAnalytics(db, workspaceId, sinceIso),
 
-      db.get<{ id: string; name: string; plan_id: string | null }>(
-        `SELECT w.id, w.name, ws.plan_id
-         FROM workspaces w
-         LEFT JOIN workspace_subscriptions ws ON ws.workspace_id = w.id
-         WHERE w.id = ?`,
+      db.get<{ id: string; name: string }>(
+        'SELECT id, name FROM workspaces WHERE id = ?',
         workspaceId,
-      ).catch(() => null as { id: string; name: string; plan_id: string | null } | null),
-
-      db.all<{
-        user_id: string;
-        email: string | null;
-        name: string | null;
-        role: string;
-        joined_at: string;
-      }>(
-        `SELECT wm.user_id, u.email, u.name, wm.role, wm.joined_at
-         FROM workspace_memberships wm
-         LEFT JOIN users u ON u.id = wm.user_id
-         WHERE wm.workspace_id = ?
-         ORDER BY wm.joined_at`,
-        workspaceId,
-      ).catch(() => [] as Array<{ user_id: string; email: string | null; name: string | null; role: string; joined_at: string }>),
+      ).catch(() => null as { id: string; name: string } | null),
 
       db.all<{
         id: number;
@@ -107,70 +89,8 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
       ).catch(() => [] as Array<{ id: number; label: string; scope: string; created_at: string; last_used_at: string | null; expires_at: string | null; revoked_at: string | null }>),
     ]);
 
-    // Usage counters (best-effort — table may not exist in all setups)
-    let usage: {
-      exec_count: number;
-      api_call_count: number;
-      storage_bytes: number;
-    } | null = null;
-    let limits: {
-      plan_id: string;
-      plan_name: string;
-      exec_quota: number;
-      api_call_quota: number;
-      storage_bytes_quota: number;
-      seat_quota: number;
-    } | null = null;
-
-    try {
-      const now = new Date();
-      const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-      const usageRow = await db.get<{
-        exec_count: number;
-        api_call_count: number;
-        storage_bytes: number;
-      }>(
-        'SELECT exec_count, api_call_count, storage_bytes FROM usage_counters WHERE workspace_id = ? AND period_ym = ?',
-        workspaceId, period,
-      );
-      if (usageRow) {
-        usage = usageRow;
-      } else {
-        usage = { exec_count: 0, api_call_count: 0, storage_bytes: 0 };
-      }
-
-      // Fetch plan quotas from DB (with fallback to defaults)
-      const planId = workspace?.plan_id || 'free';
-      const planRow = await db.get<{
-        id: string; name: string; exec_quota: number; api_call_quota: number;
-        storage_bytes_quota: number; seat_quota: number;
-      }>('SELECT id, name, exec_quota, api_call_quota, storage_bytes_quota, seat_quota FROM subscription_plans WHERE id = ?', planId);
-      if (planRow) {
-        limits = {
-          plan_id: planRow.id,
-          plan_name: planRow.name,
-          exec_quota: planRow.exec_quota,
-          api_call_quota: planRow.api_call_quota,
-          storage_bytes_quota: planRow.storage_bytes_quota,
-          seat_quota: planRow.seat_quota,
-        };
-      } else {
-        // Fallback for missing plan row
-        limits = {
-          plan_id: planId,
-          plan_name: planId.charAt(0).toUpperCase() + planId.slice(1),
-          exec_quota: 1000,
-          api_call_quota: 10000,
-          storage_bytes_quota: 100 * 1024 * 1024,
-          seat_quota: 100,
-        };
-      }
-    } catch {
-      // usage tables may not exist
-    }
-
     return c.json({
-      workspace: workspace ? { id: workspace.id, name: workspace.name, planId: workspace.plan_id } : { id: workspaceId, name: workspaceId, planId: null },
+      workspace: workspace ? { id: workspace.id, name: workspace.name } : { id: workspaceId, name: workspaceId },
       scope,
       agents: agents.map((a) => ({
         id: a.id,
@@ -206,13 +126,6 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
         createdAt: e.created_at,
       })),
       analytics,
-      members: members.map((m) => ({
-        userId: m.user_id,
-        email: m.email,
-        name: m.name,
-        role: m.role,
-        joinedAt: m.joined_at,
-      })),
       auditLog: auditRows.map((r) => {
         let metadata: unknown = {};
         try { metadata = JSON.parse(r.metadata); } catch { metadata = {}; }
@@ -221,8 +134,6 @@ export function createDashboardSnapshotRoutes(db: DbAdapter): Hono {
           : null;
         return { id: r.id, actor: r.actor, action: r.action, resource, metadata, ip: r.ip, createdAt: r.created_at };
       }),
-      usage,
-      limits,
       apiKeys: apiKeys.map((k) => ({
         id: k.id,
         label: k.label,
