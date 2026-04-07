@@ -16,17 +16,7 @@ export interface AppConfig {
   rateLimitPerMinute: number;
   maxBodyBytes: number;
   hstsEnabled: boolean;
-  cookieSecure: boolean;
-  emailVerificationReturnTokens: boolean;
-  githubOAuthClientId: string;
-  githubOAuthClientSecret: string;
-  githubOAuthRedirectUri: string;
-  emailProvider: 'stub' | 'resend';
-  emailResendApiKey: string;
-  emailFromAddress: string;
-  appBaseUrl: string;
   corsOrigins: string[] | '*';
-  quotaEnforcement: boolean;
   rateLimitPerMinuteWorkspace: number;
 }
 
@@ -49,22 +39,7 @@ export function loadConfig(): AppConfig {
     rateLimitPerMinute: parseInt(process.env.RATE_LIMIT_PER_MIN || '300', 10),
     maxBodyBytes: parseInt(process.env.MAX_BODY_BYTES || '1048576', 10),
     hstsEnabled: (process.env.HSTS_ENABLED || 'false').toLowerCase() === 'true',
-    cookieSecure:
-      (process.env.COOKIE_SECURE || (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
-        .toLowerCase() === 'true',
-    emailVerificationReturnTokens:
-      (process.env.EMAIL_VERIFICATION_RETURN_TOKENS ||
-        (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() === 'true',
-    githubOAuthClientId: process.env.GITHUB_OAUTH_CLIENT_ID || '',
-    githubOAuthClientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET || '',
-    githubOAuthRedirectUri: process.env.GITHUB_OAUTH_REDIRECT_URI || '',
-    emailProvider:
-      (process.env.EMAIL_PROVIDER || 'stub').toLowerCase() === 'resend' ? 'resend' : 'stub',
-    emailResendApiKey: process.env.RESEND_API_KEY || '',
-    emailFromAddress: process.env.EMAIL_FROM || 'noreply@lattice.local',
-    appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
-    quotaEnforcement: (process.env.QUOTA_ENFORCEMENT || 'false').toLowerCase() === 'true',
     rateLimitPerMinuteWorkspace: parseInt(process.env.RATE_LIMIT_PER_MIN_WORKSPACE || '1000', 10),
   };
 }

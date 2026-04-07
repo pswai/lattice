@@ -231,7 +231,6 @@ When using a reverse proxy with HTTPS, set these environment variables:
 
 ```bash
 HSTS_ENABLED=true
-COOKIE_SECURE=true
 ```
 
 ---
@@ -411,7 +410,6 @@ Retention is controlled by `AUDIT_RETENTION_DAYS` (default 365, `0` = keep forev
 
 - [ ] Set a strong `ADMIN_KEY` (at least 32 random hex characters)
 - [ ] Enable HTTPS via reverse proxy and set `HSTS_ENABLED=true`
-- [ ] Set `COOKIE_SECURE=true` when using HTTPS
 - [ ] Set `NODE_ENV=production`
 - [ ] Restrict `CORS_ORIGINS` to your allowed domains (do not use `*`)
 - [ ] Configure `RATE_LIMIT_PER_MIN` and `RATE_LIMIT_PER_MIN_WORKSPACE`

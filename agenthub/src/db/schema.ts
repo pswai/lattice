@@ -3,8 +3,6 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    owner_user_id TEXT,
-    slug TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -275,127 +273,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_workspace_time ON audit_log(workspace_id, c
 CREATE INDEX IF NOT EXISTS idx_audit_workspace_actor ON audit_log(workspace_id, actor, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_workspace_action ON audit_log(workspace_id, action, created_at DESC);
 
--- Users — human end-users for SaaS self-serve (separate from API-key teams).
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    name TEXT,
-    email_verified_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
-
--- Sessions — opaque-token-backed browser sessions. PK is sha256(raw_token).
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at TEXT NOT NULL,
-    ip TEXT,
-    user_agent TEXT,
-    revoked_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-
--- Email verification tokens. Hashed at rest; one-shot via used_at.
-CREATE TABLE IF NOT EXISTS email_verifications (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at TEXT NOT NULL,
-    used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
-
--- Password reset tokens. Hashed at rest; one-shot via used_at.
-CREATE TABLE IF NOT EXISTS password_resets (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at TEXT NOT NULL,
-    used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
-
--- Workspace memberships — join users to teams with a role.
-CREATE TABLE IF NOT EXISTS workspace_memberships (
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'viewer')),
-    invited_by TEXT,
-    joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (user_id, workspace_id)
-);
-CREATE INDEX IF NOT EXISTS idx_workspace_memberships_workspace ON workspace_memberships(workspace_id);
-
--- Workspace invitations — pending invites to join a team.
--- token_hash = sha256(raw); raw is surfaced only once at creation time.
-CREATE TABLE IF NOT EXISTS workspace_invitations (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'member', 'viewer')),
-    token_hash TEXT NOT NULL UNIQUE,
-    invited_by TEXT,
-    expires_at TEXT NOT NULL,
-    accepted_at TEXT,
-    revoked_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace ON workspace_invitations(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_email_lower ON workspace_invitations(LOWER(email));
-
--- OAuth identities — links external provider accounts (e.g., GitHub) to users.
-CREATE TABLE IF NOT EXISTS oauth_identities (
-    provider TEXT NOT NULL,
-    provider_uid TEXT NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    email TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (provider, provider_uid)
-);
-CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
-
--- Subscription plans — catalog of billing plans with quota limits.
-CREATE TABLE IF NOT EXISTS subscription_plans (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    price_cents INTEGER NOT NULL,
-    exec_quota INTEGER NOT NULL,
-    api_call_quota INTEGER NOT NULL,
-    storage_bytes_quota INTEGER NOT NULL,
-    seat_quota INTEGER NOT NULL,
-    retention_days INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
--- Workspace subscriptions — per-workspace plan assignment + Stripe linkage.
-CREATE TABLE IF NOT EXISTS workspace_subscriptions (
-    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
-    plan_id TEXT NOT NULL REFERENCES subscription_plans(id),
-    stripe_customer_id TEXT,
-    stripe_subscription_id TEXT,
-    current_period_start TEXT,
-    current_period_end TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('trialing','active','past_due','canceled')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
--- Usage counters — per-workspace, per-period (YYYY-MM) usage tallies.
-CREATE TABLE IF NOT EXISTS usage_counters (
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    period_ym TEXT NOT NULL,
-    exec_count INTEGER NOT NULL DEFAULT 0,
-    api_call_count INTEGER NOT NULL DEFAULT 0,
-    storage_bytes INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    PRIMARY KEY (workspace_id, period_ym)
-);
-CREATE INDEX IF NOT EXISTS idx_usage_counters_workspace ON usage_counters(workspace_id);
 `;
 
 // Additive column migrations. These ALTER TABLE statements fail if the
@@ -420,17 +297,6 @@ export const CONTEXT_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'updated_at',
     sql: 'ALTER TABLE context_entries ADD COLUMN updated_at TEXT',
-  },
-];
-
-export const WORKSPACES_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
-  {
-    name: 'owner_user_id',
-    sql: 'ALTER TABLE workspaces ADD COLUMN owner_user_id TEXT',
-  },
-  {
-    name: 'slug',
-    sql: 'ALTER TABLE workspaces ADD COLUMN slug TEXT',
   },
 ];
 

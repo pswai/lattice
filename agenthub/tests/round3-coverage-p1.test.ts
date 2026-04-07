@@ -4,8 +4,6 @@ import { getWorkspaceAnalytics, parseSinceDuration } from '../src/models/analyti
 import { createWebhook, createDelivery, listDeliveries, markDeliverySuccess, markDeliveryFailure } from '../src/models/webhook.js';
 import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion, getWorkflowRun } from '../src/models/workflow.js';
 import { createTask, updateTask } from '../src/models/task.js';
-import { currentPeriodYm } from '../src/models/usage.js';
-
 // ─── P1-4: Analytics multi-dimension cross-filtering ───────────────────
 
 describe('Analytics — multi-dimension cross-filtering', () => {
@@ -346,53 +344,3 @@ describe('Workflow — checkWorkflowCompletion edge cases', () => {
   });
 });
 
-// ─── P1-7: currentPeriodYm boundary rollover ────────────────────────────
-
-describe('currentPeriodYm — month/year boundary rollover', () => {
-  it('should return correct format YYYY-MM', () => {
-    const result = currentPeriodYm(new Date('2026-06-15T12:00:00Z'));
-    expect(result).toBe('2026-06');
-  });
-
-  it('should handle December to January rollover', () => {
-    // Dec 31
-    const dec = currentPeriodYm(new Date('2025-12-31T23:59:59Z'));
-    expect(dec).toBe('2025-12');
-
-    // Jan 1
-    const jan = currentPeriodYm(new Date('2026-01-01T00:00:00Z'));
-    expect(jan).toBe('2026-01');
-  });
-
-  it('should pad single-digit months with zero', () => {
-    expect(currentPeriodYm(new Date('2026-01-15T00:00:00Z'))).toBe('2026-01');
-    expect(currentPeriodYm(new Date('2026-09-15T00:00:00Z'))).toBe('2026-09');
-  });
-
-  it('should not pad double-digit months', () => {
-    expect(currentPeriodYm(new Date('2026-10-15T00:00:00Z'))).toBe('2026-10');
-    expect(currentPeriodYm(new Date('2026-12-15T00:00:00Z'))).toBe('2026-12');
-  });
-
-  it('should handle year boundary in leap year', () => {
-    // Feb 29 in 2024 (leap year)
-    const feb29 = currentPeriodYm(new Date('2024-02-29T12:00:00Z'));
-    expect(feb29).toBe('2024-02');
-
-    // Mar 1
-    const mar1 = currentPeriodYm(new Date('2024-03-01T00:00:00Z'));
-    expect(mar1).toBe('2024-03');
-  });
-
-  it('should use UTC month (not local)', () => {
-    // 11pm UTC Dec 31 — could be Jan 1 in some timezones, but should be Dec in UTC
-    const result = currentPeriodYm(new Date('2025-12-31T23:00:00Z'));
-    expect(result).toBe('2025-12');
-  });
-
-  it('should default to current date when no argument given', () => {
-    const now = new Date();
-    const expected = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    expect(currentPeriodYm()).toBe(expected);
-  });
-});

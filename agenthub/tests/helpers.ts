@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { SCHEMA_SQL } from '../src/db/schema.js';
-import { DEFAULT_PLANS } from '../src/models/plan.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { SqliteAdapter } from '../src/db/adapter.js';
@@ -30,15 +29,6 @@ export function createTestAdapter(): SqliteAdapter {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  // Seed default plans synchronously via raw SQL (seedDefaultPlans is async now)
-  const stmt = db.prepare(
-    `INSERT OR IGNORE INTO subscription_plans
-      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-  for (const p of DEFAULT_PLANS) {
-    stmt.run(p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays);
-  }
   return new SqliteAdapter(db);
 }
 
@@ -122,17 +112,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     rateLimitPerMinute: 0,
     maxBodyBytes: 0,
     hstsEnabled: false,
-    cookieSecure: false,
-    emailVerificationReturnTokens: true,
-    githubOAuthClientId: '',
-    githubOAuthClientSecret: '',
-    githubOAuthRedirectUri: '',
-    emailProvider: 'stub',
-    emailResendApiKey: '',
-    emailFromAddress: 'noreply@lattice.local',
-    appBaseUrl: 'http://localhost:3000',
     corsOrigins: [],
-    quotaEnforcement: false,
     rateLimitPerMinuteWorkspace: 0,
     ...overrides,
   };

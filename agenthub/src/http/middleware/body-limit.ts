@@ -64,7 +64,7 @@ export function createBodyLimitMiddleware(maxBytes: number) {
         );
       }
       // Reconstruct the body so downstream handlers can read it
-      const body = new Blob(chunks);
+      const body = new Blob(chunks as BlobPart[]);
       const newReq = new Request(c.req.raw.url, {
         method: c.req.raw.method,
         headers: c.req.raw.headers,

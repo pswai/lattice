@@ -1,7 +1,7 @@
 {
   "name": "lattice",
-  "version": "0.1.0",
-  "description": "Lattice Phase 1 — shared context, messaging bus, and task coordination for AI agent teams",
+  "version": "1.0.0",
+  "description": "MCP-native coordination layer for AI agent teams",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

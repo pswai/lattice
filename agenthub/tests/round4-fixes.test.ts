@@ -4,7 +4,6 @@ import { createMcpServer } from '../src/mcp/server.js';
 import { mcpAuthStorage } from '../src/mcp/auth-context.js';
 import { saveContext, getContext } from '../src/models/context.js';
 import { createTask } from '../src/models/task.js';
-import { setUsageTracking } from '../src/models/usage.js';
 import { __resetRateLimit } from '../src/http/middleware/rate-limit.js';
 import { createApp } from '../src/http/app.js';
 import type { SqliteAdapter } from '../src/db/adapter.js';
@@ -183,7 +182,7 @@ describe('H1 — create_task/update_task secret scanning', () => {
   });
 
   it('should allow create_task with clean description', async () => {
-    setUsageTracking(false);
+
     const result = await callTool(mcp, auth, 'create_task', {
       agent_id: 'test-agent',
       description: 'A perfectly normal task',
@@ -194,7 +193,7 @@ describe('H1 — create_task/update_task secret scanning', () => {
   });
 
   it('should reject update_task with secret in result', async () => {
-    setUsageTracking(false);
+
     // Create a clean task first
     const createRes = await callTool(mcp, auth, 'create_task', {
       agent_id: 'test-agent',
@@ -215,7 +214,7 @@ describe('H1 — create_task/update_task secret scanning', () => {
   });
 
   it('should allow update_task with clean result', async () => {
-    setUsageTracking(false);
+
     const createRes = await callTool(mcp, auth, 'create_task', {
       agent_id: 'test-agent',
       description: 'Normal task',
@@ -233,7 +232,7 @@ describe('H1 — create_task/update_task secret scanning', () => {
   });
 
   afterEach(() => {
-    setUsageTracking(false);
+
   });
 });
 

@@ -12,9 +12,7 @@ const OverviewTab = lazy(() => import('./pages/OverviewTab'));
 const GraphTab = lazy(() => import('./pages/GraphTab'));
 const ArtifactsTab = lazy(() => import('./pages/ArtifactsTab'));
 const PlaybooksTab = lazy(() => import('./pages/PlaybooksTab'));
-const MembersTab = lazy(() => import('./pages/MembersTab'));
 const AuditTab = lazy(() => import('./pages/AuditTab'));
-const UsageTab = lazy(() => import('./pages/UsageTab'));
 const ApiKeysTab = lazy(() => import('./pages/ApiKeysTab'));
 
 function TabFallback() {
@@ -44,9 +42,7 @@ function Dashboard() {
             <Route path="graph" element={<GraphTab />} />
             <Route path="artifacts" element={<ArtifactsTab />} />
             <Route path="playbooks" element={<PlaybooksTab />} />
-            <Route path="members" element={<MembersTab data={data} loading={loading} />} />
             <Route path="audit" element={<AuditTab data={data} loading={loading} />} />
-            <Route path="usage" element={<UsageTab data={data} loading={loading} />} />
             <Route path="keys" element={<ApiKeysTab data={data} loading={loading} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

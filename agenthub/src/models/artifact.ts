@@ -10,7 +10,7 @@ import type {
 } from './types.js';
 import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { ValidationError, NotFoundError } from '../errors.js';
-import { incrementUsage, decrementUsageForced } from './usage.js';
+
 
 export const MAX_ARTIFACT_SIZE = 1_048_576; // 1 MB
 
@@ -118,13 +118,6 @@ export async function saveArtifact(
     artifactId = Number(result.lastInsertRowid);
   }
 
-  // Track storage: new bytes on insert, delta on update
-  const delta = size - (existing?.size ?? 0);
-  if (delta > 0) {
-    await incrementUsage(db, workspaceId, { storageBytes: delta });
-  } else if (delta < 0) {
-    await decrementUsageForced(db, workspaceId, { storageBytes: Math.abs(delta) });
-  }
 
   return {
     id: artifactId,
@@ -218,9 +211,6 @@ export async function deleteArtifact(
     workspaceId, key,
   );
 
-  if (existing.size > 0) {
-    await decrementUsageForced(db, workspaceId, { storageBytes: existing.size });
-  }
 
   return { deleted: true };
 }

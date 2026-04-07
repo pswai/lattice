@@ -23,7 +23,7 @@ import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { AppError } from '../errors.js';
 import { getMcpAuth, requireWriteScope } from './auth-context.js';
 import { writeAudit } from '../models/audit.js';
-import { incrementUsage } from '../models/usage.js';
+
 import { getLogger } from '../logger.js';
 
 /**
@@ -98,7 +98,6 @@ export function createMcpServer(db: DbAdapter): McpServer {
           ip: auth.ip ?? null,
           requestId: auth.requestId ?? null,
         }),
-        incrementUsage(db, auth.workspaceId, { apiCall: 1 }),
       ]);
     } catch (err) {
       try {

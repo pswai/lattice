@@ -5,22 +5,12 @@ import { SCHEMA_SQL } from '../src/db/schema.js';
 import { createOpsRoutes, refreshGaugesFromDb } from '../src/http/routes/ops.js';
 import { metricsRegistry } from '../src/metrics.js';
 import { SqliteAdapter } from '../src/db/adapter.js';
-import { DEFAULT_PLANS } from '../src/models/plan.js';
 
 function createDb(): SqliteAdapter {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  // Seed default plans
-  const stmt = db.prepare(
-    `INSERT OR IGNORE INTO subscription_plans
-      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-  for (const p of DEFAULT_PLANS) {
-    stmt.run(p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays);
-  }
   return new SqliteAdapter(db);
 }
 

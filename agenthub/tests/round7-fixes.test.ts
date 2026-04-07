@@ -6,18 +6,14 @@ import {
   addApiKey,
   authHeaders,
   request,
-  testConfig,
   type TestContext,
 } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { mcpAuthStorage } from '../src/mcp/auth-context.js';
-import { createApp } from '../src/http/app.js';
-import { incrementUsageForced, getUsage } from '../src/models/usage.js';
 import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion, getWorkflowRun } from '../src/models/workflow.js';
 import { createTask, updateTask } from '../src/models/task.js';
 import { definePlaybook, runPlaybook } from '../src/models/playbook.js';
 import { safeJsonParse } from '../src/safe-json.js';
-import { upsertWorkspaceSubscription } from '../src/models/subscription.js';
 import type { SqliteAdapter } from '../src/db/adapter.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AuthContext } from '../src/models/types.js';
@@ -96,56 +92,6 @@ describe('H1 — heartbeat MCP tool requires write scope', () => {
       status: 'online',
     });
     expect(result.isError).toBe(true);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// H2+M2 — Quota rollback is awaited (not fire-and-forget)
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('H2+M2 — Quota rollback awaited on non-2xx', () => {
-  it('should fully rollback pre-increment on validation error (no async leak)', async () => {
-    const config = testConfig({ quotaEnforcement: true });
-    const db = createTestDb();
-    setupWorkspace(db, 'test-team');
-    const app = createApp(db, () => createMcpServer(db), config);
-
-    // Send multiple bad requests — all should rollback completely
-    for (let i = 0; i < 5; i++) {
-      const res = await request(app, 'POST', '/api/v1/tasks', {
-        headers: authHeaders('ltk_test_key_12345678901234567890'),
-        body: {}, // missing description → 400
-      });
-      expect(res.status).toBeGreaterThanOrEqual(400);
-    }
-
-    // Because rollback is now awaited, usage should be exactly 0
-    // (no need to wait for async ticks — it's synchronous in the handler)
-    const usage = await getUsage(db, 'test-team');
-    expect(usage.apiCallCount).toBe(0);
-  });
-
-  it('should not leak credits under sequential failed requests', async () => {
-    const config = testConfig({ quotaEnforcement: true });
-    const db = createTestDb();
-    setupWorkspace(db, 'test-team');
-
-    // Push near quota
-    await incrementUsageForced(db, 'test-team', { apiCall: 99_990 });
-
-    const app = createApp(db, () => createMcpServer(db), config);
-
-    // 10 sequential failures should not drift the counter
-    for (let i = 0; i < 10; i++) {
-      await request(app, 'POST', '/api/v1/tasks', {
-        headers: authHeaders('ltk_test_key_12345678901234567890'),
-        body: {}, // missing description
-      });
-    }
-
-    const usage = await getUsage(db, 'test-team');
-    // Counter should remain at 99_990 — each failed request incremented then rolled back
-    expect(usage.apiCallCount).toBe(99_990);
   });
 });
 
@@ -377,57 +323,3 @@ describe('M3 — safeJsonParse returns fallback for corrupt JSON', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// M4 — Subscription period validation
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('M4 — Subscription periodStart must be before periodEnd', () => {
-  let db: SqliteAdapter;
-  const ws = 'test-team';
-
-  beforeEach(() => {
-    db = createTestDb();
-    setupWorkspace(db, ws);
-  });
-
-  it('should reject when periodStart > periodEnd', async () => {
-    await expect(
-      upsertWorkspaceSubscription(db, {
-        workspaceId: ws,
-        planId: 'free',
-        periodStart: '2026-04-30T00:00:00.000Z',
-        periodEnd: '2026-04-01T00:00:00.000Z',
-      }),
-    ).rejects.toThrow('periodStart must be before or equal to periodEnd');
-  });
-
-  it('should accept when periodStart === periodEnd', async () => {
-    const sub = await upsertWorkspaceSubscription(db, {
-      workspaceId: ws,
-      planId: 'free',
-      periodStart: '2026-04-01T00:00:00.000Z',
-      periodEnd: '2026-04-01T00:00:00.000Z',
-    });
-    expect(sub.workspaceId).toBe(ws);
-  });
-
-  it('should accept when periodStart < periodEnd (normal case)', async () => {
-    const sub = await upsertWorkspaceSubscription(db, {
-      workspaceId: ws,
-      planId: 'free',
-      periodStart: '2026-04-01T00:00:00.000Z',
-      periodEnd: '2026-04-30T00:00:00.000Z',
-    });
-    expect(sub.workspaceId).toBe(ws);
-  });
-
-  it('should accept when periodStart or periodEnd is omitted', async () => {
-    const sub = await upsertWorkspaceSubscription(db, {
-      workspaceId: ws,
-      planId: 'free',
-      periodStart: '2026-04-01T00:00:00.000Z',
-      // periodEnd omitted
-    });
-    expect(sub.workspaceId).toBe(ws);
-  });
-});

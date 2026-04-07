@@ -3,7 +3,7 @@ import { ValidationError, NotFoundError } from '../errors.js';
 import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { createTask } from './task.js';
 import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion } from './workflow.js';
-import { incrementUsage } from './usage.js';
+
 
 export interface PlaybookTaskTemplate {
   description: string;
@@ -189,9 +189,6 @@ export async function runPlaybook(
     await checkWorkflowCompletion(db, taskId);
   }
 
-  // Billing: count 1 for the run itself (individual tasks are already counted
-  // by createTask). Spec asks for: tasks spawned + 1 for the run.
-  await incrementUsage(db, workspaceId, { exec: 1 });
 
   return { workflow_run_id: workflowRunId, created_task_ids: createdIds };
 }

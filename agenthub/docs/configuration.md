@@ -1,13 +1,13 @@
 # Configuration Reference
 
-All Lattice configuration is via environment variables. No config files needed.
+All Lattice configuration is via environment variables. No config files needed. Lattice is self-hosted only.
 
 ## Server
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `PORT` | `3000` | No | HTTP server port |
-| `NODE_ENV` | — | No | Set to `production` for secure defaults (cookie secure, no verification tokens in responses) |
+| `NODE_ENV` | — | No | Set to `production` for secure defaults |
 
 ## Database
 
@@ -23,25 +23,6 @@ Lattice auto-detects the backend: if `DATABASE_URL` is set and non-empty, it use
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `ADMIN_KEY` | — | For admin routes | Secret key for `/admin/*` endpoints. If empty, admin routes return 503. |
-| `COOKIE_SECURE` | `true` in production | No | Set `Secure` flag on session cookies. Auto-enabled when `NODE_ENV=production`. |
-| `EMAIL_VERIFICATION_RETURN_TOKENS` | `true` in dev, `false` in prod | No | Include verification/invite tokens in API responses. Useful for testing without email. |
-
-## GitHub OAuth
-
-| Variable | Default | Required | Description |
-|----------|---------|----------|-------------|
-| `GITHUB_OAUTH_CLIENT_ID` | — | For OAuth | GitHub OAuth app client ID |
-| `GITHUB_OAUTH_CLIENT_SECRET` | — | For OAuth | GitHub OAuth app client secret |
-| `GITHUB_OAUTH_REDIRECT_URI` | — | For OAuth | OAuth callback URL (e.g. `https://lattice.example.com/auth/oauth/github/callback`) |
-
-## Email
-
-| Variable | Default | Required | Description |
-|----------|---------|----------|-------------|
-| `EMAIL_PROVIDER` | `stub` | No | Email delivery provider: `stub` (logs only) or `resend` (Resend API) |
-| `RESEND_API_KEY` | — | For Resend | Resend API key for email delivery |
-| `EMAIL_FROM` | `noreply@lattice.local` | No | Sender address for verification and invitation emails |
-| `APP_BASE_URL` | `http://localhost:3000` | No | Base URL used in email links (verification, invitations) |
 
 ## Background Services
 
@@ -53,14 +34,13 @@ Lattice auto-detects the backend: if `DATABASE_URL` is set and non-empty, it use
 | `AGENT_HEARTBEAT_TIMEOUT_MINUTES` | `10` | No | Minutes before an agent without heartbeat is marked offline |
 | `POLL_INTERVAL_MS` | `5000` | No | Internal poll interval for background services (ms) |
 
-## Rate Limits and Quotas
+## Rate Limits
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `RATE_LIMIT_PER_MIN` | `300` | No | Max API requests per key per minute. `0` = disabled. |
 | `RATE_LIMIT_PER_MIN_WORKSPACE` | `1000` | No | Max API requests per workspace per minute (aggregated across all keys). `0` = disabled. |
 | `MAX_BODY_BYTES` | `1048576` (1 MB) | No | Max request body size in bytes. `0` = disabled. |
-| `QUOTA_ENFORCEMENT` | `false` | No | Enable usage quota enforcement (exec count, API calls, storage). Requires plan/subscription tables. |
 
 ## Security
 
@@ -111,19 +91,7 @@ ADMIN_KEY=a-strong-random-secret
 
 # Security
 HSTS_ENABLED=true
-COOKIE_SECURE=true
 CORS_ORIGINS=https://app.example.com
-
-# Email (Resend)
-EMAIL_PROVIDER=resend
-RESEND_API_KEY=re_xxxx
-EMAIL_FROM=noreply@example.com
-APP_BASE_URL=https://lattice.example.com
-
-# GitHub OAuth
-GITHUB_OAUTH_CLIENT_ID=Iv1.xxxx
-GITHUB_OAUTH_CLIENT_SECRET=xxxx
-GITHUB_OAUTH_REDIRECT_URI=https://lattice.example.com/auth/oauth/github/callback
 
 # Observability
 LOG_LEVEL=info

@@ -10,9 +10,7 @@ const TABS = [
 ];
 
 const ADMIN_TABS = [
-  { to: '/members', label: 'Members' },
   { to: '/audit', label: 'Audit Log' },
-  { to: '/usage', label: 'Usage' },
   { to: '/keys', label: 'API Keys' },
 ];
 
@@ -61,7 +59,7 @@ export function Header({ workspaceName, sseStatus }: HeaderProps) {
         </div>
 
         <button onClick={handleLogout} className="btn-ghost text-xs shrink-0">
-          Sign out
+          Disconnect
         </button>
       </div>
 

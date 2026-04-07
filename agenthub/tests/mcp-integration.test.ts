@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setupWorkspace } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { mcpAuthStorage } from '../src/mcp/auth-context.js';
 import { queryAudit } from '../src/models/audit.js';
-import { getUsage, setUsageTracking } from '../src/models/usage.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SqliteAdapter } from '../src/db/adapter.js';
 import type { AuthContext } from '../src/models/types.js';
@@ -47,7 +46,7 @@ async function getAuditRows(db: SqliteAdapter, workspaceId = 'test-team') {
 
 // ─── Tests ──────────────────────────────────────────────────────────────
 
-describe('MCP Integration — Audit & Usage Tracking', () => {
+describe('MCP Integration — Audit Tracking', () => {
   let db: SqliteAdapter;
   let mcp: McpServer;
   let auth: AuthContext;
@@ -57,11 +56,6 @@ describe('MCP Integration — Audit & Usage Tracking', () => {
     db = ctx.db;
     mcp = ctx.mcp;
     auth = ctx.auth;
-    setUsageTracking(true);
-  });
-
-  afterEach(() => {
-    setUsageTracking(false);
   });
 
   // ─── Mutating tools produce audit entries ─────────────────────────
@@ -312,60 +306,13 @@ describe('MCP Integration — Audit & Usage Tracking', () => {
     });
   });
 
-  // ─── Mutating tools increment api_call_count ──────────────────────
-
-  describe('mutating tools increment api_call_count', () => {
-    it('save_context increments api_call_count', async () => {
-      await callTool(mcp, auth, 'save_context', {
-        agent_id: 'test-agent',
-        key: 'usage-key',
-        value: 'usage-value',
-        tags: [],
-      });
-      const usage = await getUsage(db, 'test-team');
-      expect(usage.apiCallCount).toBe(1);
-    });
-
-    it('create_task increments api_call_count', async () => {
-      await callTool(mcp, auth, 'create_task', {
-        agent_id: 'test-agent',
-        description: 'Count me',
-      });
-      const usage = await getUsage(db, 'test-team');
-      expect(usage.apiCallCount).toBe(1);
-    });
-
-    it('multiple mutating calls accumulate api_call_count', async () => {
-      await callTool(mcp, auth, 'save_context', {
-        agent_id: 'test-agent',
-        key: 'k1',
-        value: 'v1',
-        tags: [],
-      });
-      await callTool(mcp, auth, 'broadcast', {
-        agent_id: 'test-agent',
-        event_type: 'BROADCAST',
-        message: 'msg',
-        tags: [],
-      });
-      await callTool(mcp, auth, 'create_task', {
-        agent_id: 'test-agent',
-        description: 'Task',
-      });
-      const usage = await getUsage(db, 'test-team');
-      expect(usage.apiCallCount).toBe(3);
-    });
-  });
-
   // ─── Read-only tools do NOT produce audit entries ─────────────────
 
-  describe('read-only tools do NOT produce audit entries or increment counters', () => {
+  describe('read-only tools do NOT produce audit entries', () => {
     it('get_context does not audit', async () => {
       await callTool(mcp, auth, 'get_context', { query: 'test' });
       const rows = await getAuditRows(db);
       expect(rows).toHaveLength(0);
-      const usage = await getUsage(db, 'test-team');
-      expect(usage.apiCallCount).toBe(0);
     });
 
     it('get_updates does not audit', async () => {
@@ -484,8 +431,6 @@ describe('MCP Integration — Audit & Usage Tracking', () => {
       expect(result.isError).toBe(true);
       const rows = await getAuditRows(db);
       expect(rows).toHaveLength(0);
-      const usage = await getUsage(db, 'test-team');
-      expect(usage.apiCallCount).toBe(0);
     });
 
     it('secret scan blocks broadcast — no audit', async () => {

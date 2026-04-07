@@ -5,10 +5,8 @@ import {
   SCHEMA_SQL,
   TASK_COLUMN_MIGRATIONS,
   API_KEY_COLUMN_MIGRATIONS,
-  WORKSPACES_COLUMN_MIGRATIONS,
   CONTEXT_COLUMN_MIGRATIONS,
 } from './schema.js';
-import { DEFAULT_PLANS } from '../models/plan.js';
 import { SqliteAdapter, PgAdapter } from './adapter.js';
 import type { DbAdapter } from './adapter.js';
 import { PG_SCHEMA_SQL } from './schema-pg.js';
@@ -58,17 +56,13 @@ export function createSqliteAdapter(dbPath: string): SqliteAdapter {
 
   // Additive column migrations for existing databases
   runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
-  runSqliteColumnMigrations(db, 'workspaces', WORKSPACES_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'context_entries', CONTEXT_COLUMN_MIGRATIONS);
 
   migrateFtsToTrigram(db);
   migrateInboundActionTypes(db);
 
-  const adapter = new SqliteAdapter(db);
-  seedDefaultPlansSyncSqlite(db);
-
-  return adapter;
+  return new SqliteAdapter(db);
 }
 
 /**
@@ -79,24 +73,7 @@ export function createMemoryAdapter(): SqliteAdapter {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
-  const adapter = new SqliteAdapter(db);
-  seedDefaultPlansSyncSqlite(db);
-  return adapter;
-}
-
-/**
- * Synchronously seed default plans using raw better-sqlite3 API.
- * This avoids the async-seed-after-return problem in initDatabase().
- */
-function seedDefaultPlansSyncSqlite(db: Database.Database): void {
-  const stmt = db.prepare(
-    `INSERT OR IGNORE INTO subscription_plans
-      (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-  for (const p of DEFAULT_PLANS) {
-    stmt.run(p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays);
-  }
+  return new SqliteAdapter(db);
 }
 
 function runSqliteColumnMigrations(
@@ -180,18 +157,6 @@ async function createPgAdapter(databaseUrl: string): Promise<PgAdapter> {
 
   // Run Postgres schema init
   await pool.query(PG_SCHEMA_SQL);
-
-  // Seed default plans (idempotent via ON CONFLICT DO NOTHING)
-  const { DEFAULT_PLANS } = await import('../models/plan.js');
-  for (const p of DEFAULT_PLANS) {
-    await pool.query(
-      `INSERT INTO subscription_plans
-        (id, name, price_cents, exec_quota, api_call_quota, storage_bytes_quota, seat_quota, retention_days)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (id) DO NOTHING`,
-      [p.id, p.name, p.priceCents, p.execQuota, p.apiCallQuota, p.storageBytesQuota, p.seatQuota, p.retentionDays],
-    );
-  }
 
   return new PgAdapter(pool);
 }

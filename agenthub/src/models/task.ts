@@ -6,7 +6,7 @@ import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { broadcastInternal } from './event.js';
 import { saveContext } from './context.js';
 import { checkWorkflowCompletion } from './workflow.js';
-import { incrementUsage } from './usage.js';
+
 
 interface TaskRow {
   id: number;
@@ -268,8 +268,6 @@ export async function createTask(
     ['task-update'], agentId,
   );
 
-  // Billing: count task creation as one execution.
-  await incrementUsage(db, workspaceId, { exec: 1 });
 
   return {
     task_id: taskId,

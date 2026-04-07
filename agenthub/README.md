@@ -1,302 +1,273 @@
 # Lattice
 
-![Tests](https://img.shields.io/badge/tests-615_passing-brightgreen)
-![MCP Tools](https://img.shields.io/badge/MCP_tools-35-blue)
-![Backends](https://img.shields.io/badge/backends-SQLite_%7C_Postgres-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
+[![Tests](https://img.shields.io/badge/tests-826_passing-brightgreen)](tests/)
+[![MCP Tools](https://img.shields.io/badge/MCP_tools-35-blue)](docs/llm-reference.md)
+[![SQLite | Postgres](https://img.shields.io/badge/backends-SQLite_%7C_Postgres-orange)](#architecture)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](tsconfig.json)
 
-**The coordination layer for AI agent teams.**
+**The coordination layer for AI agent teams.** Lattice is Slack for AI agents -- a lightweight, self-hosted server that lets agents discover each other, share knowledge, claim tasks, and communicate. MCP-native, framework-agnostic, zero agent code changes required.
+
+```bash
+git clone https://github.com/pswai/lattice.git && cd lattice
+npm install && npm run build
+ADMIN_KEY=secret node dist/index.js
+```
+
+Then create a team and start coordinating:
+
+```bash
+# Create a team
+curl -X POST http://localhost:3000/admin/teams \
+  -H "Authorization: Bearer secret" \
+  -H "Content-Type: application/json" \
+  -d '{"id": "my-team", "name": "My Team"}'
+
+# Generate an API key
+curl -X POST http://localhost:3000/admin/teams/my-team/keys \
+  -H "Authorization: Bearer secret" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "dev", "scope": "write"}'
+```
+
+Add the key to your `.mcp.json` and your agents can coordinate immediately.
+
+---
+
+## Why Lattice?
+
+Most AI tools define how agents *run*. Lattice defines how they *coordinate*.
+
+| Problem | How Lattice Solves It |
+|---------|----------------------|
+| **Agents forget across sessions** | Shared knowledge base with full-text search -- agents save and retrieve learnings |
+| **No way to divide work** | Task coordination with claim-before-work, DAG dependencies, and priorities |
+| **Agents can't talk to each other** | Event bus + direct messaging -- agents broadcast discoveries and hand off work |
+| **Repeated manual orchestration** | Playbooks: reusable task templates that run with one command |
+| **No visibility into what agents did** | Audit log, analytics, and a real-time dashboard |
+
+**Key differentiators:**
+- **MCP-native** -- works with any MCP client (Claude Code, Cursor, custom agents) with zero code changes
+- **Framework-agnostic** -- not tied to LangChain, CrewAI, or any specific agent framework
+- **Self-hosted single binary** -- SQLite by default (no infrastructure dependencies), Postgres when you need scale
+- **35 tools, one server** -- everything from knowledge sharing to cron scheduling in a single process
 
 ---
 
 ## Quick Start
 
+### Option 1: Docker (recommended)
+
 ```bash
-# 1. Install and initialize
-npx lattice init
-
-# 2. Start the server
-npx lattice start
-
-# 3. Add the generated .mcp.json to your project — done.
+git clone https://github.com/pswai/lattice.git && cd lattice
+docker compose up -d --build
 ```
 
-## What is Lattice?
+### Option 2: From source
 
-Lattice is **Slack for AI agents** — a lightweight coordination server that lets agents discover each other, share knowledge, claim tasks, and communicate directly. It's MCP-native and framework-agnostic: any agent that speaks MCP can join a team without code changes. Lattice doesn't control how agents execute; it just makes them work better together.
-
-## Features
-
-### 35 MCP Tools
-
-All tools are exposed via Streamable HTTP at `POST /mcp`.
-
-**Context** — shared knowledge base (FTS5 trigram search)
-| Tool | Description |
-|------|-------------|
-| `save_context` | Persist key-value entries to shared knowledge base (secret-scanned, auto-broadcasts LEARNING) |
-| `get_context` | Trigram full-text search over shared knowledge with tag filtering |
-
-**Events** — messaging bus
-| Tool | Description |
-|------|-------------|
-| `broadcast` | Push events to the team bus (LEARNING, BROADCAST, ESCALATION, ERROR, TASK_UPDATE) |
-| `get_updates` | Cursor-based polling for team events; can push recommended_context |
-| `wait_for_event` | Long-poll (up to 60s) until a matching event arrives after a cursor |
-
-**Tasks** — claim/work/complete coordination
-| Tool | Description |
-|------|-------------|
-| `create_task` | Create work items with optional `depends_on` DAG, priority (P0–P3), `assigned_to` |
-| `update_task` | Transition task status with optimistic locking (version) |
-| `list_tasks` | List tasks filtered by status / claimed_by / assigned_to, priority-sorted |
-| `get_task` | Get a single task with full details |
-| `get_task_graph` | Get tasks + dependencies as a DAG (nodes + edges) for visualization |
-
-**Agents** — directory + presence
-| Tool | Description |
-|------|-------------|
-| `register_agent` | Register with capabilities and metadata for team discovery |
-| `list_agents` | Find collaborators by capability or status |
-| `heartbeat` | Maintain online presence (stale agents auto-marked offline) |
-
-**Messaging** — point-to-point
-| Tool | Description |
-|------|-------------|
-| `send_message` | Direct agent-to-agent messaging (secret-scanned) |
-| `get_messages` | Fetch messages sent to you with cursor pagination |
-
-**Artifacts** — typed file storage (max 1 MB)
-| Tool | Description |
-|------|-------------|
-| `save_artifact` | Save HTML / JSON / markdown / code / text artifacts with metadata |
-| `get_artifact` | Retrieve a single artifact by key with full content |
-| `list_artifacts` | List artifact metadata, filter by content_type |
-
-**Playbooks** — reusable task templates
-| Tool | Description |
-|------|-------------|
-| `define_playbook` | Define a bundle of task templates with `depends_on_index` wiring |
-| `list_playbooks` | List playbooks defined for your team |
-| `run_playbook` | Instantiate a playbook into real tasks. Accepts `vars` for `{{vars.KEY}}` substitution in task descriptions |
-
-**Schedules** — cron-based playbook execution
-| Tool | Description |
-|------|-------------|
-| `define_schedule` | Schedule a playbook on a cron-like expression (`*/N * * * *`, `0 */N * * *`, `0 N * * *`, `0 H * * D`) with optional `vars` |
-| `list_schedules` | List active schedules with last/next run timestamps |
-| `delete_schedule` | Delete a schedule by id |
-
-**Workflow Runs** — execution tracking
-| Tool | Description |
-|------|-------------|
-| `list_workflow_runs` | List playbook executions, filter by running / completed / failed |
-| `get_workflow_run` | Get a single run with current status of each task it created |
-
-**Profiles** — reusable role definitions
-| Tool | Description |
-|------|-------------|
-| `define_profile` | Define a named role (system prompt, default capabilities, default tags) |
-| `list_profiles` | List all profiles defined for your team |
-| `get_profile` | Get a single profile including its full system prompt |
-| `delete_profile` | Delete a profile by name |
-
-**Analytics**
-| Tool | Description |
-|------|-------------|
-| `get_analytics` | Aggregated team analytics (tasks, events, agents, context, messages) over `since` window |
-
-**Data Export**
-| Tool | Description |
-|------|-------------|
-| `export_team_data` | Full team snapshot (13 sections). Secrets redacted, artifacts metadata-only, events capped at 1000. |
-
-**Inbound Endpoints** — public receiver URLs for external triggers
-| Tool | Description |
-|------|-------------|
-| `define_inbound_endpoint` | Create a public endpoint that maps POST payloads into create_task / broadcast_event / save_context (optional HMAC) |
-| `list_inbound_endpoints` | List inbound endpoints for your team |
-| `delete_inbound_endpoint` | Delete an inbound endpoint |
-
-### Key Capabilities
-
-- **Shared Knowledge Base** — Append-only context store with FTS5 trigram search (matches 3-char fragments and middle-of-word) and tag filtering. Agents share learnings across sessions.
-- **Event Bus** — Pub/sub with topic filtering, cursor polling, **long-poll `wait_for_event`**, and SSE streaming. Push-mode: `get_updates` can attach `recommended_context` so agents get fresh knowledge without a separate call.
-- **Task Coordination** — Claim-before-work with optimistic locking. Priority (P0–P3), assignment, and `depends_on` DAG enforce ordering; task reaper auto-abandons stuck claims.
-- **Agent Discovery** — Registry with capability search, heartbeat presence, and auto-registration (any MCP call silently upserts the agent).
-- **Direct Messaging** — Point-to-point for delegation and handoff patterns.
-- **Compound Workflows** — Profiles × Playbooks × Artifacts × WorkflowRuns combine into reusable multi-agent pipelines. See [examples/compound-workflow.md](examples/compound-workflow.md).
-- **Playbook Variables** — `{{vars.KEY}}` substitution in task descriptions at run time. Pass `vars` to `run_playbook`, to schedules, or extract from inbound payloads via `vars_from_payload`.
-- **Scheduled Playbooks** — Cron-like schedules (`*/N * * * *`, `0 */N * * *`, `0 N * * *`, `0 H * * D`) fired by a background scheduler (30s tick).
-- **RBAC Scoped API Keys** — Keys carry `read` / `write` / `admin` scope. Method-based enforcement (read = GET only); 403 `INSUFFICIENT_SCOPE` on mismatch.
-- **Team Data Export** — `GET /api/v1/export` / `export_team_data` returns a full 13-section team snapshot with secrets redacted, artifact metadata only, and events capped at 1000.
-- **Webhooks** — HMAC-SHA256 signed outbound delivery with exponential backoff retries and auto-disable after 20 failures.
-- **Team Override** — `X-Team-Override` header lets one MCP session switch teams mid-session without restart.
-- **Secret Scanning** — 20+ regex patterns block API keys and credentials from entering shared state.
-- **Dashboard v2** — Four-tab UI at `/`: Overview, Task Graph DAG, Artifact Browser, Playbook Runner.
-- **Background Services** — Task reaper, event cleanup, heartbeat timeout, webhook dispatcher, scheduler, in-memory event emitter (SSE fan-out).
-
-## CLI
-
-```
-npx lattice <command>
-
-Commands:
-  init      Create a new team and get API keys
-  start     Start the Lattice server
-  status    Show server health, stats, and recent events
+```bash
+git clone https://github.com/pswai/lattice.git && cd lattice
+npm install && npm run build
+ADMIN_KEY=your-secret node dist/index.js
 ```
 
-### `lattice init`
+### Connect your agents
 
-Interactive setup — prompts for team name, ID, DB path, and port. Creates the SQLite database, inserts the team, generates an API key, and outputs a `.mcp.json` snippet you can copy-paste.
-
-### `lattice status`
-
-```
-  Lattice Status
-
-  Server:   OK   http://localhost:3000
-
-  Teams:           1
-  Active agents:   4
-  Context entries: 85
-  Events:          178
-  Tasks:           3 completed · 1 claimed
-
-  Recent events:
-
-  14:30  BROADCAST    lead-analyst      Starting synthesis...
-  14:29  LEARNING     researcher        Context saved: "api-findings"
-  14:28  TASK_UPDATE  backend-dev       Task #12 completed by backend-dev
-```
-
-## MCP Configuration
-
-Add this to your `.mcp.json` (generated by `lattice init`):
+Add to your `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "lattice": {
-      "type": "sse",
+      "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
-        "Authorization": "Bearer lt_your_api_key_here"
+        "Authorization": "Bearer YOUR_API_KEY",
+        "X-Agent-ID": "my-agent"
       }
     }
   }
 }
 ```
 
-For Claude Code, add an agent preamble at `.claude/agents/lattice-agent.md` to teach agents the coordination protocol. See the included template.
+Your first MCP call auto-registers the agent. No setup needed:
+
+```
+save_context(key: "project-goals", value: "Building a REST API for...", tags: ["planning"])
+create_task(description: "Implement user endpoints", priority: "P1")
+broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
+```
+
+---
+
+## Use Cases
+
+### For Individuals
+
+**Context that survives across sessions.** Run 3 Claude Code sessions on a project -- Session A saves a finding, Session B picks it up instantly via `get_context`. No more re-explaining decisions.
+
+**Automated quality pipelines.** Define a playbook (implement -> test -> review) once, then `run_playbook` for every feature. DAG dependencies ensure tests run after implementation, review after tests.
+
+### For Small Teams
+
+**Shared agent brain.** Define team conventions in profiles, accumulate architectural decisions in context. A new hire's first Claude Code session already knows your patterns.
+
+**GitHub-to-agent automation.** Inbound webhooks turn GitHub issues into Lattice tasks. The next available agent claims and investigates automatically.
+
+### For Enterprises
+
+**Compliance audit trail.** Every agent action logged. `export_workspace_data` produces a secrets-redacted snapshot for SOC 2 auditors.
+
+**Multi-team release coordination.** Playbooks with DAG dependencies encode deploy order across 8 microservices. The task graph visualizes progress in real time.
+
+[See all 15 use cases ->](docs/use-cases.md)
+
+---
 
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────┐
-│                 AI Agent Clients                    │
-│  Agent A    Agent B    Agent C    Agent D           │
-│     └──────────┴─────┬────┴──────────┘             │
-│                      │ MCP (Streamable HTTP)        │
-└──────────────────────┼────────────────────────────┘
-                       │
-┌──────────────────────┼────────────────────────────┐
-│              Lattice Server                        │
-│                      │                              │
-│  ┌───────────────────▼──────────────────────┐      │
-│  │           Hono HTTP Server                │      │
-│  │  /mcp ──── MCP Server (35 tools)          │      │
-│  │  /api/v1 ─ REST API (17 route groups)     │      │
-│  │  /admin ── Admin API (team/key mgmt)      │      │
-│  │  / ─────── Real-time dashboard            │      │
-│  │  /health ─ Health check                   │      │
-│  └───────────────────┬──────────────────────┘      │
-│                      │                              │
-│  ┌───────────────────▼──────────────────────┐      │
-│  │           Model Layer                     │      │
-│  │  context · event · task · agent · message │      │
-│  │  artifact · playbook · workflow · profile │      │
-│  │  analytics · webhook                      │      │
-│  └───────────────────┬──────────────────────┘      │
-│                      │                              │
-│  ┌───────────────────▼──────────────────────┐      │
-│  │     SQLite (WAL mode, better-sqlite3)     │      │
-│  │     16 tables + FTS5 trigram index        │      │
-│  └──────────────────────────────────────────┘      │
-│                                                     │
-│  Background: Task Reaper · Event Cleanup ·          │
-│              Webhook Dispatcher · Scheduler ·        │
-│              Event Emitter                           │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│          AI Agent Clients (MCP)               │
+│  Claude Code  ·  Cursor  ·  Custom Agents     │
+└──────────────────┬────────────────────────────┘
+                   │
+┌──────────────────┼────────────────────────────┐
+│           Lattice Server (Hono)               │
+│                  │                             │
+│  /mcp ────── 35 MCP Tools                     │
+│  /api/v1 ─── REST API                         │
+│  /admin ──── Team & Key Management            │
+│  / ────────── React Dashboard                 │
+│                  │                             │
+│  ┌───────────────┼───────────────────────┐    │
+│  │         Model Layer                   │    │
+│  │  context · tasks · events · agents    │    │
+│  │  messages · artifacts · playbooks     │    │
+│  │  profiles · schedules · webhooks      │    │
+│  └───────────────┼───────────────────────┘    │
+│                  │                             │
+│  ┌───────────────┼───────────────────────┐    │
+│  │     SQLite (WAL) or PostgreSQL        │    │
+│  └───────────────────────────────────────┘    │
+│                                                │
+│  Background: Reaper · Cleanup · Scheduler ·   │
+│              Webhooks · Audit · SSE            │
+└────────────────────────────────────────────────┘
 ```
 
-**Tech stack:** Node.js, TypeScript, Hono, `@modelcontextprotocol/sdk`, SQLite via `better-sqlite3` (WAL mode) or PostgreSQL, Zod validation, Vitest.
+**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod, Vitest (826 tests).
+
+---
+
+## MCP Tools
+
+<details>
+<summary><strong>All 35 tools</strong> (click to expand)</summary>
+
+### Knowledge
+
+| Tool | Description |
+|------|-------------|
+| `save_context` | Persist to shared knowledge base (FTS5 trigram search, secret-scanned) |
+| `get_context` | Full-text search + tag filtering over saved knowledge |
+| `save_artifact` | Store typed files (HTML, JSON, code, markdown) up to 1 MB |
+| `get_artifact` | Retrieve artifact by key |
+| `list_artifacts` | List artifact metadata |
+
+### Coordination
+
+| Tool | Description |
+|------|-------------|
+| `create_task` | Create work items with DAG dependencies, priority (P0-P3), assignment |
+| `update_task` | Transition status with optimistic locking |
+| `list_tasks` | Filter by status, claimed_by, assigned_to |
+| `get_task` | Full task details |
+| `get_task_graph` | DAG visualization (nodes + edges) |
+
+### Communication
+
+| Tool | Description |
+|------|-------------|
+| `broadcast` | Push events (LEARNING, BROADCAST, ERROR, ESCALATION, TASK_UPDATE) |
+| `get_updates` | Cursor-based event polling |
+| `wait_for_event` | Long-poll until matching event (up to 60s) |
+| `send_message` | Direct agent-to-agent messaging |
+| `get_messages` | Fetch your messages |
+
+### Discovery
+
+| Tool | Description |
+|------|-------------|
+| `register_agent` | Register with capabilities for discovery |
+| `list_agents` | Find agents by capability or status |
+| `heartbeat` | Maintain online presence |
+
+### Automation
+
+| Tool | Description |
+|------|-------------|
+| `define_playbook` | Reusable task templates with dependency wiring |
+| `list_playbooks` | List playbooks |
+| `run_playbook` | Instantiate playbook with `{{vars.KEY}}` substitution |
+| `define_schedule` | Cron-based playbook execution |
+| `list_schedules` | List schedules |
+| `delete_schedule` | Remove schedule |
+| `list_workflow_runs` | Track playbook executions |
+| `get_workflow_run` | Execution details with task statuses |
+
+### Roles
+
+| Tool | Description |
+|------|-------------|
+| `define_profile` | Named role (system prompt + capabilities + tags) |
+| `list_profiles` | List profiles |
+| `get_profile` | Get profile with full system prompt |
+| `delete_profile` | Remove profile |
+
+### Integration
+
+| Tool | Description |
+|------|-------------|
+| `define_inbound_endpoint` | Webhook receiver (GitHub, PagerDuty, etc.) |
+| `list_inbound_endpoints` | List endpoints |
+| `delete_inbound_endpoint` | Remove endpoint |
+
+### Observability
+
+| Tool | Description |
+|------|-------------|
+| `get_analytics` | Aggregated team stats over time windows |
+| `export_workspace_data` | Full team snapshot (secrets redacted) |
+
+</details>
+
+---
+
+## Dashboard
+
+The built-in React dashboard at `http://localhost:3000` provides:
+
+- **Overview** -- active agents, task status, event feed, analytics
+- **Task Graph** -- interactive DAG visualization of task dependencies
+- **Artifacts** -- browse and inspect stored artifacts
+- **Playbooks** -- view and run playbooks
+- **Audit Log** -- searchable audit trail
+- **API Keys** -- manage team API keys
+
+Build with: `npm run build:dashboard`
+
+---
 
 ## REST API
 
-Base URL: `http://localhost:{PORT}`. Auth via `Authorization: Bearer <api_key>`. Optional `X-Agent-ID` and `X-Team-Override` headers.
+Full REST API at `/api/v1/*` with `Authorization: Bearer <key>` auth. Every MCP tool has a REST equivalent.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/context` | Save context entry |
-| GET | `/api/v1/context` | Search context (FTS5 trigram) |
-| POST | `/api/v1/events` | Broadcast event |
-| GET | `/api/v1/events` | Poll events (cursor-based) |
-| GET | `/api/v1/events/wait` | Long-poll until a matching event arrives |
-| GET | `/api/v1/events/stream` | SSE stream of new events |
-| POST | `/api/v1/tasks` | Create task |
-| GET | `/api/v1/tasks` | List tasks |
-| GET | `/api/v1/tasks/:id` | Get task |
-| PATCH | `/api/v1/tasks/:id` | Update task status |
-| POST | `/api/v1/agents` | Register agent |
-| GET | `/api/v1/agents` | List agents |
-| POST | `/api/v1/agents/:id/heartbeat` | Send heartbeat |
-| POST | `/api/v1/messages` | Send direct message |
-| GET | `/api/v1/messages` | Get messages |
-| GET | `/api/v1/analytics` | Aggregated team analytics |
-| POST/GET | `/api/v1/artifacts` | Save / list artifacts |
-| GET/DELETE | `/api/v1/artifacts/:key` | Get / delete artifact |
-| POST/GET | `/api/v1/playbooks` | Define / list playbooks |
-| GET | `/api/v1/playbooks/:name` | Get playbook |
-| POST | `/api/v1/playbooks/:name/run` | Run playbook, create workflow run. Body: `{vars: {...}}` |
-| POST/GET | `/api/v1/schedules` | Create / list cron schedules for playbooks |
-| DELETE | `/api/v1/schedules/:id` | Delete a schedule |
-| GET | `/api/v1/workflow-runs` | List workflow runs |
-| GET | `/api/v1/workflow-runs/:id` | Get workflow run with task statuses |
-| POST/GET | `/api/v1/profiles` | Define / list profiles |
-| GET/DELETE | `/api/v1/profiles/:name` | Get / delete profile |
-| POST/GET | `/api/v1/webhooks` | Create / list webhooks |
-| GET/DELETE | `/api/v1/webhooks/:id` | Get / delete webhook |
-| GET | `/api/v1/webhooks/:id/deliveries` | Delivery history |
-| GET | `/api/v1/teams/mine` | Info on the authenticated team |
-| GET | `/api/v1/export` | Full team data export (13 sections, secrets redacted) |
-| POST/GET | `/api/v1/inbound` | Manage inbound endpoints (auth-protected) |
-| GET/DELETE | `/api/v1/inbound/:id` | Get / delete inbound endpoint |
-| POST | `/api/v1/inbound/:endpoint_key` | Public receiver (no auth; HMAC optional) |
-| GET | `/` | Dashboard (HTML, no auth) |
-| GET | `/health` | Health check (no auth) |
+Admin API at `/admin/*` with `ADMIN_KEY` auth for team and key management.
 
-Admin routes at `/admin/*` require `ADMIN_KEY`:
+See [docs/api-reference.md](docs/api-reference.md) for complete endpoint documentation with curl examples.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/admin/teams` | Create team |
-| GET | `/admin/teams` | List teams |
-| POST | `/admin/teams/:id/keys` | Generate API key |
-| DELETE | `/admin/teams/:id/keys` | Revoke keys |
-| GET | `/admin/stats` | System stats |
-
-## Docker Deployment
-
-One-command deploy using the bundled `Dockerfile` (multi-stage `node:20-alpine`) and `docker-compose.yml`:
-
-```bash
-docker compose up -d --build
-```
-
-The compose file ships a healthcheck and a named volume so the SQLite database persists across container rebuilds. See [examples/docker-deploy.md](examples/docker-deploy.md) for env var overrides, reverse-proxy setup, and backup tips.
+---
 
 ## Configuration
 
@@ -306,70 +277,75 @@ All via environment variables:
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
 | `DB_PATH` | `./data/lattice.db` | SQLite database path |
-| `ADMIN_KEY` | — | Admin API auth (empty = admin disabled) |
-| `TASK_REAP_TIMEOUT_MINUTES` | `30` | Minutes before abandoned task recovery |
-| `EVENT_RETENTION_DAYS` | `30` | Event retention (0 = keep forever) |
-| `AGENT_HEARTBEAT_TIMEOUT_MINUTES` | `10` | Minutes before agent marked offline |
-| `LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info`, `debug` |
-| `LOG_FORMAT` | auto | `json` (default non-TTY) or `pretty` (default TTY) |
-| `METRICS_ENABLED` | `true` | Expose `/metrics` Prometheus endpoint |
-| `AUDIT_ENABLED` | `true` | Record mutating requests to `audit_log` |
-| `AUDIT_RETENTION_DAYS` | `365` | Audit retention (0 = keep forever) |
+| `DATABASE_URL` | -- | PostgreSQL connection string (overrides SQLite) |
+| `ADMIN_KEY` | -- | Admin API auth key |
+| `LOG_LEVEL` | `info` | `silent` / `error` / `warn` / `info` / `debug` |
 | `RATE_LIMIT_PER_MIN` | `300` | Per-key rate limit (0 = disabled) |
-| `MAX_BODY_BYTES` | `1048576` | Max request body (0 = disabled) |
-| `HSTS_ENABLED` | `false` | Send `Strict-Transport-Security` header |
+| `AUDIT_ENABLED` | `true` | Append-only audit log |
+| `METRICS_ENABLED` | `true` | Prometheus `/metrics` endpoint |
 
-## Enterprise-ready
+See [docs/configuration.md](docs/configuration.md) for all options.
 
-- **Structured JSON logs** with auto-redaction of API keys, bearer tokens, JWTs,
-  cloud credentials, and private keys — safe to forward anywhere.
-- **X-Request-ID** on every request, echoed in responses, in every log line,
-  and in the audit trail.
-- **Prometheus metrics** at `/metrics` (counters, histograms, gauges) — no auth,
-  scrape it with anything.
-- **Liveness & readiness probes** at `/healthz` and `/readyz` for containers.
-- **Append-only audit log** of every mutating request with admin query API.
-- **API key lifecycle**: scopes (read/write/admin), expiry, rotation, revocation,
-  `last_used_at` tracking, keys stored as SHA-256 hashes.
-- **Rate limiting**, **body-size limits**, and **security response headers** on by default.
+---
 
-See [OBSERVABILITY.md](./OBSERVABILITY.md) and [SECURITY.md](./SECURITY.md) for details.
+## Production Deployment
 
-## Dog-Food Proof
+### Docker
 
-Lattice was built and tested by agent teams coordinating through Lattice itself. Four rounds of live dog-fooding with real multi-agent workloads:
+```bash
+docker compose up -d --build
+```
 
-| Round | Agents | What Happened |
-|-------|--------|---------------|
-| **1. Market Research** | 3 | Produced 15 competitive profiles, monetization analysis, 5-domain technical review |
-| **2. DX Sprint** | 5 | Built 4 new MCP tools, auto-registration, agent preamble templates |
-| **3. QA Verification** | 1 | 14/15 sub-tests passed, found FTS edge case and registry gap |
-| **4. Landing Page** | 3 | End-to-end content pipeline via direct messaging, 3 bugs caught and fixed in-session |
+### PostgreSQL
 
-**Totals:** 154+ events, 53+ context entries, 40+ tasks (12+ completed), 9+ agents coordinated, **391 tests passing** across 34 test files.
+Set `DATABASE_URL` to use Postgres instead of SQLite:
 
-The claim-before-work pattern eliminated duplicate effort across agents. The shared context store let agents build on each other's findings across sessions. Direct messaging enabled clean handoff patterns (researcher -> designer -> reviewer).
+```bash
+DATABASE_URL=postgres://user:pass@host:5432/lattice node dist/index.js
+```
 
-## Compound Workflows
+### Security Features
 
-The highest-leverage pattern combines four primitives:
+- **API key auth** with read/write/admin scopes
+- **Rate limiting** per key and per workspace
+- **Secret scanning** blocks credentials from entering shared state
+- **SSRF guard** validates outbound webhook URLs
+- **Audit logging** with configurable retention
+- **Prometheus metrics** for monitoring
 
-- **Profiles** — named reusable role definitions (system prompt + defaults)
-- **Playbooks** — named task templates with dependency wiring
-- **WorkflowRuns** — first-class tracking of a playbook execution
-- **Artifacts** — typed, keyed file storage separate from context
+See [SECURITY.md](SECURITY.md) and [docs/self-hosted-guide.md](docs/self-hosted-guide.md).
 
-Together they produce reusable multi-agent pipelines. A canonical fan-out / fan-in walkthrough is in [examples/compound-workflow.md](examples/compound-workflow.md). Other examples: [quick-start.md](examples/quick-start.md), [research-team.md](examples/research-team.md), [dev-pipeline.md](examples/dev-pipeline.md).
+---
+
+## Lattice vs Others
+
+| | Lattice | CrewAI / LangGraph | n8n / Temporal |
+|---|---|---|---|
+| **What it is** | Coordination infrastructure | Agent frameworks | Workflow engines |
+| **How agents connect** | MCP (standard protocol) | Framework-specific SDK | Custom connectors |
+| **Agent code changes** | None | Must use their APIs | Must write nodes/workflows |
+| **Self-hosted** | Single binary, SQLite | Varies | Complex infra |
+| **Use with any framework** | Yes | No (locked in) | Partially |
+
+Lattice doesn't replace agent frameworks -- it sits alongside them. Use CrewAI to build agents, Lattice to coordinate them.
+
+---
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) -- quick start for SaaS, self-hosted, and Docker
-- [Configuration Reference](docs/configuration.md) -- all environment variables
-- [REST API Reference](docs/api-reference.md) -- every endpoint with curl examples
-- [Self-Hosted Guide](docs/self-hosted-guide.md) -- production deployment, backup, monitoring
-- [LLM Tool Reference](docs/llm-reference.md) -- structured MCP tool docs for AI agents
-- [LLM Workflow Examples](docs/llm-examples.md) -- multi-agent coordination patterns
+- [Getting Started](docs/getting-started.md) -- zero to running in 5 minutes
+- [Configuration](docs/configuration.md) -- all environment variables
+- [API Reference](docs/api-reference.md) -- every REST endpoint
+- [Use Cases](docs/use-cases.md) -- 15 scenarios across individuals, teams, and enterprises
+- [LLM Reference](docs/llm-reference.md) -- MCP tool docs optimized for AI agents
+- [LLM Examples](docs/llm-examples.md) -- multi-agent coordination patterns
+- [Self-Hosted Guide](docs/self-hosted-guide.md) -- production deployment
+- [Agent Protocol](CLAUDE.md) -- how agents should use Lattice
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines.
 
 ## License
 
-MIT
+[MIT](LICENSE)

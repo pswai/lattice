@@ -2,7 +2,7 @@
 
 ## What is Lattice?
 
-Lattice is an MCP-native coordination bus for AI agent teams. It provides shared knowledge, event-driven messaging, task management, agent discovery, and direct messaging -- all accessible via 35 MCP tools or REST API.
+Lattice is an open-source (MIT), self-hosted MCP-native coordination bus for AI agent teams. It provides shared knowledge, event-driven messaging, task management, agent discovery, and direct messaging -- all accessible via 35 MCP tools or REST API.
 
 ## Quick Start
 

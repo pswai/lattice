@@ -9,7 +9,6 @@ import { createMetricsMiddleware } from './middleware/metrics.js';
 import { createAuditMiddleware } from './middleware/audit.js';
 import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware, checkRateLimit } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
-import { createQuotaMiddleware } from './middleware/quota.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
 import { createCorsMiddleware } from './middleware/cors.js';
 import { createContextRoutes } from './routes/context.js';
@@ -33,11 +32,6 @@ import { createDashboardSnapshotRoutes } from './routes/dashboard-snapshot.js';
 import { createSseRoutes } from './routes/sse.js';
 import { createAnalyticsRoutes } from './routes/analytics.js';
 import { createAdminRoutes } from './routes/admin.js';
-import { createAuthRoutes } from './routes/auth.js';
-import { createWorkspaceRoutes } from './routes/workspaces.js';
-import { createOAuthRoutes } from './routes/oauth.js';
-import type { EmailSender } from '../services/email.js';
-import { createSessionMiddleware } from './middleware/session.js';
 import { createAdminKeyRoutes } from './routes/admin-keys.js';
 import { createOpsRoutes } from './routes/ops.js';
 import { createAuditRoutes } from './routes/audit.js';
@@ -54,7 +48,6 @@ export function createApp(
   db: DbAdapter,
   createMcpServer: () => McpServer,
   config?: AppConfig,
-  emailSender: EmailSender | null = null,
 ): Hono {
   const app = new Hono();
 
@@ -172,20 +165,6 @@ export function createApp(
     });
   });
 
-  // Session middleware — attaches c.var.session if lt_session cookie is valid.
-  // Mounted globally so /auth/me and /workspaces can see the session.
-  app.use('*', createSessionMiddleware(db));
-
-  // Public SaaS auth routes — signup/login/logout/me/verify-email.
-  // Must come before the /api/v1 API-key auth middleware.
-  if (config) {
-    app.route('/auth', createAuthRoutes(db, config, emailSender));
-    app.route('/auth/oauth', createOAuthRoutes(db, config));
-  }
-
-  // Self-serve workspace management (session-gated per route).
-  app.route('/workspaces', createWorkspaceRoutes(db, config, emailSender));
-
   // Public inbound webhook receiver — mounted BEFORE auth middleware.
   // The endpoint_key in the URL IS the auth for these receivers.
   app.route('/api/v1/inbound', createInboundReceiverRoutes(db));
@@ -218,10 +197,6 @@ export function createApp(
     api.use('*', createAuditMiddleware(db));
   }
 
-  // Quota enforcement (opt-in via config). After auth + rate-limit, before routes.
-  if (config?.quotaEnforcement) {
-    api.use('*', createQuotaMiddleware(db, { quotaEnforcement: true }));
-  }
   api.route('/context', createContextRoutes(db));
   api.route('/events', createEventRoutes(db));
   api.route('/tasks', createTaskRoutes(db));
@@ -249,8 +224,8 @@ export function createApp(
       // Don't intercept API, MCP, admin, auth, or operational routes
       const path = c.req.path;
       if (path.startsWith('/api/') || path.startsWith('/mcp') || path.startsWith('/admin') ||
-          path.startsWith('/auth') || path.startsWith('/health') || path.startsWith('/metrics') ||
-          path.startsWith('/readyz') || path.startsWith('/healthz') || path.startsWith('/workspaces')) {
+          path.startsWith('/health') || path.startsWith('/metrics') ||
+          path.startsWith('/readyz') || path.startsWith('/healthz')) {
         return c.notFound();
       }
       return c.html(indexHtml);

@@ -8,7 +8,6 @@ import { runDueSchedules } from '../src/services/scheduler.js';
 import { defineSchedule, getDueSchedules } from '../src/models/schedule.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { mcpAuthStorage } from '../src/mcp/auth-context.js';
-import { setUsageTracking } from '../src/models/usage.js';
 import type { SqliteAdapter } from '../src/db/adapter.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AuthContext } from '../src/models/types.js';
@@ -285,11 +284,6 @@ describe('M4 — Scheduler runDueSchedules mutex prevents duplicate runs', () =>
 
   beforeEach(() => {
     ctx = createTestContext();
-    setUsageTracking(false);
-  });
-
-  afterEach(() => {
-    setUsageTracking(false);
   });
 
   it('should not double-fire when called concurrently', async () => {
@@ -367,7 +361,6 @@ describe('M5 — MCP run_playbook vars scanned for secrets', () => {
   });
 
   it('should allow clean vars through', async () => {
-    setUsageTracking(false);
     const result = await callTool(mcp, auth, 'run_playbook', {
       agent_id: 'test-agent',
       name: 'var-pb',

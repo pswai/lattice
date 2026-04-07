@@ -3,7 +3,7 @@ import { jsonArrayTable } from '../db/adapter.js';
 import type { ContextEntry, SaveContextInput, GetContextInput, SaveContextResponse, GetContextResponse } from './types.js';
 import { broadcastInternal } from './event.js';
 import { ValidationError } from '../errors.js';
-import { incrementUsage, decrementUsageForced } from './usage.js';
+
 
 /** Max value length returned in search results to prevent response size blowup */
 const SEARCH_VALUE_TRUNCATE = 10_000;
@@ -100,15 +100,6 @@ export async function saveContext(
     entryId = Number(result.lastInsertRowid);
   }
 
-  // Track storage: new bytes on insert, delta on update
-  const newBytes = Buffer.byteLength(input.value, 'utf8');
-  const oldBytes = existing ? Buffer.byteLength(existing.value, 'utf8') : 0;
-  const delta = newBytes - oldBytes;
-  if (delta > 0) {
-    await incrementUsage(db, workspaceId, { storageBytes: delta });
-  } else if (delta < 0) {
-    await decrementUsageForced(db, workspaceId, { storageBytes: Math.abs(delta) });
-  }
 
   // Auto-broadcast LEARNING event after successful save
   await broadcastInternal(

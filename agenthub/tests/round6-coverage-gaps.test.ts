@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, createTestDb, setupWorkspace, addApiKey, type TestContext } from './helpers.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { mcpAuthStorage } from '../src/mcp/auth-context.js';
-import { hashPassword, verifyPassword } from '../src/models/user.js';
 import { definePlaybook } from '../src/models/playbook.js';
 import { defineProfile } from '../src/models/profile.js';
 import { saveArtifact } from '../src/models/artifact.js';
@@ -279,79 +278,3 @@ describe('P1 — MCP direct tests: list_workflow_runs / get_workflow_run', () =>
   });
 });
 
-// ─── P2: hashPassword standalone ───────────────────────────────────────
-
-describe('P2 — hashPassword / verifyPassword standalone', () => {
-  it('should produce salt:hash format', () => {
-    const hash = hashPassword('test-password');
-    expect(hash).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
-  });
-
-  it('should produce unique hashes for same password (different salts)', () => {
-    const hash1 = hashPassword('same-password');
-    const hash2 = hashPassword('same-password');
-    expect(hash1).not.toBe(hash2);
-  });
-
-  it('should verify correct password', () => {
-    const hash = hashPassword('correct-horse');
-    expect(verifyPassword('correct-horse', hash)).toBe(true);
-  });
-
-  it('should reject wrong password', () => {
-    const hash = hashPassword('correct-horse');
-    expect(verifyPassword('wrong-horse', hash)).toBe(false);
-  });
-
-  it('should reject malformed stored hash', () => {
-    expect(verifyPassword('anything', 'not-a-valid-hash')).toBe(false);
-    expect(verifyPassword('anything', '')).toBe(false);
-    expect(verifyPassword('anything', ':')).toBe(false);
-  });
-
-  it('should reject stored hash with wrong key length', () => {
-    // Valid hex salt but short hash
-    const salt = 'a'.repeat(32); // 16 bytes in hex
-    const shortHash = 'b'.repeat(10);
-    expect(verifyPassword('anything', `${salt}:${shortHash}`)).toBe(false);
-  });
-});
-
-// ─── P2: requireSession middleware ─────────────────────────────────────
-
-describe('P2 — requireSession middleware', () => {
-  it('should return 401 when no session is set', async () => {
-    // Import and test the middleware directly via a mini Hono app
-    const { Hono } = await import('hono');
-    const { requireSession } = await import('../src/http/middleware/require-session.js');
-
-    const app = new Hono();
-    app.use('*', requireSession);
-    app.get('/protected', (c) => c.json({ ok: true }));
-
-    const res = await app.request('/protected');
-    expect(res.status).toBe(401);
-    const data = await res.json();
-    expect(data.error).toBe('UNAUTHORIZED');
-    expect(data.message).toBe('Sign in required');
-  });
-
-  it('should pass through when session is present', async () => {
-    const { Hono } = await import('hono');
-    const { requireSession } = await import('../src/http/middleware/require-session.js');
-
-    const app = new Hono();
-    // Set a fake session before requireSession runs
-    app.use('*', async (c, next) => {
-      c.set('session', { userId: 'user-1', sessionId: 'sess-1' });
-      await next();
-    });
-    app.use('*', requireSession);
-    app.get('/protected', (c) => c.json({ ok: true }));
-
-    const res = await app.request('/protected');
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.ok).toBe(true);
-  });
-});

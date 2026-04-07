@@ -2,7 +2,7 @@ import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
 import type { Event, EventType, BroadcastInput, GetUpdatesInput, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
 import { eventBus } from '../services/event-emitter.js';
-import { incrementUsage } from './usage.js';
+
 import { safeJsonParse } from '../safe-json.js';
 
 const RECOMMENDED_CONTEXT_LIMIT = 3;
@@ -117,7 +117,7 @@ export async function broadcastEvent(
 
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { workspaceId, eventId });
-  await incrementUsage(db, workspaceId, { exec: 1 });
+
   return { eventId };
 }
 
