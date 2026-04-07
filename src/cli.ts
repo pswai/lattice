@@ -96,6 +96,18 @@ async function initCommand(): Promise<void> {
   // 2. DB path
   const dbPath = await ask(rl, 'Database path', './data/lattice.db');
   const resolvedDbPath = resolvePath(dbPath);
+  const dbDir = resolvePath(resolvedDbPath, '..');
+
+  // Ensure DB directory exists or can be created
+  const { mkdirSync } = await import('node:fs');
+  try {
+    mkdirSync(dbDir, { recursive: true });
+  } catch {
+    console.error(red(`\n  Cannot create database directory: ${dbDir}`));
+    console.error(dim('  Check that the path is writable.\n'));
+    rl.close();
+    process.exit(1);
+  }
 
   // 3. Port
   const portStr = await ask(rl, 'Server port', '3000');
@@ -126,7 +138,8 @@ async function initCommand(): Promise<void> {
   await adapter.run('INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)', workspaceId, keyHash, 'cli-init', 'write');
   await adapter.close();
 
-  console.log(green('  API key generated.\n'));
+  console.log(green('  API key generated.'));
+  console.log(yellow('  Save this key — it will not be shown again.\n'));
 
   // 5. Output .mcp.json snippet
   const mcpSnippet = {
@@ -170,13 +183,27 @@ async function initCommand(): Promise<void> {
 // ── start command ────────────────────────────────────────────────────────────
 
 async function startCommand(): Promise<void> {
+  // Pre-flight: check that the DB directory is writable
+  const dbPath = process.env.DB_PATH || './data/lattice.db';
+  const dbDir = resolvePath(dbPath, '..');
+  const { mkdirSync } = await import('node:fs');
+  try {
+    mkdirSync(dbDir, { recursive: true });
+  } catch {
+    console.error(red(`\n  Cannot create database directory: ${dbDir}`));
+    console.error(dim('  Check that the path is writable.\n'));
+    process.exit(1);
+  }
+
   await import('./index.js');
 }
 
 // ── status command ────────────────────────────────────────────────────────────
 
 function resolveBaseUrl(): string {
-  return process.env.LATTICE_URL || 'http://localhost:3000';
+  if (process.env.LATTICE_URL) return process.env.LATTICE_URL;
+  const port = process.env.PORT || '3000';
+  return `http://localhost:${port}`;
 }
 
 async function statusCommand(): Promise<void> {
@@ -201,7 +228,9 @@ async function statusCommand(): Promise<void> {
   console.log(`  Server:  ${badge}  ${dim(baseUrl)}`);
 
   if (!healthy) {
-    console.log(red('\n  Server is not reachable. Is Lattice running?\n'));
+    console.log(red('\n  Server is not reachable.'));
+    console.log(dim(`  Start it with: ${cyan('npx lattice start')}`));
+    console.log(dim(`  Or set LATTICE_URL if the server is running elsewhere.\n`));
     process.exit(1);
   }
 
@@ -300,9 +329,14 @@ const USAGE = `
     start     Start the Lattice server
     status    Show server health, stats, and recent events
 
+  ${bold('Flags:')}
+    --version, -v   Show version number
+
   ${bold('Environment variables:')}
-    LATTICE_URL       Server URL (default: http://localhost:3000)
-    ADMIN_KEY          Admin key for server stats
+    PORT              Server port (default: 3000)
+    DB_PATH           Database file path (default: ./data/lattice.db)
+    LATTICE_URL       Server URL for status command (default: http://localhost:$PORT)
+    ADMIN_KEY         Admin key for server stats
     LATTICE_API_KEY   Team API key for events
 `;
 
@@ -320,6 +354,14 @@ async function main(): Promise<void> {
     case 'start':
       await startCommand();
       break;
+    case '--version':
+    case '-v': {
+      const { createRequire } = await import('node:module');
+      const require = createRequire(import.meta.url);
+      const pkg = require('../package.json') as { version: string };
+      console.log(`lattice ${pkg.version}`);
+      break;
+    }
     case '--help':
     case '-h':
     case undefined:

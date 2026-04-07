@@ -53,11 +53,11 @@ No authentication — scrape it with any Prometheus-compatible agent.
 | Metric | Type | Labels |
 |---|---|---|
 | `lattice_up` | gauge | — |
-| `lattice_http_requests_total` | counter | `method,route,status,team` |
+| `lattice_http_requests_total` | counter | `method,route,status,workspace` |
 | `lattice_http_request_duration_ms` | histogram | `method,route` |
-| `lattice_active_agents` | gauge | `team` |
-| `lattice_tasks` | gauge | `team,status` |
-| `lattice_events_total` | counter | `team,event_type` |
+| `lattice_active_agents` | gauge | `workspace` |
+| `lattice_tasks` | gauge | `workspace,status` |
+| `lattice_events_total` | counter | `workspace,event_type` |
 
 Histogram buckets: `5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000` ms.
 
@@ -81,7 +81,7 @@ sum by (route) (rate(lattice_http_requests_total{status=~"5.."}[5m]))
 lattice_tasks{status="claimed"}
 
 # rate-limit incidents
-sum by (team) (rate(lattice_http_requests_total{status="429"}[5m]))
+sum by (workspace) (rate(lattice_http_requests_total{status="429"}[5m]))
 ```
 
 ## Health and readiness probes

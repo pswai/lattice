@@ -4,6 +4,23 @@
   "description": "MCP-native coordination layer for AI agent teams",
   "type": "module",
   "main": "dist/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pswai/lattice.git"
+  },
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "coordination",
+    "model-context-protocol",
+    "multi-agent",
+    "task-management",
+    "knowledge-base"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "lattice": "./dist/cli.js"
   },

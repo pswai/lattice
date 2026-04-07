@@ -20,7 +20,8 @@ data/*.db.bak
 
 # Env files
 .env
-.env.local
+.env.*
+!.env.example
 
 # Editor
 .idea/
@@ -30,3 +31,6 @@ data/*.db.bak
 # Claude local settings
 .claude/settings.local.json
 .gstack/
+
+# Local MCP configuration (contains API keys)
+.mcp.json

@@ -33,10 +33,22 @@ startWebhookDispatcher(adapter);
 startScheduler(adapter);
 startAuditCleanup(adapter, config);
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
+const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   getLogger().info('lattice_started', {
     port: info.port,
     mcp: `http://localhost:${info.port}/mcp`,
     rest: `http://localhost:${info.port}/api/v1`,
   });
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    getLogger().error('port_in_use', {
+      port: config.port,
+      hint: `Port ${config.port} is already in use. Set PORT to use a different port.`,
+    });
+  } else {
+    getLogger().error('server_error', { error: err.message });
+  }
+  process.exit(1);
 });
