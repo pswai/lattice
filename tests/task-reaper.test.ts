@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setupWorkspace } from './helpers.js';
 import { createTask, updateTask } from '../src/models/task.js';
+import { registerAgent, markStaleAgents } from '../src/models/agent.js';
 import { getUpdates } from '../src/models/event.js';
 
 /**
@@ -168,5 +169,175 @@ describe('Task Reaper', () => {
 
     const reaped = reapAbandonedTasks(db, 30);
     expect(reaped).toBe(3);
+  });
+});
+
+/**
+ * Simulate the heartbeat-based reaper: reap tasks claimed by offline agents.
+ */
+function reapOfflineAgentTasks(db: ReturnType<typeof createTestDb>): number {
+  const staleTasks = db.rawDb.prepare(`
+    SELECT t.id, t.workspace_id, t.description, t.claimed_by, t.version
+    FROM tasks t
+    JOIN agents a ON a.id = t.claimed_by AND a.workspace_id = t.workspace_id
+    WHERE t.status = 'claimed'
+      AND a.status = 'offline'
+  `).all() as Array<{
+    id: number;
+    workspace_id: string;
+    description: string;
+    claimed_by: string;
+    version: number;
+  }>;
+
+  let reaped = 0;
+  for (const task of staleTasks) {
+    const result = db.rawDb.prepare(`
+      UPDATE tasks
+      SET status = 'abandoned',
+          claimed_by = NULL,
+          claimed_at = NULL,
+          result = 'Auto-released: claiming agent went offline',
+          version = version + 1,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id = ? AND version = ?
+    `).run(task.id, task.version);
+
+    if (result.changes > 0) {
+      db.rawDb.prepare(`
+        INSERT INTO events (workspace_id, event_type, message, tags, created_by)
+        VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
+      `).run(task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, auto-released: claiming agent went offline)`);
+      reaped++;
+    }
+  }
+  return reaped;
+}
+
+describe('Task Reaper — heartbeat-based reap', () => {
+  let db: ReturnType<typeof createTestDb>;
+  const workspaceId = 'test-team';
+  const agentId = 'agent-alpha';
+
+  beforeEach(async () => {
+    db = createTestDb();
+    setupWorkspace(db, workspaceId);
+    // Register the agent so there's a row in the agents table
+    await registerAgent(db, workspaceId, {
+      agent_id: agentId,
+      capabilities: ['code'],
+      status: 'online',
+    });
+  });
+
+  it('should reap tasks claimed by offline agents', async () => {
+    const task = await createTask(db, workspaceId, agentId, {
+      description: 'Task from offline agent',
+    });
+
+    // Mark the agent as offline (simulating stale heartbeat detection)
+    db.rawDb.prepare("UPDATE agents SET status = 'offline' WHERE id = ? AND workspace_id = ?")
+      .run(agentId, workspaceId);
+
+    const reaped = reapOfflineAgentTasks(db);
+    expect(reaped).toBe(1);
+
+    const row = db.rawDb.prepare('SELECT status, claimed_by, result FROM tasks WHERE id = ?')
+      .get(task.task_id) as any;
+    expect(row.status).toBe('abandoned');
+    expect(row.claimed_by).toBeNull();
+    expect(row.result).toContain('agent went offline');
+  });
+
+  it('should not reap tasks claimed by online agents', async () => {
+    await createTask(db, workspaceId, agentId, {
+      description: 'Task from online agent',
+    });
+
+    // Agent is still online — should not be reaped
+    const reaped = reapOfflineAgentTasks(db);
+    expect(reaped).toBe(0);
+  });
+
+  it('should not reap tasks claimed by busy agents', async () => {
+    await createTask(db, workspaceId, agentId, {
+      description: 'Task from busy agent',
+    });
+
+    db.rawDb.prepare("UPDATE agents SET status = 'busy' WHERE id = ? AND workspace_id = ?")
+      .run(agentId, workspaceId);
+
+    const reaped = reapOfflineAgentTasks(db);
+    expect(reaped).toBe(0);
+  });
+
+  it('should integrate with markStaleAgents to detect offline agents', async () => {
+    const task = await createTask(db, workspaceId, agentId, {
+      description: 'Task with stale heartbeat',
+    });
+
+    // Backdate the heartbeat to 15 minutes ago (past 10-min timeout)
+    const staleTime = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    db.rawDb.prepare('UPDATE agents SET last_heartbeat = ? WHERE id = ? AND workspace_id = ?')
+      .run(staleTime, agentId, workspaceId);
+
+    // markStaleAgents should flip agent to offline
+    const marked = await markStaleAgents(db, 10);
+    expect(marked).toBe(1);
+
+    // Now the heartbeat-based reaper should pick up the task
+    const reaped = reapOfflineAgentTasks(db);
+    expect(reaped).toBe(1);
+
+    const row = db.rawDb.prepare('SELECT status FROM tasks WHERE id = ?')
+      .get(task.task_id) as any;
+    expect(row.status).toBe('abandoned');
+  });
+
+  it('should broadcast event when reaping offline agent tasks', async () => {
+    const task = await createTask(db, workspaceId, agentId, {
+      description: 'Reapable offline task',
+    });
+
+    db.rawDb.prepare("UPDATE agents SET status = 'offline' WHERE id = ? AND workspace_id = ?")
+      .run(agentId, workspaceId);
+
+    reapOfflineAgentTasks(db);
+
+    const updates = await getUpdates(db, workspaceId, {});
+    const reaperEvents = updates.events.filter(
+      (e) => e.createdBy === 'system:reaper' && e.tags.includes('task-reaper'),
+    );
+    expect(reaperEvents.length).toBeGreaterThan(0);
+    expect(reaperEvents[0].message).toContain('auto-released');
+  });
+
+  it('should only reap within the same workspace', async () => {
+    // Create a second workspace with its own agent
+    const wsB = 'workspace-b';
+    db.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(wsB, 'Workspace B');
+    await registerAgent(db, wsB, {
+      agent_id: 'agent-beta',
+      capabilities: ['code'],
+      status: 'online',
+    });
+
+    // Task in wsA claimed by agent-alpha
+    const task = await createTask(db, workspaceId, agentId, {
+      description: 'WS-A task',
+    });
+
+    // Mark agent-alpha offline only in wsA
+    db.rawDb.prepare("UPDATE agents SET status = 'offline' WHERE id = ? AND workspace_id = ?")
+      .run(agentId, workspaceId);
+
+    // Agent-beta in wsB is still online — its tasks should not be touched
+    // (There are no tasks in wsB, but the JOIN ensures workspace isolation)
+    const reaped = reapOfflineAgentTasks(db);
+    expect(reaped).toBe(1);
+
+    const row = db.rawDb.prepare('SELECT status FROM tasks WHERE id = ?')
+      .get(task.task_id) as any;
+    expect(row.status).toBe('abandoned');
   });
 });
