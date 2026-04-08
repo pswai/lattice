@@ -119,19 +119,25 @@ const LEGEND = [
   { label: 'claimed', color: '#eab308', shape: 'diamond' },
   { label: 'completed', color: '#22c55e', shape: 'circle' },
   { label: 'escalated', color: '#dc2626', shape: 'circle' },
+  { label: 'abandoned', color: '#dc2626', shape: 'circle' },
 ];
+
+const ALL_STATUSES = ['open', 'claimed', 'completed', 'escalated', 'abandoned'] as const;
+const DEFAULT_ACTIVE = new Set(['open', 'claimed']);
 
 export default function GraphTab() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
+  const [activeStatuses, setActiveStatuses] = useState<Set<string>>(new Set(DEFAULT_ACTIVE));
   const svgRef = useRef<SVGSVGElement>(null);
   const hasLoaded = useRef(false);
 
-  const loadGraph = useCallback(async () => {
+  const loadGraph = useCallback(async (statuses: Set<string>) => {
     setLoading(true);
     try {
-      const g = await api<GraphData>('/tasks/graph?limit=50');
+      const statusParam = statuses.size === ALL_STATUSES.length ? '' : `&status=${[...statuses].join(',')}`;
+      const g = await api<GraphData>(`/tasks/graph?limit=200${statusParam}`);
       setGraphData(g);
     } catch {
       toast('Failed to load graph', true);
@@ -140,12 +146,38 @@ export default function GraphTab() {
     }
   }, []);
 
+  const toggleStatus = useCallback((status: string) => {
+    setActiveStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        if (next.size <= 1) return prev; // keep at least one
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      loadGraph(next);
+      return next;
+    });
+  }, [loadGraph]);
+
+  const showAll = useCallback(() => {
+    const all = new Set(ALL_STATUSES as unknown as string[]);
+    setActiveStatuses(all);
+    loadGraph(all);
+  }, [loadGraph]);
+
+  const showActive = useCallback(() => {
+    const active = new Set(DEFAULT_ACTIVE);
+    setActiveStatuses(active);
+    loadGraph(active);
+  }, [loadGraph]);
+
   useEffect(() => {
     if (!hasLoaded.current) {
       hasLoaded.current = true;
-      loadGraph();
+      loadGraph(activeStatuses);
     }
-  }, [loadGraph]);
+  }, [loadGraph]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMouseEnter = useCallback((e: React.MouseEvent, node: GraphNode) => {
     setTooltip({ x: e.clientX + 12, y: e.clientY + 12, node });
@@ -167,17 +199,31 @@ export default function GraphTab() {
     <div className="panel p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Task Graph DAG</h2>
-        <div className="flex items-center gap-4 text-[11px] text-gray-500">
+        <div className="flex items-center gap-2 text-[11px] text-gray-500">
           {LEGEND.map((l) => (
-            <span key={l.label} className="flex items-center gap-1">
+            <button
+              key={l.label}
+              onClick={() => toggleStatus(l.label)}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-opacity ${
+                activeStatuses.has(l.label) ? 'opacity-100' : 'opacity-30'
+              }`}
+              title={activeStatuses.has(l.label) ? `Hide ${l.label}` : `Show ${l.label}`}
+            >
               <span
                 className={`w-2.5 h-2.5 inline-block ${l.shape === 'diamond' ? 'rounded-sm rotate-45' : 'rounded-full'}`}
                 style={{ background: l.color }}
               />
               {l.label}
-            </span>
+            </button>
           ))}
-          <button onClick={loadGraph} className="btn-ghost" disabled={loading}>
+          <span className="text-gray-600 mx-1">|</span>
+          <button onClick={showActive} className="btn-ghost text-[11px]" disabled={loading}>
+            Active
+          </button>
+          <button onClick={showAll} className="btn-ghost text-[11px]" disabled={loading}>
+            All
+          </button>
+          <button onClick={() => loadGraph(activeStatuses)} className="btn-ghost text-[11px]" disabled={loading}>
             Refresh
           </button>
         </div>
