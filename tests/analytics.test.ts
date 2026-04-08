@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
 import { getWorkspaceAnalytics, parseSinceDuration } from '../src/models/analytics.js';
+import { createTask, updateTask } from '../src/models/task.js';
 
 /**
  * Insert a task directly with a specific created_at / updated_at so we can
@@ -299,5 +300,116 @@ describe('GET /api/v1/analytics', () => {
   it('requires auth', async () => {
     const res = await request(ctx.app, 'GET', '/api/v1/analytics', {});
     expect(res.status).toBe(401);
+  });
+});
+
+// ─── Analytics multi-dimension cross-filtering (from round3-coverage-p1) ─
+
+describe('Analytics — multi-dimension cross-filtering', () => {
+  let ctx: TestContext;
+
+  beforeEach(async () => {
+    ctx = createTestContext();
+  });
+
+  it('should return tasks filtered by both status and time range', async () => {
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent-a', {
+      description: 'Open task', status: 'open',
+    });
+    const t2 = await createTask(ctx.db, ctx.workspaceId, 'agent-a', {
+      description: 'Claimed task', status: 'claimed',
+    });
+    const t3 = await createTask(ctx.db, ctx.workspaceId, 'agent-b', {
+      description: 'Done task', status: 'claimed',
+    });
+    await updateTask(ctx.db, ctx.workspaceId, 'agent-b', {
+      task_id: t3.task_id, status: 'completed', version: 1, result: 'done',
+    });
+
+    const sinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const analytics = await getWorkspaceAnalytics(ctx.db, ctx.workspaceId, sinceIso);
+
+    expect(analytics.tasks.by_status.open).toBe(1);
+    expect(analytics.tasks.by_status.claimed).toBe(1);
+    expect(analytics.tasks.by_status.completed).toBe(1);
+    expect(analytics.tasks.total).toBe(3);
+    expect(analytics.tasks.completion_rate).toBeGreaterThan(0);
+  });
+
+  it('should cross-filter agents by events and completed tasks', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+    ).run('agent-a', ctx.workspaceId, '[]', 'online', '{}');
+    ctx.rawDb.prepare(
+      `INSERT INTO agents (id, workspace_id, capabilities, status, metadata, last_heartbeat) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+    ).run('agent-b', ctx.workspaceId, '[]', 'online', '{}');
+
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'LEARNING', 'Found something', '[]', 'agent-a');
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'Update', '[]', 'agent-b');
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'ERROR', 'Oops', '[]', 'agent-a');
+
+    const t = await createTask(ctx.db, ctx.workspaceId, 'agent-b', {
+      description: 'Task by B', status: 'claimed',
+    });
+    await updateTask(ctx.db, ctx.workspaceId, 'agent-b', {
+      task_id: t.task_id, status: 'completed', version: 1, result: 'done',
+    });
+
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const analytics = await getWorkspaceAnalytics(ctx.db, ctx.workspaceId, sinceIso);
+
+    expect(analytics.agents.total).toBe(2);
+    expect(analytics.agents.online).toBe(2);
+    expect(analytics.agents.top_producers.length).toBeGreaterThan(0);
+
+    const agentA = analytics.agents.top_producers.find((p) => p.agent_id === 'agent-a');
+    const agentB = analytics.agents.top_producers.find((p) => p.agent_id === 'agent-b');
+    expect(agentA?.events).toBe(2);
+    expect(agentB?.tasks_completed).toBe(1);
+  });
+
+  it('should aggregate event types correctly', async () => {
+    for (const type of ['LEARNING', 'LEARNING', 'BROADCAST', 'ERROR', 'ESCALATION', 'TASK_UPDATE']) {
+      ctx.rawDb.prepare(
+        `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+      ).run(ctx.workspaceId, type, `msg-${type}`, '[]', 'agent');
+    }
+
+    const sinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const analytics = await getWorkspaceAnalytics(ctx.db, ctx.workspaceId, sinceIso);
+
+    expect(analytics.events.by_type.LEARNING).toBe(2);
+    expect(analytics.events.by_type.BROADCAST).toBe(1);
+    expect(analytics.events.by_type.ERROR).toBe(1);
+    expect(analytics.events.by_type.ESCALATION).toBe(1);
+    expect(analytics.events.by_type.TASK_UPDATE).toBe(1);
+    expect(analytics.events.total).toBe(6);
+  });
+
+  it('should compute context stats with cross-filtering', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO context_entries (workspace_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'k1', 'v1', '["a"]', 'agent-a');
+    ctx.rawDb.prepare(
+      `INSERT INTO context_entries (workspace_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'k2', 'v2', '["b"]', 'agent-a');
+    ctx.rawDb.prepare(
+      `INSERT INTO context_entries (workspace_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'k3', 'v3', '["c"]', 'agent-b');
+
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const analytics = await getWorkspaceAnalytics(ctx.db, ctx.workspaceId, sinceIso);
+
+    expect(analytics.context.total_entries).toBe(3);
+    expect(analytics.context.entries_since).toBe(3);
+    expect(analytics.context.top_authors.length).toBe(2);
+    expect(analytics.context.top_authors[0].agent_id).toBe('agent-a');
+    expect(analytics.context.top_authors[0].count).toBe(2);
   });
 });

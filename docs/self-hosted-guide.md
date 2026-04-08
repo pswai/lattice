@@ -103,6 +103,9 @@ volumes:
 # Generate a strong admin key
 export ADMIN_KEY="$(openssl rand -hex 32)"
 
+# Or use a .env file next to docker-compose.yml
+echo "ADMIN_KEY=$(openssl rand -hex 32)" > .env
+
 # For Postgres backend
 export DB_PASSWORD="$(openssl rand -hex 16)"
 
@@ -115,6 +118,37 @@ curl http://localhost:3000/healthz
 
 curl http://localhost:3000/readyz
 # {"status":"ready"}
+```
+
+### First Team and API Key
+
+Create a team via the admin API:
+
+```bash
+curl -X POST http://localhost:3000/admin/teams \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"my-team","name":"My Team"}'
+```
+
+**Save the `api_key`** from the response -- it is shown only once. If you lose it, mint a new one:
+
+```bash
+curl -X POST http://localhost:3000/admin/teams/my-team/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"laptop"}'
+```
+
+### Dashboard
+
+Visit [http://localhost:3000](http://localhost:3000) in a browser to see live tasks, agents, events, and context for your team.
+
+### Tearing Down
+
+```bash
+docker compose down          # stop containers, keep data
+docker compose down -v       # stop and remove the data volume too
 ```
 
 ---

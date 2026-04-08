@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { safeJsonParse } from '../src/safe-json.js';
 
 describe('Edge Cases', () => {
   let ctx: TestContext;
@@ -212,5 +213,44 @@ describe('Edge Cases', () => {
       });
       expect(res.status).toBe(400);
     });
+  });
+});
+
+// ─── safeJsonParse returns fallback for corrupt JSON (from round7-fixes) ─
+
+describe('safeJsonParse returns fallback for corrupt JSON', () => {
+  it('should return fallback for truncated JSON', () => {
+    const result = safeJsonParse<string[]>('["a","b', []);
+    expect(result).toEqual([]);
+  });
+
+  it('should return fallback for completely invalid JSON', () => {
+    const result = safeJsonParse<Record<string, unknown>>('not-json-at-all', {});
+    expect(result).toEqual({});
+  });
+
+  it('should return fallback for empty string', () => {
+    const result = safeJsonParse<number[]>('', []);
+    expect(result).toEqual([]);
+  });
+
+  it('should parse valid JSON normally', () => {
+    const result = safeJsonParse<number[]>('[1,2,3]', []);
+    expect(result).toEqual([1, 2, 3]);
+  });
+
+  it('should return fallback for null literal input', () => {
+    const result = safeJsonParse<string[]>('null', ['default']);
+    expect(result).toBeNull();
+  });
+
+  it('should handle corrupt JSON in workflow task_ids context', () => {
+    const result = safeJsonParse<number[]>('{broken', []);
+    expect(result).toEqual([]);
+  });
+
+  it('should handle corrupt JSON in event tags context', () => {
+    const result = safeJsonParse<string[]>('[invalid', []);
+    expect(result).toEqual([]);
   });
 });

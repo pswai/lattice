@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { saveArtifact, getArtifact, deleteArtifact, listArtifacts } from '../src/models/artifact.js';
 
 describe('Artifacts API', () => {
   let ctx: TestContext;
@@ -224,5 +225,51 @@ describe('Artifacts API', () => {
       });
       expect(res.status).toBe(404);
     });
+  });
+});
+
+// ─── deleteArtifact model layer (from round4-coverage-gaps) ───────────
+
+describe('deleteArtifact (model layer)', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should delete an existing artifact', async () => {
+    await saveArtifact(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'to-delete', content_type: 'text/plain', content: 'temporary',
+    });
+
+    const result = await deleteArtifact(ctx.db, ctx.workspaceId, 'to-delete');
+    expect(result.deleted).toBe(true);
+
+    await expect(
+      getArtifact(ctx.db, ctx.workspaceId, 'to-delete'),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it('should throw NotFoundError for non-existent artifact', async () => {
+    await expect(
+      deleteArtifact(ctx.db, ctx.workspaceId, 'does-not-exist'),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it('should not affect other artifacts', async () => {
+    await saveArtifact(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'keep-this', content_type: 'text/plain', content: 'stay',
+    });
+    await saveArtifact(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'delete-this', content_type: 'text/plain', content: 'go',
+    });
+
+    await deleteArtifact(ctx.db, ctx.workspaceId, 'delete-this');
+
+    const kept = await getArtifact(ctx.db, ctx.workspaceId, 'keep-this');
+    expect(kept.content).toBe('stay');
+
+    const list = await listArtifacts(ctx.db, ctx.workspaceId, {});
+    expect(list.total).toBe(1);
   });
 });

@@ -6,7 +6,15 @@ import {
   type WebhookDispatcher,
 } from '../src/services/webhook-dispatcher.js';
 import { broadcastInternal } from '../src/models/event.js';
-import { signPayload, RETRY_SCHEDULE_MS } from '../src/models/webhook.js';
+import {
+  signPayload,
+  RETRY_SCHEDULE_MS,
+  createWebhook as createWebhookModel,
+  createDelivery,
+  listDeliveries,
+  markDeliverySuccess,
+  markDeliveryFailure,
+} from '../src/models/webhook.js';
 
 interface Received {
   url: string;
@@ -342,5 +350,90 @@ describe('Webhooks — delivery dispatcher', () => {
     expect(body.event_type).toBe('LEARNING');
     expect(body.message).toBe('neat');
     expect(body.tags).toEqual(['tag']);
+  });
+});
+
+// ─── Webhook listDeliveries direct tests (from round3-coverage-p1) ────
+
+describe('Webhook — listDeliveries (model layer)', () => {
+  let ctx: TestContext;
+  let webhookId: string;
+
+  beforeEach(async () => {
+    ctx = createTestContext();
+
+    const webhook = await createWebhookModel(ctx.db, ctx.workspaceId, 'agent', {
+      url: 'https://example.com/hook',
+      event_types: ['*'],
+    });
+    webhookId = webhook.id;
+  });
+
+  it('should return empty list when no deliveries exist', async () => {
+    const deliveries = await listDeliveries(ctx.db, ctx.workspaceId, webhookId);
+    expect(deliveries).toEqual([]);
+  });
+
+  it('should list deliveries for a webhook', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'test', '[]', 'agent');
+    const eventRow = ctx.rawDb.prepare('SELECT id FROM events LIMIT 1').get() as any;
+
+    await createDelivery(ctx.db, webhookId, eventRow.id);
+    await createDelivery(ctx.db, webhookId, eventRow.id);
+
+    const deliveries = await listDeliveries(ctx.db, ctx.workspaceId, webhookId);
+    expect(deliveries.length).toBe(2);
+    expect(deliveries[0].webhookId).toBe(webhookId);
+    expect(deliveries[0].status).toBe('pending');
+  });
+
+  it('should respect limit parameter', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'test', '[]', 'agent');
+    const eventRow = ctx.rawDb.prepare('SELECT id FROM events LIMIT 1').get() as any;
+
+    for (let i = 0; i < 5; i++) {
+      await createDelivery(ctx.db, webhookId, eventRow.id);
+    }
+
+    const deliveries = await listDeliveries(ctx.db, ctx.workspaceId, webhookId, 2);
+    expect(deliveries.length).toBe(2);
+  });
+
+  it('should cap limit at 200', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'test', '[]', 'agent');
+    const eventRow = ctx.rawDb.prepare('SELECT id FROM events LIMIT 1').get() as any;
+
+    await createDelivery(ctx.db, webhookId, eventRow.id);
+
+    const deliveries = await listDeliveries(ctx.db, ctx.workspaceId, webhookId, 999);
+    expect(deliveries.length).toBe(1);
+  });
+
+  it('should reject listing deliveries for a webhook from another workspace', async () => {
+    await expect(
+      listDeliveries(ctx.db, 'other-workspace', webhookId),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it('should show delivery status transitions', async () => {
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'test', '[]', 'agent');
+    const eventRow = ctx.rawDb.prepare('SELECT id FROM events LIMIT 1').get() as any;
+
+    const delivery = await createDelivery(ctx.db, webhookId, eventRow.id);
+    expect(delivery.status).toBe('pending');
+
+    await markDeliverySuccess(ctx.db, delivery.id, webhookId, 200);
+
+    const updated = await listDeliveries(ctx.db, ctx.workspaceId, webhookId);
+    expect(updated[0].status).toBe('success');
+    expect(updated[0].responseCode).toBe(200);
   });
 });

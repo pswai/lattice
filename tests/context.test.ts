@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { saveContext, getContext } from '../src/models/context.js';
 
 describe('Context API', () => {
   let ctx: TestContext;
@@ -246,5 +247,119 @@ describe('Context API', () => {
       // Should find both stripe-webhooks and auth-middleware entries
       expect(data.entries.length).toBe(2);
     });
+  });
+});
+
+// ─── Context UPDATE tracks updated_by/updated_at (from round3-fixes) ──
+
+describe('Context UPDATE tracks updated_by/updated_at', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should set updated_by and updated_at on context update', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-a', {
+      key: 'shared-key', value: 'original value', tags: ['test'],
+    });
+
+    const row1 = ctx.rawDb.prepare(
+      'SELECT updated_by, updated_at FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'shared-key') as any;
+    expect(row1.updated_by).toBeNull();
+    expect(row1.updated_at).toBeNull();
+
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-b', {
+      key: 'shared-key', value: 'updated value', tags: ['test'],
+    });
+
+    const row2 = ctx.rawDb.prepare(
+      'SELECT updated_by, updated_at, created_by FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'shared-key') as any;
+    expect(row2.updated_by).toBe('agent-b');
+    expect(row2.updated_at).toBeTruthy();
+    expect(row2.created_by).toBe('agent-a');
+  });
+
+  it('should not set updated_by on initial insert', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-a', {
+      key: 'new-key', value: 'new value', tags: [],
+    });
+
+    const row = ctx.rawDb.prepare(
+      'SELECT updated_by, updated_at FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'new-key') as any;
+    expect(row.updated_by).toBeNull();
+    expect(row.updated_at).toBeNull();
+  });
+
+  it('should expose updatedBy and updatedAt in context search results', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-a', {
+      key: 'search-key', value: 'searchable context value here', tags: ['test'],
+    });
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-b', {
+      key: 'search-key', value: 'updated searchable context value here', tags: ['test'],
+    });
+
+    const result = await getContext(ctx.db, ctx.workspaceId, { query: 'searchable context', tags: ['test'] });
+    expect(result.entries.length).toBe(1);
+    expect(result.entries[0].updatedBy).toBe('agent-b');
+    expect(result.entries[0].updatedAt).toBeTruthy();
+  });
+
+  it('should track updater via REST API', async () => {
+    const headers = authHeaders(ctx.apiKey, 'agent-a');
+    await request(ctx.app, 'POST', '/api/v1/context', {
+      headers,
+      body: { key: 'rest-key', value: 'original', tags: ['rest'] },
+    });
+
+    const headersB = authHeaders(ctx.apiKey, 'agent-b');
+    await request(ctx.app, 'POST', '/api/v1/context', {
+      headers: headersB,
+      body: { key: 'rest-key', value: 'updated', tags: ['rest'] },
+    });
+
+    const row = ctx.rawDb.prepare(
+      'SELECT updated_by FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'rest-key') as any;
+    expect(row.updated_by).toBe('agent-b');
+  });
+});
+
+// ─── Context timestamps use consistent clock (from round4-fixes) ──────
+
+describe('Context timestamps use consistent clock', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should use ISO 8601 format for both created_at and updated_at', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-a', {
+      key: 'clock-test', value: 'original', tags: [],
+    });
+
+    const row1 = ctx.rawDb.prepare(
+      'SELECT created_at, updated_at FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'clock-test') as any;
+
+    expect(row1.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+
+    await saveContext(ctx.db, ctx.workspaceId, 'agent-b', {
+      key: 'clock-test', value: 'updated', tags: [],
+    });
+
+    const row2 = ctx.rawDb.prepare(
+      'SELECT created_at, updated_at FROM context_entries WHERE workspace_id = ? AND key = ?',
+    ).get(ctx.workspaceId, 'clock-test') as any;
+
+    expect(new Date(row2.created_at).getTime()).toBeGreaterThan(0);
+    expect(new Date(row2.updated_at).getTime()).toBeGreaterThan(0);
+    expect(new Date(row2.updated_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(row2.created_at).getTime(),
+    );
   });
 });

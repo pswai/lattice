@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
+import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion, getWorkflowRun } from '../src/models/workflow.js';
+import { createTask, updateTask } from '../src/models/task.js';
+import { definePlaybook, runPlaybook } from '../src/models/playbook.js';
+import type { SqliteAdapter } from '../src/db/adapter.js';
 
 describe('Workflow runs API', () => {
   let ctx: TestContext;
@@ -183,5 +187,235 @@ describe('Workflow runs API', () => {
     const headers = authHeaders(ctx.apiKey);
     const res = await request(ctx.app, 'GET', '/api/v1/workflow-runs/999', { headers });
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── checkWorkflowCompletion edge cases (from round3-coverage-p1) ─────
+
+describe('Workflow — checkWorkflowCompletion edge cases', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should mark workflow completed when all tasks complete', async () => {
+    const runId = await createWorkflowRun(ctx.db, ctx.workspaceId, 'test-pb', 'agent');
+
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 1', status: 'claimed',
+    });
+    const t2 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 2', status: 'claimed',
+    });
+    await setWorkflowRunTaskIds(ctx.db, runId, [t1.task_id, t2.task_id]);
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t1.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+    await checkWorkflowCompletion(ctx.db, t1.task_id);
+
+    let run = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run.status).toBe('running');
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t2.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+    await checkWorkflowCompletion(ctx.db, t2.task_id);
+
+    run = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run.status).toBe('completed');
+    expect(run.completedAt).toBeTruthy();
+  });
+
+  it('should mark workflow failed when any task is escalated', async () => {
+    const runId = await createWorkflowRun(ctx.db, ctx.workspaceId, 'test-pb', 'agent');
+
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 1', status: 'claimed',
+    });
+    const t2 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 2', status: 'claimed',
+    });
+    await setWorkflowRunTaskIds(ctx.db, runId, [t1.task_id, t2.task_id]);
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t1.task_id, status: 'escalated', version: 1,
+    });
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t2.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+    await checkWorkflowCompletion(ctx.db, t2.task_id);
+
+    const run = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run.status).toBe('failed');
+  });
+
+  it('should handle concurrent completion checks without double-completing', async () => {
+    const runId = await createWorkflowRun(ctx.db, ctx.workspaceId, 'test-pb', 'agent');
+
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 1', status: 'claimed',
+    });
+    const t2 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 2', status: 'claimed',
+    });
+    await setWorkflowRunTaskIds(ctx.db, runId, [t1.task_id, t2.task_id]);
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t1.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t2.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+
+    await Promise.all([
+      checkWorkflowCompletion(ctx.db, t1.task_id),
+      checkWorkflowCompletion(ctx.db, t2.task_id),
+    ]);
+
+    const run = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run.status).toBe('completed');
+  });
+
+  it('should not update an already-completed workflow', async () => {
+    const runId = await createWorkflowRun(ctx.db, ctx.workspaceId, 'test-pb', 'agent');
+
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 1', status: 'claimed',
+    });
+    await setWorkflowRunTaskIds(ctx.db, runId, [t1.task_id]);
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t1.task_id, status: 'completed', version: 1, result: 'ok',
+    });
+    await checkWorkflowCompletion(ctx.db, t1.task_id);
+
+    const run1 = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run1.status).toBe('completed');
+    const completedAt = run1.completedAt;
+
+    await checkWorkflowCompletion(ctx.db, t1.task_id);
+    const run2 = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run2.status).toBe('completed');
+    expect(run2.completedAt).toBe(completedAt);
+  });
+
+  it('should handle workflow with abandoned tasks as failed', async () => {
+    const runId = await createWorkflowRun(ctx.db, ctx.workspaceId, 'test-pb', 'agent');
+
+    const t1 = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Task 1', status: 'claimed',
+    });
+    await setWorkflowRunTaskIds(ctx.db, runId, [t1.task_id]);
+
+    await updateTask(ctx.db, ctx.workspaceId, 'agent', {
+      task_id: t1.task_id, status: 'abandoned', version: 1,
+    });
+    await checkWorkflowCompletion(ctx.db, t1.task_id);
+
+    const run = await getWorkflowRun(ctx.db, ctx.workspaceId, runId);
+    expect(run.status).toBe('failed');
+  });
+});
+
+// ─── Workflow race with empty task_ids (from round7-fixes) ────────────
+
+describe('Workflow completes even if task finishes during task_ids window', () => {
+  let db: SqliteAdapter;
+  const ws = 'test-team';
+
+  beforeEach(() => {
+    db = createTestDb();
+    setupWorkspace(db, ws);
+  });
+
+  it('should complete workflow when task finishes before setWorkflowRunTaskIds', async () => {
+    const runId = await createWorkflowRun(db, ws, 'fast-playbook', 'agent');
+
+    const { task_id } = await createTask(db, ws, 'agent', {
+      description: 'fast task',
+      status: 'claimed',
+    });
+    await updateTask(db, ws, 'agent', {
+      task_id,
+      status: 'completed',
+      result: 'done fast',
+      version: 1,
+    });
+
+    await setWorkflowRunTaskIds(db, runId, [task_id]);
+    await checkWorkflowCompletion(db, task_id);
+
+    const run = await getWorkflowRun(db, ws, runId);
+    expect(run.status).toBe('completed');
+    expect(run.completedAt).not.toBeNull();
+  });
+
+  it('should mark workflow as failed if task is escalated during race window', async () => {
+    const runId = await createWorkflowRun(db, ws, 'fail-playbook', 'agent');
+
+    const { task_id } = await createTask(db, ws, 'agent', {
+      description: 'escalated task',
+      status: 'claimed',
+    });
+    await updateTask(db, ws, 'agent', {
+      task_id,
+      status: 'escalated',
+      result: 'cannot handle',
+      version: 1,
+    });
+
+    await setWorkflowRunTaskIds(db, runId, [task_id]);
+    await checkWorkflowCompletion(db, task_id);
+
+    const run = await getWorkflowRun(db, ws, runId);
+    expect(run.status).toBe('failed');
+  });
+
+  it('should not complete workflow when some tasks are still running', async () => {
+    const runId = await createWorkflowRun(db, ws, 'mixed-playbook', 'agent');
+
+    const t1 = await createTask(db, ws, 'agent', { description: 'done', status: 'claimed' });
+    const t2 = await createTask(db, ws, 'agent', { description: 'still open', status: 'open' });
+
+    await updateTask(db, ws, 'agent', {
+      task_id: t1.task_id,
+      status: 'completed',
+      result: 'ok',
+      version: 1,
+    });
+
+    await setWorkflowRunTaskIds(db, runId, [t1.task_id, t2.task_id]);
+    await checkWorkflowCompletion(db, t1.task_id);
+
+    const run = await getWorkflowRun(db, ws, runId);
+    expect(run.status).toBe('running');
+  });
+
+  it('runPlaybook re-checks completion after setWorkflowRunTaskIds (integration)', async () => {
+    await definePlaybook(db, ws, 'agent', {
+      name: 'one-step',
+      description: 'single step playbook',
+      tasks: [{ description: 'only step' }],
+    });
+
+    const result = await runPlaybook(db, ws, 'agent', 'one-step');
+    const taskId = result.created_task_ids[0];
+
+    await updateTask(db, ws, 'agent', {
+      task_id: taskId,
+      status: 'claimed',
+      version: 1,
+    });
+    await updateTask(db, ws, 'agent', {
+      task_id: taskId,
+      status: 'completed',
+      result: 'done',
+      version: 2,
+    });
+
+    const run = await getWorkflowRun(db, ws, result.workflow_run_id);
+    expect(run.status).toBe('completed');
   });
 });

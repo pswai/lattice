@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { definePlaybook } from '../src/models/playbook.js';
 
 describe('Playbooks API', () => {
   let ctx: TestContext;
@@ -289,5 +290,52 @@ describe('Playbooks API', () => {
       expect(listData.playbooks[0].tasks).toHaveLength(2);
       expect(listData.playbooks[0].tasks[0].description).toBe('new-1');
     });
+  });
+});
+
+// ─── Playbook created_by preserved on update (from round3-fixes) ──────
+
+describe('Playbook created_by preserved on update', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should preserve original created_by when a different agent updates a playbook', async () => {
+    await definePlaybook(ctx.db, ctx.workspaceId, 'agent-a', {
+      name: 'deploy-pipeline',
+      description: 'Deploy sequence',
+      tasks: [{ description: 'Build' }, { description: 'Test', depends_on_index: [0] }],
+    });
+
+    await definePlaybook(ctx.db, ctx.workspaceId, 'agent-b', {
+      name: 'deploy-pipeline',
+      description: 'Updated deploy sequence',
+      tasks: [{ description: 'Build v2' }, { description: 'Test v2', depends_on_index: [0] }],
+    });
+
+    const row = ctx.rawDb.prepare(
+      'SELECT created_by, description FROM playbooks WHERE workspace_id = ? AND name = ?',
+    ).get(ctx.workspaceId, 'deploy-pipeline') as any;
+    expect(row.created_by).toBe('agent-a');
+    expect(row.description).toBe('Updated deploy sequence');
+  });
+
+  it('should return original created_by from getPlaybook after update', async () => {
+    await definePlaybook(ctx.db, ctx.workspaceId, 'creator', {
+      name: 'my-pb',
+      description: 'original',
+      tasks: [{ description: 'step 1' }],
+    });
+
+    const updated = await definePlaybook(ctx.db, ctx.workspaceId, 'updater', {
+      name: 'my-pb',
+      description: 'updated',
+      tasks: [{ description: 'step 1 revised' }],
+    });
+
+    expect(updated.createdBy).toBe('creator');
+    expect(updated.description).toBe('updated');
   });
 });

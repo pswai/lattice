@@ -1,6 +1,6 @@
 {
   "name": "lattice",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "MCP-native coordination layer for AI agent teams",
   "type": "module",
   "main": "dist/index.js",

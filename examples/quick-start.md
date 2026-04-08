@@ -1,34 +1,8 @@
 # Quick Start: 2 Agents Sharing Context in 5 Minutes
 
-The simplest possible Lattice workflow. Two agents save and retrieve shared context — no tasks, no events, no pipeline. Just `save_context` and `get_context`.
+The simplest possible Lattice workflow. Two agents save and retrieve shared context -- no tasks, no events, no pipeline. Just `save_context` and `get_context`.
 
-## Prerequisites
-
-Start the Lattice server:
-
-```bash
-cd lattice
-npm install
-npm start
-# Server runs at http://localhost:3000
-```
-
-Add to your MCP config (`.mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "lattice": {
-      "type": "http",
-      "url": "http://localhost:3000/mcp",
-      "headers": {
-        "Authorization": "Bearer lt_your_api_key",
-        "X-Agent-ID": "my-agent"
-      }
-    }
-  }
-}
-```
+> **Setup required:** Follow the [Getting Started guide](../docs/getting-started.md) first to install Lattice, create a team, and configure your MCP client.
 
 ## Agent A: Save a Finding
 
@@ -130,11 +104,11 @@ mcp__lattice__get_context(query: "auth", tags: ["security"])
 mcp__lattice__get_context(query: "landscape", limit: 50)
 ```
 
-**Note**: Full-text search works best with descriptive terms (4+ characters). Very short queries like "cli" or "api" may return fewer results than expected — use longer phrases or add tag filters.
+**Note**: Full-text search works best with descriptive terms (4+ characters). Very short queries like "cli" or "api" may return fewer results than expected -- use longer phrases or add tag filters.
 
 ## What's Next?
 
 Once you're comfortable with context sharing, layer on more coordination:
 
-- **[Research Team](research-team.md)** — 3 agents working in parallel with tasks and broadcasts
-- **[Dev Pipeline](dev-pipeline.md)** — sequential handoffs with direct messaging and QA loops
+- **[Research Team](research-team.md)** -- 3 agents working in parallel with tasks and broadcasts
+- **[Dev Pipeline](dev-pipeline.md)** -- sequential handoffs with direct messaging and QA loops

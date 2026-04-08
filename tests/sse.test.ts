@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
 import { broadcastEvent } from '../src/models/event.js';
+import { eventBus } from '../src/services/event-emitter.js';
 
 /**
  * Helper to read SSE events from a ReadableStream response.
@@ -207,5 +208,80 @@ describe('SSE Events Streaming', () => {
       expect(data.id).toBe(Number(events[0].id));
       expect(data.workspaceId).toBe(ctx.workspaceId);
     });
+  });
+});
+
+// ─── EventEmitter (eventBus) pub/sub (from round3-coverage-p0) ────────
+
+describe('EventEmitter (eventBus)', () => {
+  it('should emit and receive events', () => {
+    const received: string[] = [];
+    const handler = (msg: string) => received.push(msg);
+
+    eventBus.on('test-event', handler);
+    eventBus.emit('test-event', 'hello');
+
+    expect(received).toEqual(['hello']);
+    eventBus.off('test-event', handler);
+  });
+
+  it('should support multiple listeners', () => {
+    const results: number[] = [];
+    const h1 = () => results.push(1);
+    const h2 = () => results.push(2);
+
+    eventBus.on('multi', h1);
+    eventBus.on('multi', h2);
+    eventBus.emit('multi');
+
+    expect(results).toEqual([1, 2]);
+    eventBus.off('multi', h1);
+    eventBus.off('multi', h2);
+  });
+
+  it('should not receive events after unsubscribe', () => {
+    const received: string[] = [];
+    const handler = (msg: string) => received.push(msg);
+
+    eventBus.on('unsub-test', handler);
+    eventBus.emit('unsub-test', 'before');
+    eventBus.off('unsub-test', handler);
+    eventBus.emit('unsub-test', 'after');
+
+    expect(received).toEqual(['before']);
+  });
+
+  it('should have maxListeners set to at least 100', () => {
+    expect(eventBus.getMaxListeners()).toBeGreaterThanOrEqual(100);
+  });
+
+  it('should isolate different event names', () => {
+    const aReceived: string[] = [];
+    const bReceived: string[] = [];
+    const hA = (msg: string) => aReceived.push(msg);
+    const hB = (msg: string) => bReceived.push(msg);
+
+    eventBus.on('event-a', hA);
+    eventBus.on('event-b', hB);
+
+    eventBus.emit('event-a', 'for-a');
+    eventBus.emit('event-b', 'for-b');
+
+    expect(aReceived).toEqual(['for-a']);
+    expect(bReceived).toEqual(['for-b']);
+
+    eventBus.off('event-a', hA);
+    eventBus.off('event-b', hB);
+  });
+
+  it('should handle errors in listeners without crashing other listeners', () => {
+    const results: number[] = [];
+    const safeHandler = () => results.push(42);
+
+    eventBus.on('error-test', safeHandler);
+    eventBus.emit('error-test');
+
+    expect(results).toEqual([42]);
+    eventBus.off('error-test', safeHandler);
   });
 });

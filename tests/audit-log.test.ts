@@ -9,8 +9,9 @@ import {
 } from '../src/models/audit.js';
 import { createAuditMiddleware } from '../src/http/middleware/audit.js';
 import { createAuditRoutes } from '../src/http/routes/audit.js';
-import { testConfig, TEST_ADMIN_KEY } from './helpers.js';
+import { testConfig, TEST_ADMIN_KEY, createTestDb, setupWorkspace } from './helpers.js';
 import { SqliteAdapter } from '../src/db/adapter.js';
+import type { SqliteAdapter as SqliteAdapterType } from '../src/db/adapter.js';
 
 function createDb(): SqliteAdapter {
   const db = new Database(':memory:');
@@ -317,5 +318,31 @@ describe('audit admin route', () => {
     const body2 = await res2.json();
     expect(body2.items).toHaveLength(1);
     expect(body2.items[0].id).toBeLessThan(body.items[0].id);
+  });
+});
+
+// ─── Audit prune — future date validation (from round2) ───────────────
+
+describe('Audit prune — future date validation', () => {
+  let db: SqliteAdapterType;
+
+  beforeEach(() => {
+    db = createTestDb();
+    setupWorkspace(db, 'team-a');
+  });
+
+  it('rejects cutoff date in the future', async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await expect(pruneAuditOlderThan(db, tomorrow)).rejects.toThrow(/past/);
+  });
+
+  it('rejects non-ISO date strings', async () => {
+    await expect(pruneAuditOlderThan(db, 'yesterday')).rejects.toThrow(/valid ISO date/);
+  });
+
+  it('accepts valid past date without error', async () => {
+    const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    const deleted = await pruneAuditOlderThan(db, lastYear);
+    expect(deleted).toBe(0);
   });
 });

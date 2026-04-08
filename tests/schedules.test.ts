@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, createTestDb, setupWorkspace, type TestContext } from './helpers.js';
+import { startScheduler } from '../src/services/scheduler.js';
 import {
   computeNextRun,
   defineSchedule,
@@ -344,5 +345,57 @@ describe('Schedules HTTP API', () => {
       headers: authHeaders(ctx.apiKey),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// ─── Scheduler mutex prevents duplicate runs (from round3-fixes) ──────
+
+describe('Scheduler runDueSchedules mutex prevents duplicate runs', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should not double-fire when called concurrently', async () => {
+    await definePlaybook(ctx.db, ctx.workspaceId, 'agent', {
+      name: 'scheduled-pb',
+      description: 'A test playbook',
+      tasks: [{ description: 'Task 1' }],
+    });
+
+    await defineSchedule(ctx.db, ctx.workspaceId, 'agent', {
+      playbook_name: 'scheduled-pb',
+      cron_expression: '*/1 * * * *',
+      enabled: true,
+    });
+
+    ctx.rawDb.prepare(
+      `UPDATE schedules SET next_run_at = datetime('now', '-1 minute') WHERE workspace_id = ?`,
+    ).run(ctx.workspaceId);
+
+    const [r1, r2] = await Promise.all([
+      runDueSchedules(ctx.db),
+      runDueSchedules(ctx.db),
+    ]);
+
+    const total = r1 + r2;
+    expect(total).toBe(1);
+  });
+});
+
+// ─── Service lifecycle (from round6-coverage-gaps) ────────────────────
+
+describe('Service lifecycle — startScheduler', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should return a timer handle that can be cleared', () => {
+    const timer = startScheduler(ctx.db);
+    expect(timer).toBeDefined();
+    clearInterval(timer);
   });
 });

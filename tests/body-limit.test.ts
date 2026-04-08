@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { createBodyLimitMiddleware } from '../src/http/middleware/body-limit.js';
+import { createTestDb, setupWorkspace, authHeaders, request, testConfig } from './helpers.js';
+import { createApp } from '../src/http/app.js';
+import { createMcpServer } from '../src/mcp/server.js';
 
 function buildApp(maxBytes: number): Hono {
   const app = new Hono();
@@ -62,5 +65,66 @@ describe('body-limit middleware', () => {
       body: 'hi',
     });
     expect(res.status).toBe(200);
+  });
+});
+
+// ─── Body limit stream validation (from round5-fixes) ─────────────────
+
+describe('Body limit stream validation (integration)', () => {
+  it('should reject requests exceeding body limit via Content-Length', async () => {
+    const config = testConfig({ maxBodyBytes: 1024 });
+    const db = createTestDb();
+    setupWorkspace(db, 'test-team');
+    const app = createApp(db, () => createMcpServer(db), config);
+
+    const bigBody = JSON.stringify({ key: 'x', value: 'a'.repeat(2000), tags: [] });
+    const res = await request(app, 'POST', '/api/v1/context', {
+      headers: {
+        ...authHeaders('ltk_test_key_12345678901234567890'),
+        'Content-Length': String(Buffer.byteLength(bigBody)),
+      },
+      body: JSON.parse(bigBody),
+    });
+    expect(res.status).toBe(413);
+    const data = await res.json();
+    expect(data.error).toBe('PAYLOAD_TOO_LARGE');
+  });
+
+  it('should allow requests within body limit', async () => {
+    const config = testConfig({ maxBodyBytes: 10_000 });
+    const db = createTestDb();
+    setupWorkspace(db, 'test-team');
+    const app = createApp(db, () => createMcpServer(db), config);
+
+    const res = await request(app, 'POST', '/api/v1/context', {
+      headers: authHeaders('ltk_test_key_12345678901234567890'),
+      body: { key: 'small', value: 'hello', tags: [] },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('should skip limit check for GET requests', async () => {
+    const config = testConfig({ maxBodyBytes: 1 });
+    const db = createTestDb();
+    setupWorkspace(db, 'test-team');
+    const app = createApp(db, () => createMcpServer(db), config);
+
+    const res = await request(app, 'GET', '/api/v1/context?query=test', {
+      headers: authHeaders('ltk_test_key_12345678901234567890'),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('should pass through when maxBytes is 0 (disabled)', async () => {
+    const config = testConfig({ maxBodyBytes: 0 });
+    const db = createTestDb();
+    setupWorkspace(db, 'test-team');
+    const app = createApp(db, () => createMcpServer(db), config);
+
+    const res = await request(app, 'POST', '/api/v1/context', {
+      headers: authHeaders('ltk_test_key_12345678901234567890'),
+      body: { key: 'any-size', value: 'a'.repeat(5000), tags: [] },
+    });
+    expect(res.status).toBe(201);
   });
 });

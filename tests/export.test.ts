@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, setupWorkspace, type TestContext } from './helpers.js';
+import { createTestContext, createTestDb, authHeaders, request, setupWorkspace, type TestContext } from './helpers.js';
 import { exportWorkspaceData, EVENT_EXPORT_LIMIT, REDACTED } from '../src/models/export.js';
 import { saveContext } from '../src/models/context.js';
 import { broadcastInternal } from '../src/models/event.js';
@@ -244,5 +244,145 @@ describe('Team data export', () => {
         expect(t.workspaceId).toBe(ctx.workspaceId);
       }
     });
+  });
+});
+
+// ─── Export incremental / delta behavior (from round3-coverage-p0) ─────
+
+describe('Export — incremental / delta behavior', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should export only entries that exist at export time (snapshot)', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'entry-1', value: 'v1', tags: ['a'],
+    });
+    await saveContext(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'entry-2', value: 'v2', tags: ['b'],
+    });
+
+    const snapshot1 = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(snapshot1.counts.context_entries).toBe(2);
+
+    await saveContext(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'entry-3', value: 'v3', tags: ['c'],
+    });
+
+    const snapshot2 = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(snapshot2.counts.context_entries).toBe(3);
+
+    const newKeys = snapshot2.context_entries
+      .filter((e) => !snapshot1.context_entries.some((s1) => s1.key === e.key))
+      .map((e) => e.key);
+    expect(newKeys).toEqual(['entry-3']);
+  });
+
+  it('should reflect updates in subsequent exports', async () => {
+    await saveContext(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'mutable', value: 'version-1', tags: [],
+    });
+
+    const snap1 = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    const entry1 = snap1.context_entries.find((e) => e.key === 'mutable');
+    expect(entry1!.value).toBe('version-1');
+
+    await saveContext(ctx.db, ctx.workspaceId, 'agent', {
+      key: 'mutable', value: 'version-2', tags: [],
+    });
+
+    const snap2 = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    const entry2 = snap2.context_entries.find((e) => e.key === 'mutable');
+    expect(entry2!.value).toBe('version-2');
+    expect(snap2.counts.context_entries).toBe(snap1.counts.context_entries);
+  });
+
+  it('should cap events to EVENT_EXPORT_LIMIT and return in chronological order', async () => {
+    const stmt = ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    );
+    const txn = ctx.rawDb.transaction(() => {
+      for (let i = 0; i < EVENT_EXPORT_LIMIT + 50; i++) {
+        stmt.run(ctx.workspaceId, 'BROADCAST', `event-${i}`, '["bulk"]', 'agent');
+      }
+    });
+    txn();
+
+    const exported = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(exported.events.length).toBeLessThanOrEqual(EVENT_EXPORT_LIMIT);
+    if (exported.events.length > 1) {
+      expect(exported.events[0].id).toBeLessThan(
+        exported.events[exported.events.length - 1].id,
+      );
+    }
+  });
+
+  it('should include version and exported_at metadata', async () => {
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(snap.version).toBe('1');
+    expect(snap.workspace_id).toBe(ctx.workspaceId);
+    expect(snap.exported_at).toBeTruthy();
+    expect(new Date(snap.exported_at).getTime()).toBeGreaterThan(0);
+  });
+
+  it('should export all entity types even when empty', async () => {
+    const snap = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(snap.context_entries).toEqual([]);
+    expect(snap.events).toEqual([]);
+    expect(snap.tasks).toEqual([]);
+    expect(snap.agents).toEqual([]);
+    expect(snap.messages).toEqual([]);
+    expect(snap.playbooks).toEqual([]);
+    expect(snap.workflow_runs).toEqual([]);
+    expect(snap.agent_profiles).toEqual([]);
+    expect(snap.schedules).toEqual([]);
+    expect(snap.inbound_endpoints).toEqual([]);
+    expect(snap.webhooks).toEqual([]);
+  });
+});
+
+// ─── Export context entries bounded to 10000 (from round3-fixes) ──────
+
+describe('Export context entries bounded to 10000', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should cap exported context entries at 10000', async () => {
+    const stmt = ctx.rawDb.prepare(
+      `INSERT INTO context_entries (workspace_id, key, value, tags, created_by) VALUES (?, ?, ?, ?, ?)`,
+    );
+    const txn = ctx.rawDb.transaction(() => {
+      for (let i = 0; i < 10_002; i++) {
+        stmt.run(ctx.workspaceId, `key-${i}`, `value-${i}`, '["bulk"]', 'bulk-agent');
+      }
+    });
+    txn();
+
+    const exported = await exportWorkspaceData(ctx.db, ctx.workspaceId);
+    expect(exported.context_entries.length).toBeLessThanOrEqual(10_000);
+    expect(exported.counts.context_entries).toBeLessThanOrEqual(10_000);
+  });
+});
+
+// ─── Webhook export redacts URL (from round8-fixes) ───────────────────
+
+describe('Webhook export redacts URL', () => {
+  it('should redact webhook URL in export', async () => {
+    const db = createTestDb();
+    setupWorkspace(db, 'test-team');
+
+    await createWebhook(db, 'test-team', 'agent', {
+      url: 'https://internal.corp.com/hooks/secret-path',
+    });
+
+    const exported = await exportWorkspaceData(db, 'test-team');
+    expect(exported.webhooks.length).toBe(1);
+    expect(exported.webhooks[0].url).toBe(REDACTED);
+    expect(exported.webhooks[0].secret).toBe(REDACTED);
   });
 });

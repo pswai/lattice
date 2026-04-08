@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { createTask } from '../src/models/task.js';
 
 describe('Tasks API', () => {
   let ctx: TestContext;
@@ -447,5 +448,43 @@ describe('Tasks API', () => {
       });
       expect(res.status).toBe(400);
     });
+  });
+});
+
+// ─── Task dependency workspace filter (from round4-fixes) ─────────────
+
+describe('Task dependency blocker query includes workspace_id filter', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should not resolve blockers from another workspace', async () => {
+    const taskA = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+      description: 'Blocker task', status: 'open',
+    });
+
+    const wsB = 'workspace-b';
+    ctx.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(wsB, 'Workspace B');
+
+    const taskBResult = await ctx.db.run(
+      `INSERT INTO tasks (workspace_id, description, status, created_by, priority) VALUES (?, ?, ?, ?, ?)`,
+      wsB, 'Dependent task', 'open', 'agent-b', 'P2',
+    );
+    const taskBId = Number(taskBResult.lastInsertRowid);
+
+    await ctx.db.run(
+      'INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)',
+      taskBId, taskA.task_id,
+    );
+
+    const blockers = await ctx.db.all<{ id: number; status: string }>(
+      `SELECT t.id, t.status FROM task_dependencies td
+       JOIN tasks t ON t.id = td.depends_on
+       WHERE td.task_id = ? AND t.workspace_id = ? AND t.status != 'completed'`,
+      taskBId, wsB,
+    );
+    expect(blockers.length).toBe(0);
   });
 });

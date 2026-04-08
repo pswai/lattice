@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createHmac } from 'crypto';
-import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
+import { processInboundWebhook, defineInboundEndpoint } from '../src/models/inbound.js';
+import type { SqliteAdapter } from '../src/db/adapter.js';
 
 function sign(secret: string, body: string): string {
   return 'sha256=' + createHmac('sha256', secret).update(body).digest('hex');
@@ -342,5 +344,107 @@ describe('Inbound endpoints — receiver', () => {
       body: { foo: 'bar' },
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// ─── processInboundWebhook rejects payloads with secrets (from round3-fixes) ─
+
+describe('processInboundWebhook rejects payloads with secrets', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should reject payload containing an AWS access key', async () => {
+    const endpoint = await defineInboundEndpoint(ctx.db, ctx.workspaceId, 'agent', {
+      name: 'test-hook',
+      action_type: 'save_context',
+      action_config: { key: 'from-webhook' },
+    });
+
+    await expect(
+      processInboundWebhook(ctx.db, endpoint, {
+        value: 'credentials are AKIAIOSFODNN7EXAMPLE',
+      }),
+    ).rejects.toThrow(/secret/i);
+  });
+
+  it('should reject payload containing a Stripe secret key', async () => {
+    const endpoint = await defineInboundEndpoint(ctx.db, ctx.workspaceId, 'agent', {
+      name: 'stripe-hook',
+      action_type: 'broadcast_event',
+      action_config: { event_type: 'BROADCAST' },
+    });
+
+    await expect(
+      processInboundWebhook(ctx.db, endpoint, {
+        message: 'sk_live_1234567890abcdefghijklmn',
+      }),
+    ).rejects.toThrow(/secret/i);
+  });
+
+  it('should reject payload with secret in nested fields', async () => {
+    const endpoint = await defineInboundEndpoint(ctx.db, ctx.workspaceId, 'agent', {
+      name: 'nested-hook',
+      action_type: 'create_task',
+      action_config: {},
+    });
+
+    await expect(
+      processInboundWebhook(ctx.db, endpoint, {
+        description: 'Deploy task',
+        config: { api_key: 'AKIAIOSFODNN7EXAMPLE' },
+      }),
+    ).rejects.toThrow(/secret/i);
+  });
+
+  it('should allow clean payloads through', async () => {
+    const endpoint = await defineInboundEndpoint(ctx.db, ctx.workspaceId, 'agent', {
+      name: 'clean-hook',
+      action_type: 'create_task',
+      action_config: {},
+    });
+
+    const result = await processInboundWebhook(ctx.db, endpoint, {
+      description: 'A normal task from webhook',
+    });
+    expect(result.action).toBe('create_task');
+  });
+});
+
+// ─── action_config size limit enforced (from round8-fixes) ────────────
+
+describe('action_config size limit enforced', () => {
+  let db: SqliteAdapter;
+  const ws = 'test-team';
+
+  beforeEach(() => {
+    db = createTestDb();
+    setupWorkspace(db, ws);
+  });
+
+  it('should reject action_config over 10 KB', async () => {
+    const bigConfig: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) {
+      bigConfig[`key_${i}`] = 'x'.repeat(100);
+    }
+
+    await expect(
+      defineInboundEndpoint(db, ws, 'agent', {
+        name: 'big-endpoint',
+        action_type: 'create_task',
+        action_config: bigConfig,
+      }),
+    ).rejects.toThrow('action_config exceeds maximum size of 10 KB');
+  });
+
+  it('should accept action_config under 10 KB', async () => {
+    const result = await defineInboundEndpoint(db, ws, 'agent', {
+      name: 'small-endpoint',
+      action_type: 'create_task',
+      action_config: { description_template: 'Task: {{body.title}}' },
+    });
+    expect(result.id).toBeDefined();
   });
 });

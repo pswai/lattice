@@ -38,40 +38,17 @@ Most AI tools define how agents run. Lattice defines how they coordinate.
 
 ## Quick Start
 
-### Option 1: Docker (recommended)
-
 ```bash
+# Docker (recommended)
 git clone https://github.com/pswai/lattice.git && cd lattice
 ADMIN_KEY=your-secret docker compose up -d --build
-```
 
-### Option 2: From source
-
-```bash
-git clone https://github.com/pswai/lattice.git && cd lattice
+# Or from source
 npm install && npm run build
 ADMIN_KEY=your-secret node dist/index.js
 ```
 
-### Create a team and API key
-
-```bash
-# Create a team
-curl -X POST http://localhost:3000/admin/teams \
-  -H "Authorization: Bearer your-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"id": "my-team", "name": "My Team"}'
-
-# Generate an API key (save the returned key)
-curl -X POST http://localhost:3000/admin/teams/my-team/keys \
-  -H "Authorization: Bearer your-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"label": "dev", "scope": "write"}'
-```
-
-### Connect your agents
-
-Add to your `.mcp.json` (Claude Code, Cursor, etc.):
+Then create a team, get an API key, and add it to your `.mcp.json`:
 
 ```json
 {
@@ -88,7 +65,7 @@ Add to your `.mcp.json` (Claude Code, Cursor, etc.):
 }
 ```
 
-The first MCP call auto-registers the agent. Start coordinating:
+Your agents can immediately start coordinating:
 
 ```
 save_context(key: "project-goals", value: "Building a REST API for...", tags: ["planning"])
@@ -96,29 +73,17 @@ create_task(description: "Implement user endpoints", priority: "P1")
 broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
 ```
 
+For the full walkthrough (team creation, API keys, first tool calls), see the **[Getting Started guide](docs/getting-started.md)**.
+
 ---
 
 ## Use Cases
 
-### Individual
+- **Individual** -- Persistent context across sessions, automated pipelines with playbooks
+- **Small Teams** -- Shared agent brain, GitHub-to-agent automation via webhooks
+- **Enterprise** -- Compliance audit trails, multi-team release coordination with DAG dependencies
 
-**Persistent context.** Session A saves a finding, Session B picks it up via `get_context`. No re-explaining decisions.
-
-**Automated pipelines.** Define a playbook (implement -> test -> review) once, `run_playbook` for every feature.
-
-### Small Teams
-
-**Shared agent brain.** Conventions in profiles, decisions in context. A new hire's first Claude Code session already knows your patterns.
-
-**GitHub-to-agent automation.** Webhooks turn GitHub issues into tasks. The next available agent claims and investigates.
-
-### Enterprise
-
-**Compliance audit trail.** Every agent action logged. `export_workspace_data` produces secrets-redacted snapshots for SOC 2.
-
-**Multi-team release coordination.** Playbooks with DAG dependencies encode deploy order across microservices.
-
-[All 13 use cases ->](docs/use-cases.md)
+[See all 13 use cases with detailed examples ->](docs/use-cases.md)
 
 ---
 

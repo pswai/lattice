@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
+import { createTestContext, authHeaders, request, testConfig, type TestContext } from './helpers.js';
+import { broadcastEvent } from '../src/models/event.js';
 
 describe('Events API', () => {
   let ctx: TestContext;
@@ -305,5 +306,84 @@ describe('Events API', () => {
       expect(types).toContain('ERROR');
       expect(types).toContain('ESCALATION');
     });
+  });
+});
+
+// ─── Event cleanup service (from round3-coverage-p0) ──────────────────
+
+describe('Event cleanup service', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should delete events older than retention days', async () => {
+    const oldDate = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'old event', '[]', 'agent', oldDate);
+
+    await broadcastEvent(ctx.db, ctx.workspaceId, 'agent', {
+      event_type: 'BROADCAST',
+      message: 'recent event',
+      tags: [],
+    });
+
+    const config = testConfig({ eventRetentionDays: 30 });
+    const cutoff = new Date(Date.now() - config.eventRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+    const result = await ctx.db.run(`DELETE FROM events WHERE created_at < ?`, cutoff);
+    expect(result.changes).toBe(1);
+
+    const remaining = ctx.rawDb.prepare(
+      `SELECT COUNT(*) as cnt FROM events WHERE workspace_id = ?`,
+    ).get(ctx.workspaceId) as any;
+    expect(remaining.cnt).toBe(1);
+  });
+
+  it('should not delete events when retentionDays is 0', async () => {
+    const oldDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'ancient event', '[]', 'agent', oldDate);
+
+    const count = ctx.rawDb.prepare(
+      `SELECT COUNT(*) as cnt FROM events WHERE workspace_id = ?`,
+    ).get(ctx.workspaceId) as any;
+    expect(count.cnt).toBe(1);
+  });
+
+  it('should handle cleanup with no matching events gracefully', async () => {
+    await broadcastEvent(ctx.db, ctx.workspaceId, 'agent', {
+      event_type: 'BROADCAST',
+      message: 'fresh event',
+      tags: [],
+    });
+
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await ctx.db.run(`DELETE FROM events WHERE created_at < ?`, cutoff);
+    expect(result.changes).toBe(0);
+  });
+
+  it('should cleanup events precisely at the boundary', async () => {
+    const exactCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const olderDate = new Date(exactCutoff.getTime() - 1000).toISOString();
+    const newerDate = new Date(exactCutoff.getTime() + 1000).toISOString();
+
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'older', '[]', 'agent', olderDate);
+    ctx.rawDb.prepare(
+      `INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(ctx.workspaceId, 'BROADCAST', 'newer', '[]', 'agent', newerDate);
+
+    const result = await ctx.db.run(`DELETE FROM events WHERE created_at < ?`, exactCutoff.toISOString());
+    expect(result.changes).toBe(1);
+
+    const remaining = ctx.rawDb.prepare(
+      `SELECT message FROM events WHERE workspace_id = ?`,
+    ).get(ctx.workspaceId) as any;
+    expect(remaining.message).toBe('newer');
   });
 });

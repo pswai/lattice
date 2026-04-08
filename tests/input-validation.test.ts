@@ -585,3 +585,122 @@ describe('Input Validation', () => {
     });
   });
 });
+
+// ─── NaN limit parameters (from round6-fixes) ────────────────────────
+
+describe('NaN limit parameters get safe defaults', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('GET /tasks?limit=abc should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=abc', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /tasks?limit= (empty) should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /artifacts?limit=NaN should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/artifacts?limit=NaN', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /context?limit=undefined should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/context?query=test&limit=undefined', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /events?since_id=bar should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/events?since_id=bar', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /tasks?limit=0 should return 400', async () => {
+    const res = await request(ctx.app, 'GET', '/api/v1/tasks?limit=0', {
+      headers: authHeaders(ctx.apiKey),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ─── NaN/invalid limit/offset params across all routes (from round7-fixes) ─
+
+describe('NaN/invalid limit/offset params return 400 across all routes', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  const invalidParams = ['abc', '', 'NaN', 'undefined', 'null', '-1'];
+
+  describe('tasks route', () => {
+    for (const val of invalidParams) {
+      it(`GET /tasks?limit=${val} -> 400`, async () => {
+        const res = await request(ctx.app, 'GET', `/api/v1/tasks?limit=${val}`, {
+          headers: authHeaders(ctx.apiKey),
+        });
+        expect(res.status).toBe(400);
+      });
+    }
+  });
+
+  describe('artifacts route', () => {
+    for (const val of invalidParams) {
+      it(`GET /artifacts?limit=${val} -> 400`, async () => {
+        const res = await request(ctx.app, 'GET', `/api/v1/artifacts?limit=${val}`, {
+          headers: authHeaders(ctx.apiKey),
+        });
+        expect(res.status).toBe(400);
+      });
+    }
+  });
+
+  describe('messages route', () => {
+    for (const val of ['abc', 'NaN', 'undefined']) {
+      it(`GET /messages?limit=${val} -> 400`, async () => {
+        const res = await request(ctx.app, 'GET', `/api/v1/messages?limit=${val}`, {
+          headers: authHeaders(ctx.apiKey),
+        });
+        expect(res.status).toBe(400);
+      });
+    }
+  });
+
+  describe('context route', () => {
+    for (const val of ['abc', 'NaN', '-1']) {
+      it(`GET /context?query=x&limit=${val} -> 400`, async () => {
+        const res = await request(ctx.app, 'GET', `/api/v1/context?query=x&limit=${val}`, {
+          headers: authHeaders(ctx.apiKey),
+        });
+        expect(res.status).toBe(400);
+      });
+    }
+  });
+
+  describe('events route', () => {
+    for (const val of ['abc', 'NaN']) {
+      it(`GET /events?since_id=${val} -> 400`, async () => {
+        const res = await request(ctx.app, 'GET', `/api/v1/events?since_id=${val}`, {
+          headers: authHeaders(ctx.apiKey),
+        });
+        expect(res.status).toBe(400);
+      });
+    }
+  });
+});

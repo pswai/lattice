@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { scanForSecrets } from '../src/services/secret-scanner.js';
+import { createTestContext, createTestDb, setupWorkspace, authHeaders, request, type TestContext } from './helpers.js';
+import { createTask } from '../src/models/task.js';
+import { definePlaybook } from '../src/models/playbook.js';
+import { defineProfile } from '../src/models/profile.js';
 
 describe('Secret Scanner', () => {
   describe('AWS keys', () => {
@@ -190,6 +194,145 @@ Make sure to use this for authentication.`;
       const preview = result.matches[0].preview;
       expect(preview).toContain('...');
       expect(preview.startsWith('AKIA')).toBe(true);
+    });
+  });
+
+  describe('False positives resilience', () => {
+    it('does not flag normal text that happens to contain common words', () => {
+      const benign = [
+        'My secret ingredient is love and kindness.',
+        'The API documentation is available at /docs',
+        'Use Bearer tokens for authentication (see RFC 6750)',
+        'My password policy requires 12 characters',
+        'Set the AWS_REGION environment variable to us-east-1',
+      ];
+
+      for (const text of benign) {
+        const result = scanForSecrets(text);
+        expect(result.clean).toBe(true);
+      }
+    });
+
+    it('correctly flags real secret patterns', () => {
+      const secrets = [
+        'AKIAIOSFODNN7EXAMPLE',
+        'sk_live_4eC39HqLyjWDarjtT1zdp7dc',
+        'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef1234',
+        '-----BEGIN RSA PRIVATE KEY-----',
+      ];
+
+      for (const text of secrets) {
+        const result = scanForSecrets(text);
+        expect(result.clean).toBe(false);
+      }
+    });
+
+    it('handles empty and whitespace-only input', () => {
+      expect(scanForSecrets('').clean).toBe(true);
+      expect(scanForSecrets('   \n\t  ').clean).toBe(true);
+    });
+  });
+});
+
+// ─── Model-layer secret scanning (from round5-fixes) ──────────────────
+
+describe('Model-layer secret scanning (protects both REST and model)', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  describe('createTask — model layer', () => {
+    it('should reject task with secret in description at model layer', async () => {
+      await expect(
+        createTask(ctx.db, ctx.workspaceId, 'agent', {
+          description: 'Deploy with AKIAIOSFODNN7EXAMPLE',
+          status: 'open',
+        }),
+      ).rejects.toThrow(/secret/i);
+    });
+
+    it('should allow clean descriptions at model layer', async () => {
+      const result = await createTask(ctx.db, ctx.workspaceId, 'agent', {
+        description: 'Normal deployment task',
+        status: 'open',
+      });
+      expect(result.task_id).toBeGreaterThan(0);
+    });
+  });
+
+  describe('createTask — REST route', () => {
+    it('should reject task with secret via REST POST /tasks', async () => {
+      const res = await request(ctx.app, 'POST', '/api/v1/tasks', {
+        headers: authHeaders(ctx.apiKey),
+        body: { description: 'Use key AKIAIOSFODNN7EXAMPLE' },
+      });
+      expect(res.status).toBe(422);
+      const data = await res.json();
+      expect(data.error).toBe('SECRET_DETECTED');
+    });
+  });
+
+  describe('definePlaybook — model layer', () => {
+    it('should reject playbook with secret in task description at model layer', async () => {
+      await expect(
+        definePlaybook(ctx.db, ctx.workspaceId, 'agent', {
+          name: 'bad-pb',
+          description: 'Test',
+          tasks: [{ description: 'Use sk_live_1234567890abcdefghijklmn' }],
+        }),
+      ).rejects.toThrow(/secret/i);
+    });
+
+    it('should reject playbook with secret in description at model layer', async () => {
+      await expect(
+        definePlaybook(ctx.db, ctx.workspaceId, 'agent', {
+          name: 'bad-pb-desc',
+          description: 'Deploy with AKIAIOSFODNN7EXAMPLE',
+          tasks: [{ description: 'Clean step' }],
+        }),
+      ).rejects.toThrow(/secret/i);
+    });
+  });
+
+  describe('definePlaybook — REST route', () => {
+    it('should reject playbook with secret via REST', async () => {
+      const res = await request(ctx.app, 'POST', '/api/v1/playbooks', {
+        headers: authHeaders(ctx.apiKey),
+        body: {
+          name: 'rest-bad-pb',
+          description: 'safe',
+          tasks: [{ description: 'Deploy with AKIAIOSFODNN7EXAMPLE' }],
+        },
+      });
+      expect(res.status).toBe(422);
+    });
+  });
+
+  describe('defineProfile — model layer', () => {
+    it('should reject profile with secret in system_prompt at model layer', async () => {
+      await expect(
+        defineProfile(ctx.db, ctx.workspaceId, 'agent', {
+          name: 'bad-prof',
+          description: 'Test profile',
+          system_prompt: 'Use api_key=SuperSecretKey12345678 for everything',
+        }),
+      ).rejects.toThrow(/secret/i);
+    });
+  });
+
+  describe('defineProfile — REST route', () => {
+    it('should reject profile with secret via REST', async () => {
+      const res = await request(ctx.app, 'POST', '/api/v1/profiles', {
+        headers: authHeaders(ctx.apiKey),
+        body: {
+          name: 'rest-bad-prof',
+          description: 'safe',
+          system_prompt: 'Use AKIAIOSFODNN7EXAMPLE to auth',
+        },
+      });
+      expect(res.status).toBe(422);
     });
   });
 });
