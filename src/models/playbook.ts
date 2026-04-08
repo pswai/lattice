@@ -148,9 +148,18 @@ export async function getPlaybook(
 }
 
 function substituteVars(str: string, vars?: Record<string, string>): string {
-  return str.replace(/\{\{vars\.(\w+)\}\}/g, (_, k: string) =>
-    vars && Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : `{{vars.${k}}}`,
-  );
+  const missingVars = new Set<string>();
+  const result = str.replace(/\{\{vars\.(\w+)\}\}/g, (_, k: string) => {
+    if (vars && Object.prototype.hasOwnProperty.call(vars, k)) {
+      return vars[k];
+    }
+    missingVars.add(k);
+    return `{{vars.${k}}}`;
+  });
+  if (missingVars.size > 0) {
+    throw new ValidationError(`Missing playbook variables: ${Array.from(missingVars).join(', ')}`);
+  }
+  return result;
 }
 
 /**

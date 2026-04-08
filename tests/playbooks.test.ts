@@ -188,7 +188,7 @@ describe('Playbooks API', () => {
       expect(tasksData.tasks[0].description).toBe('Research topic webhooks');
     });
 
-    it('leaves template string intact when no vars passed', async () => {
+    it('fails when variables are missing', async () => {
       const headers = authHeaders(ctx.apiKey);
       await request(ctx.app, 'POST', '/api/v1/playbooks', {
         headers,
@@ -200,11 +200,9 @@ describe('Playbooks API', () => {
       });
 
       const runRes = await request(ctx.app, 'POST', '/api/v1/playbooks/no-vars/run', { headers });
-      expect(runRes.status).toBe(201);
-
-      const tasksRes = await request(ctx.app, 'GET', '/api/v1/tasks?status=open', { headers });
-      const tasksData = await tasksRes.json();
-      expect(tasksData.tasks[0].description).toBe('Research topic {{vars.topic}}');
+      expect(runRes.status).toBe(400);
+      const errData = await runRes.json();
+      expect(errData.message).toContain('Missing playbook variables: topic');
     });
 
     it('substitutes multiple vars and preserves role prefix', async () => {
@@ -236,7 +234,7 @@ describe('Playbooks API', () => {
       ].sort());
     });
 
-    it('leaves unknown keys intact as template strings', async () => {
+    it('returns error for unreplaced keys', async () => {
       const headers = authHeaders(ctx.apiKey);
       await request(ctx.app, 'POST', '/api/v1/playbooks', {
         headers,
@@ -251,11 +249,9 @@ describe('Playbooks API', () => {
         headers,
         body: { vars: { known: 'yes' } },
       });
-      expect(runRes.status).toBe(201);
-
-      const tasksRes = await request(ctx.app, 'GET', '/api/v1/tasks?status=open', { headers });
-      const tasksData = await tasksRes.json();
-      expect(tasksData.tasks[0].description).toBe('yes and {{vars.unknown}}');
+      expect(runRes.status).toBe(400);
+      const errData = await runRes.json();
+      expect(errData.message).toContain('Missing playbook variables: unknown');
     });
   });
 
