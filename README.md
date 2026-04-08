@@ -1,6 +1,6 @@
 # Lattice
 
-[![Tests](https://img.shields.io/badge/tests-826_passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-825_passing-brightgreen)](tests/)
 [![MCP Tools](https://img.shields.io/badge/MCP_tools-35-blue)](docs/llm-reference.md)
 [![SQLite | Postgres](https://img.shields.io/badge/backends-SQLite_%7C_Postgres-orange)](#architecture)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -121,7 +121,7 @@ For the full walkthrough (team creation, API keys, first tool calls), see the **
 └────────────────────────────────────────────────┘
 ```
 
-**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod. 826 tests.
+**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod. 825 tests.
 
 ---
 
@@ -259,7 +259,7 @@ Control which tools are exposed to reduce decision fatigue. Start with `automati
 | `automation` | 11 tools | Playbooks, cron schedules, webhooks, workflow runs | No |
 | `persist` | 10 tools | Tasks (DAG), shared context (FTS5), artifacts | Superficial (session vs persistent) |
 | `coordinate` | 8 tools | Event bus, agent messaging, agent registry | Superficial (session vs persistent) |
-| `observe` | 5 tools | Analytics, profiles, data export | No |
+| `observe` | 6 tools | Analytics, profiles, data export | No |
 
 ```bash
 # Start with just automation -- zero overlap, immediate value
