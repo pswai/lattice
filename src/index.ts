@@ -30,6 +30,13 @@ const adapter = await createAdapter({
 });
 const app = createApp(adapter, () => createMcpServer(adapter), config);
 
+// Background services — safe to start before the HTTP server is listening
+// because they operate on the DB, not on inbound requests.
+//   task reaper:        reclaims tasks stuck in "claimed" beyond the timeout
+//   event cleanup:      prunes events older than EVENT_RETENTION_DAYS
+//   webhook dispatcher: delivers outbound webhook payloads to subscribers
+//   scheduler:          triggers playbook runs on their cron schedules
+//   audit cleanup:      enforces AUDIT_RETENTION_DAYS retention policy
 startTaskReaper(adapter, config);
 startEventCleanup(adapter, config);
 startWebhookDispatcher(adapter);

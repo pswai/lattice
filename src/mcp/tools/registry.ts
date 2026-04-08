@@ -1,3 +1,11 @@
+/**
+ * Declarative MCP tool registry. Each tool is a ToolDefinition (schema, handler,
+ * tier, flags); registerTools() loops over them once, wrapping every handler with
+ * auth, audit, secret-scanning, and error handling — eliminating the duplicated
+ * try/catch/audit/auth blocks that used to live in each tool file.
+ * To add a tool: export a ToolDefinition from its module and include it in the
+ * tools array passed to registerTools().
+ */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { DbAdapter } from '../../db/adapter.js';
 import type { ToolDefinition, ToolTier } from './types.js';

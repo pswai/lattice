@@ -1,3 +1,8 @@
+/**
+ * All settings are env-var driven with sensible defaults.
+ * Config is loaded once at startup via loadConfig() and threaded
+ * through to services and middleware — never re-read at runtime.
+ */
 export interface AppConfig {
   port: number;
   dbPath: string;

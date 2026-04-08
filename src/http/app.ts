@@ -198,6 +198,9 @@ export function createApp(
   }
 
   api.route('/context', createContextRoutes(db));
+  // Both event routes and SSE routes mount on /events — no conflict because
+  // events.ts handles POST /events (broadcast) + GET /events (polling),
+  // while sse.ts handles GET /events/stream (Server-Sent Events).
   api.route('/events', createEventRoutes(db));
   api.route('/tasks', createTaskRoutes(db));
   api.route('/agents', createAgentRoutes(db));
