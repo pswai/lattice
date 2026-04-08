@@ -47,6 +47,7 @@ services:
       - AUDIT_ENABLED=true
       - HSTS_ENABLED=true
       - RATE_LIMIT_PER_MIN=300
+      # - LATTICE_TOOLS=persist,coordinate  # Restrict MCP tool tiers (default: all)
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -88,6 +89,7 @@ services:
       - AUDIT_ENABLED=true
       - HSTS_ENABLED=true
       - RATE_LIMIT_PER_MIN=300
+      # - LATTICE_TOOLS=persist,coordinate  # Restrict MCP tool tiers (default: all)
     depends_on:
       db:
         condition: service_healthy
@@ -450,3 +452,4 @@ Retention is controlled by `AUDIT_RETENTION_DAYS` (default 365, `0` = keep forev
 - [ ] Set up automated backups
 - [ ] Forward JSON logs (`LOG_FORMAT=json`) to your log aggregator
 - [ ] Scrape `/metrics` with Prometheus
+- [ ] Restrict MCP tool tiers via `LATTICE_TOOLS` if agents do not need all 35 tools

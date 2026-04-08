@@ -13,6 +13,7 @@ const SCHEDULER_AGENT_ID = 'system:scheduler';
 
 let schedulerRunning = false;
 
+/** Start the cron scheduler loop — fires due schedules every 30 seconds. */
 export function startScheduler(db: DbAdapter): NodeJS.Timeout {
   return setInterval(() => {
     runDueSchedules(db).catch((err) =>

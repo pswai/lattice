@@ -3,12 +3,14 @@ import type { z } from 'zod';
 
 export type ToolTier = 'automation' | 'persist' | 'coordinate' | 'observe';
 
+/** Per-request context injected into every MCP tool handler. */
 export interface ToolContext {
   db: DbAdapter;
   workspaceId: string;
   agentId: string;
 }
 
+/** Declarative definition of an MCP tool — schema, tier, and handler. */
 export interface ToolDefinition {
   name: string;
   description: string;

@@ -326,6 +326,17 @@ broadcast(agent_id: "writer", event_type: "BROADCAST", message: "Pricing analysi
 - **Call `heartbeat` during long-running work.** The task reaper auto-abandons tasks from agents that haven't sent a heartbeat within 30 minutes. If your work takes longer, send periodic heartbeats.
 - **Auto-registration is silent.** Your first MCP call registers you. Explicit `register_agent` is only needed to publish capabilities or metadata.
 
+### Tool Availability
+
+Not all 35 tools may be available. The operator can restrict tools via the `LATTICE_TOOLS` environment variable to specific tiers:
+
+- **persist** -- Knowledge and task tools (`save_context`, `get_context`, `create_task`, `update_task`, etc.)
+- **coordinate** -- Messaging and agent discovery (`broadcast`, `send_message`, `register_agent`, etc.)
+- **observe** -- Analytics, profiles, and export (`get_analytics`, `define_profile`, `export_workspace_data`, etc.)
+- **automation** -- Playbooks, schedules, and webhooks (`define_playbook`, `define_schedule`, `define_inbound_endpoint`, etc.)
+
+If a tool call fails with a "not found" error, it may be restricted by the server configuration. Check with your operator or see [Configuration Reference](../docs/configuration.md).
+
 ### Artifacts vs. Context
 
 - **Context** (`save_context`): Short insights, learnings, decisions -- under 100 KB. Searchable via full-text search.

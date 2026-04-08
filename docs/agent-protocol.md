@@ -230,6 +230,21 @@ define_inbound_endpoint(
 | `PORT` | HTTP server port | `3000` |
 | `DATABASE_URL` | PostgreSQL connection string (if using Postgres) | SQLite file |
 | `DB_PATH` | SQLite database path | `./data/lattice.db` |
+| `LATTICE_TOOLS` | Progressive tool tiers: `all` or comma-separated tier names (`persist`, `coordinate`, `observe`, `automation`) | `all` |
+
+#### Progressive Tool Tiers
+
+The `LATTICE_TOOLS` environment variable controls which MCP tools are exposed to agents. This lets operators restrict tools to match their use case:
+
+- **`all`** (default) -- All 35 tools available.
+- **`persist`** -- 10 tools for knowledge and task persistence (`save_context`, `get_context`, `create_task`, `update_task`, `list_tasks`, `get_task`, `get_task_graph`, `save_artifact`, `get_artifact`, `list_artifacts`).
+- **`coordinate`** -- 8 tools for messaging and team coordination (`broadcast`, `get_updates`, `wait_for_event`, `register_agent`, `list_agents`, `heartbeat`, `send_message`, `get_messages`).
+- **`observe`** -- 6 tools for observability and analytics (`get_analytics`, `define_profile`, `list_profiles`, `get_profile`, `delete_profile`, `export_workspace_data`).
+- **`automation`** -- 11 tools for workflows, scheduling, and webhooks (`define_playbook`, `list_playbooks`, `run_playbook`, `define_schedule`, `list_schedules`, `delete_schedule`, `list_workflow_runs`, `get_workflow_run`, `define_inbound_endpoint`, `list_inbound_endpoints`, `delete_inbound_endpoint`).
+
+Combine tiers with commas: `LATTICE_TOOLS=persist,coordinate` enables only those two tiers (18 tools).
+
+See [Configuration Reference](./configuration.md) for full details.
 
 ### MCP Config (.mcp.json)
 

@@ -49,6 +49,21 @@ Lattice auto-detects the backend: if `DATABASE_URL` is set and non-empty, it use
 | `HSTS_ENABLED` | `false` | No | Send `Strict-Transport-Security` header. Enable when behind HTTPS. |
 | `CORS_ORIGINS` | — (disabled) | No | Comma-separated allowed origins, or `*` for all. Empty = CORS disabled. |
 
+## MCP Tool Tiers
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `LATTICE_TOOLS` | `all` | No | Controls which MCP tools are exposed. `all` enables all 35 tools. Set to a comma-separated list of tier names to restrict: `persist`, `coordinate`, `observe`, `automation`. Example: `persist,coordinate` enables only those two tiers. |
+
+The four tiers and their tools:
+
+| Tier | Tools | Purpose |
+|------|-------|---------|
+| `persist` | `save_context`, `get_context`, `create_task`, `update_task`, `list_tasks`, `get_task`, `get_task_graph`, `save_artifact`, `get_artifact`, `list_artifacts` | Knowledge and task persistence |
+| `coordinate` | `broadcast`, `get_updates`, `wait_for_event`, `register_agent`, `list_agents`, `heartbeat`, `send_message`, `get_messages` | Messaging and team coordination |
+| `observe` | `get_analytics`, `define_profile`, `list_profiles`, `get_profile`, `delete_profile`, `export_workspace_data` | Observability and analytics |
+| `automation` | `define_playbook`, `list_playbooks`, `run_playbook`, `define_schedule`, `list_schedules`, `delete_schedule`, `list_workflow_runs`, `get_workflow_run`, `define_inbound_endpoint`, `list_inbound_endpoints`, `delete_inbound_endpoint` | Workflows, scheduling, and webhooks |
+
 ## Observability
 
 | Variable | Default | Required | Description |
@@ -92,6 +107,9 @@ ADMIN_KEY=a-strong-random-secret
 # Security
 HSTS_ENABLED=true
 CORS_ORIGINS=https://app.example.com
+
+# MCP tool tiers (default: all)
+# LATTICE_TOOLS=persist,coordinate
 
 # Observability
 LOG_LEVEL=info

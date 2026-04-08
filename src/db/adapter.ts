@@ -104,6 +104,7 @@ function adaptSql(sql: string, dialect: 'sqlite' | 'pg'): string {
 // SQLite adapter
 // ---------------------------------------------------------------------------
 
+/** DbAdapter backed by better-sqlite3 — synchronous under the hood, async API for compatibility. */
 export class SqliteAdapter implements DbAdapter {
   readonly dialect = 'sqlite' as const;
   constructor(public readonly rawDb: Database.Database) {}
@@ -197,6 +198,7 @@ abstract class PgBase implements DbAdapter {
   abstract close(): Promise<void>;
 }
 
+/** Pool-level Postgres adapter — acquires connections per-transaction. */
 export class PgAdapter extends PgBase {
   protected conn: any; // pg.Pool
 

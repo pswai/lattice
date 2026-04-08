@@ -49,6 +49,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   abandoned: ['claimed'],
 };
 
+/** Fetch a single task by ID. Throws NotFoundError if missing. */
 export async function getTask(
   db: DbAdapter,
   workspaceId: string,
@@ -66,6 +67,7 @@ export async function getTask(
   return rowToTask(row);
 }
 
+/** Filters for listing tasks within a workspace. */
 export interface ListTasksInput {
   status?: string;
   claimed_by?: string;
@@ -73,6 +75,7 @@ export interface ListTasksInput {
   limit?: number;
 }
 
+/** List tasks with optional status/assignee filters, ordered by priority then age. */
 export async function listTasks(
   db: DbAdapter,
   workspaceId: string,
@@ -112,6 +115,7 @@ export async function listTasks(
   };
 }
 
+/** A node in the task dependency graph. */
 export interface TaskGraphNode {
   id: number;
   description: string;
@@ -122,17 +126,20 @@ export interface TaskGraphNode {
   createdAt: string;
 }
 
+/** A directed edge in the task dependency graph (from → to means "from must complete before to"). */
 export interface TaskGraphEdge {
   from: number;
   to: number;
 }
 
+/** Filters for retrieving the task dependency graph. */
 export interface GetTaskGraphInput {
   status?: string;
   workflow_run_id?: number;
   limit?: number;
 }
 
+/** Return tasks and their dependency edges as a DAG. */
 export async function getTaskGraph(
   db: DbAdapter,
   workspaceId: string,
@@ -217,6 +224,7 @@ export async function getTaskGraph(
   return { nodes, edges };
 }
 
+/** Create a task, wire up dependency edges, and broadcast a TASK_UPDATE event. */
 export async function createTask(
   db: DbAdapter,
   workspaceId: string,
@@ -276,6 +284,10 @@ export async function createTask(
   };
 }
 
+/**
+ * Transition a task's status with optimistic-lock concurrency control.
+ * Validates state machine transitions and dependency blockers before applying.
+ */
 export async function updateTask(
   db: DbAdapter,
   workspaceId: string,

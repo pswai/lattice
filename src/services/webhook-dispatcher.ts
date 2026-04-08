@@ -24,11 +24,16 @@ interface EventRow {
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKER_INTERVAL_MS = 1_000;
 
+/** Handle returned by startWebhookDispatcher for lifecycle control. */
 export interface WebhookDispatcher {
   stop: () => void;
   processOnce: () => Promise<void>;
 }
 
+/**
+ * Start the webhook delivery pipeline — listens for domain events,
+ * enqueues deliveries for matching webhooks, and retries on failure.
+ */
 export function startWebhookDispatcher(
   db: DbAdapter,
   opts: { timeoutMs?: number; intervalMs?: number; fetchImpl?: typeof fetch } = {},

@@ -104,6 +104,7 @@ function rowToEvent(row: EventRow): Event {
   };
 }
 
+/** Persist a domain event and notify in-process listeners via eventBus. */
 export async function broadcastEvent(
   db: DbAdapter,
   workspaceId: string,
@@ -121,6 +122,7 @@ export async function broadcastEvent(
   return { eventId };
 }
 
+/** Poll for events since a cursor, with optional topic/type filters and recommended context. */
 export async function getUpdates(
   db: DbAdapter,
   workspaceId: string,

@@ -5,12 +5,14 @@ import { createTask } from './task.js';
 import { createWorkflowRun, setWorkflowRunTaskIds, checkWorkflowCompletion } from './workflow.js';
 
 
+/** A single task template within a playbook definition. */
 export interface PlaybookTaskTemplate {
   description: string;
   role?: string;
   depends_on_index?: number[];
 }
 
+/** A reusable multi-task workflow template. */
 export interface Playbook {
   id: number;
   workspaceId: string;
@@ -43,6 +45,7 @@ function rowToPlaybook(row: PlaybookRow): Playbook {
   };
 }
 
+/** Input for creating or updating a playbook definition (upsert by name). */
 export interface DefinePlaybookInput {
   name: string;
   description: string;
@@ -73,6 +76,7 @@ function validateTasks(tasks: PlaybookTaskTemplate[]): void {
   });
 }
 
+/** Create or replace a playbook definition. Validates task templates and scans for secrets. */
 export async function definePlaybook(
   db: DbAdapter,
   workspaceId: string,
@@ -110,6 +114,7 @@ export async function definePlaybook(
   return rowToPlaybook(row!);
 }
 
+/** List all playbooks in a workspace, ordered by name. */
 export async function listPlaybooks(
   db: DbAdapter,
   workspaceId: string,
@@ -125,6 +130,7 @@ export async function listPlaybooks(
   };
 }
 
+/** Fetch a playbook by name. Throws NotFoundError if missing. */
 export async function getPlaybook(
   db: DbAdapter,
   workspaceId: string,
@@ -147,6 +153,10 @@ function substituteVars(str: string, vars?: Record<string, string>): string {
   );
 }
 
+/**
+ * Instantiate a playbook as a workflow run — creates concrete tasks
+ * with dependency edges mirroring the playbook's template graph.
+ */
 export async function runPlaybook(
   db: DbAdapter,
   workspaceId: string,

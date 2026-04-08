@@ -69,6 +69,7 @@ function escapeLikeToken(t: string): string {
   return t.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+/** Upsert a context entry by key and broadcast a LEARNING event. */
 export async function saveContext(
   db: DbAdapter,
   workspaceId: string,
@@ -115,6 +116,7 @@ export async function saveContext(
   };
 }
 
+/** Full-text search over context entries, dispatching to SQLite FTS5 or Postgres pg_trgm. */
 export async function getContext(
   db: DbAdapter,
   workspaceId: string,
