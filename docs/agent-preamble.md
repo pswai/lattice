@@ -2,9 +2,22 @@
 
 ## Overview
 
-Lattice is an MCP-native coordination layer for AI agent teams. It provides shared knowledge, event-driven messaging, task management with dependency graphs, agent discovery, direct messaging, playbook-driven workflows, and inbound webhooks -- all accessible via 35 MCP tools or a REST API.
+Lattice is an MCP-native coordination layer for AI agent teams — the operations platform for things that survive beyond a single session. It provides shared knowledge, event-driven messaging, task management with dependency graphs, agent discovery, direct messaging, playbook-driven workflows, and inbound webhooks -- all accessible via 35 MCP tools or a REST API.
 
 Lattice is framework-agnostic. Any AI agent that can make MCP tool calls or HTTP requests can participate in a Lattice workspace.
+
+### When to use Lattice vs built-in tools
+
+| Need | Use Lattice | Use built-in tools |
+|------|------------|-------------------|
+| Knowledge that persists across sessions | `save_context` / `get_context` | MEMORY.md (flat, ~200 line cap) |
+| Persistent tasks with DAG dependencies | `create_task` / `update_task` | TodoWrite (session-scoped) |
+| Automated pipelines & cron | `define_playbook`, `define_schedule` | — |
+| Multi-agent async messaging | `broadcast`, `send_message` | SendMessage (intra-session) |
+| Webhooks from external systems | `define_inbound_endpoint` | — |
+| Observability & audit trails | `get_analytics`, `export_workspace_data` | — |
+
+Use built-in tools for session-local scratch work. Reach for Lattice when you need persistence, automation, or cross-agent coordination.
 
 ## MCP Tool Reference
 

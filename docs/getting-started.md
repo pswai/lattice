@@ -170,19 +170,24 @@ Add a section to your project's `CLAUDE.md`:
 ```markdown
 ## Lattice Coordination
 
-You have access to Lattice MCP tools for team coordination. Follow this protocol:
+Use Lattice for **persistent state and automation** — things that survive beyond a single session.
+Use built-in tools (TodoWrite, SendMessage, memory) for **session-local work**.
 
-1. On startup: register with `register_agent`, check `get_updates` and `list_tasks` for context
-2. Before starting work: search `get_context` to see if another agent already covered the topic
-3. Save important findings with `save_context` using descriptive keys and generous tags
-4. Create tasks with `create_task` and mark them done with `update_task` when complete
-5. Broadcast important discoveries with `broadcast(event_type: "LEARNING")`
-6. For long-running work: call `heartbeat` periodically to stay online
+**When to reach for Lattice:**
+- Cross-session knowledge: `save_context` / `get_context` (FTS5 search, tags)
+- Persistent tasks with dependencies: `create_task` / `update_task` (DAG, claim-before-work)
+- Automated pipelines: `define_playbook`, `define_schedule`, `define_inbound_endpoint`
+- Multi-agent communication: `broadcast`, `send_message`
+
+**When built-ins are enough:**
+- Scratch planning for this session → TodoWrite
+- Talking to the user → direct text output
+- Remembering across conversations → MEMORY.md
 ```
 
 ### Other MCP Clients (AGENTS.md)
 
-For Cursor, Windsurf, or other MCP clients, add equivalent instructions to `AGENTS.md` or your client's configuration file. The same protocol applies.
+For Cursor, Windsurf, or other MCP clients, add equivalent instructions to `AGENTS.md` or your client's configuration file. The same guidance applies.
 
 ### Comprehensive Template
 

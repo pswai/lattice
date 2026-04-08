@@ -37,13 +37,27 @@ Your first MCP call auto-registers you -- no explicit `register_agent` needed un
 
 ## Agent Protocol
 
-Every agent should follow this sequence:
+Use Lattice for **persistent state and automation** — things that survive beyond a single session. Use built-in agent tools (TodoWrite, SendMessage, memory) for session-local work.
 
-1. **Register** -- Auto-registration happens on your first MCP call. Use `register_agent` only if you need to advertise capabilities or metadata.
-2. **Orient** -- Call `get_context` and `get_updates` to learn what the team already knows. Check `list_tasks` for existing work.
-3. **Claim or create** -- Use `update_task` to claim open tasks, or `create_task` to define new work (defaults to auto-claimed).
-4. **Work and share** -- Save learnings with `save_context`, store outputs with `save_artifact`, broadcast important discoveries with `broadcast(event_type: "LEARNING")`.
-5. **Complete** -- `update_task(status: "completed", result: "...")`, then `broadcast` your completion.
+### When to reach for Lattice
+
+| Need | Lattice tool | Built-in alternative |
+|------|-------------|---------------------|
+| Knowledge across sessions | `save_context` / `get_context` | MEMORY.md (flat, ~200 line cap) |
+| Persistent tasks with DAG deps | `create_task` / `update_task` | TodoWrite (session-scoped) |
+| Automated pipelines | `define_playbook`, `define_schedule` | None |
+| Multi-agent messaging | `broadcast`, `send_message` | SendMessage (intra-session) |
+| Webhooks from external systems | `define_inbound_endpoint` | None |
+| Observability & audit | `get_analytics`, `export_workspace_data` | None |
+
+### Typical workflow
+
+1. **Orient** -- `get_context` and `list_tasks` to see what the team already knows.
+2. **Claim or create** -- `update_task` to claim open tasks, or `create_task` for new work.
+3. **Work and share** -- `save_context` for learnings, `save_artifact` for outputs, `broadcast` for discoveries.
+4. **Complete** -- `update_task(status: "completed", result: "...")`.
+
+Auto-registration happens on your first MCP call — no explicit `register_agent` needed unless you want to advertise capabilities.
 
 ## Tool Categories
 
