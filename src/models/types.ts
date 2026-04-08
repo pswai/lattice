@@ -206,14 +206,10 @@ export interface Artifact {
 
 export interface ArtifactSummary {
   id: number;
-  workspaceId: string;
   key: string;
   contentType: ArtifactContentType;
-  metadata: Record<string, unknown>;
   size: number;
   createdBy: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface SaveArtifactInput {

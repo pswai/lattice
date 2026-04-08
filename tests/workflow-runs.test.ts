@@ -49,7 +49,8 @@ describe('Workflow runs API', () => {
     expect(run.id).toBe(workflow_run_id);
     expect(run.playbookName).toBe('wf1');
     expect(run.status).toBe('running');
-    expect(run.taskIds).toEqual(created_task_ids);
+    // taskIds stripped from detail response — tasks array is sufficient
+    expect(run.taskIds).toBeUndefined();
     expect(run.tasks).toHaveLength(2);
     expect(run.completedAt).toBeNull();
   });

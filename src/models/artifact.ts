@@ -56,14 +56,10 @@ function rowToArtifact(row: ArtifactRow): Artifact {
 function rowToSummary(row: Omit<ArtifactRow, 'content'>): ArtifactSummary {
   return {
     id: row.id,
-    workspaceId: row.workspace_id,
     key: row.key,
     contentType: row.content_type as ArtifactContentType,
-    metadata: JSON.parse(row.metadata) as Record<string, unknown>,
     size: row.size,
     createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
   };
 }
 

@@ -1,5 +1,27 @@
 import type { DbAdapter } from '../db/adapter.js';
 
+/**
+ * Dialect-aware SQL for computing millisecond difference between two timestamp columns.
+ * SQLite uses julianday(); Postgres uses EXTRACT(EPOCH FROM ...).
+ */
+function msDiffExpr(dialect: 'sqlite' | 'pg', col1: string, col2: string): string {
+  if (dialect === 'sqlite') {
+    return `(julianday(${col1}) - julianday(${col2})) * 86400000`;
+  }
+  return `EXTRACT(EPOCH FROM (${col1}::timestamptz - ${col2}::timestamptz)) * 1000`;
+}
+
+/**
+ * Dialect-aware SQL for computing hours ago from now for a timestamp column.
+ * SQLite uses julianday(); Postgres uses EXTRACT(EPOCH FROM ...).
+ */
+function hoursAgoExpr(dialect: 'sqlite' | 'pg', col: string): string {
+  if (dialect === 'sqlite') {
+    return `CAST((julianday('now') - julianday(${col})) * 24 AS INTEGER)`;
+  }
+  return `CAST(EXTRACT(EPOCH FROM (NOW() - ${col}::timestamptz)) / 3600 AS INTEGER)`;
+}
+
 export interface TaskAnalytics {
   total: number;
   by_status: {
@@ -110,8 +132,10 @@ export async function getWorkspaceAnalytics(
   const completionDenom = byStatus.completed + byStatus.abandoned;
   const completionRate = completionDenom > 0 ? byStatus.completed / completionDenom : 0;
 
+  const msDiff = msDiffExpr(db.dialect, 'updated_at', 'created_at');
+
   const avgRow = await db.get<{ avg_ms: number | null }>(`
-    SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400000) AS avg_ms
+    SELECT AVG(${msDiff}) AS avg_ms
     FROM tasks
     WHERE workspace_id = ? AND status = 'completed' AND created_at >= ?
   `, workspaceId, sinceIso);
@@ -119,8 +143,8 @@ export async function getWorkspaceAnalytics(
 
   const medianRow = await db.get<{ median: number | null }>(`
     WITH ordered AS (
-      SELECT (julianday(updated_at) - julianday(created_at)) * 86400000 AS ms,
-             ROW_NUMBER() OVER (ORDER BY (julianday(updated_at) - julianday(created_at))) AS rn,
+      SELECT ${msDiff} AS ms,
+             ROW_NUMBER() OVER (ORDER BY ${msDiff}) AS rn,
              COUNT(*) OVER () AS cnt
       FROM tasks
       WHERE workspace_id = ? AND status = 'completed' AND created_at >= ?
@@ -151,7 +175,7 @@ export async function getWorkspaceAnalytics(
   // hoursAgo 0 = the most recent hour, 23 = 23 hours ago.
   const last24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const perHourRows = await db.all<{ hours_ago: number; cnt: number }>(`
-    SELECT CAST((julianday('now') - julianday(created_at)) * 24 AS INTEGER) AS hours_ago,
+    SELECT ${hoursAgoExpr(db.dialect, 'created_at')} AS hours_ago,
            COUNT(*) AS cnt
     FROM events
     WHERE workspace_id = ? AND created_at >= ?
