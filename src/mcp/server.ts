@@ -24,7 +24,70 @@ import { AppError } from '../errors.js';
 import { getMcpAuth, requireWriteScope } from './auth-context.js';
 import { writeAudit } from '../models/audit.js';
 
+import { loadConfig } from '../config.js';
 import { getLogger } from '../logger.js';
+
+// ─── Tool tier system ──────────────────────────────────────────────
+// Controls which tools are exposed via the LATTICE_TOOLS env var.
+// Values: 'all', or comma-separated tiers: 'automation', 'persist', 'coordinate', 'observe'
+
+type ToolTier = 'automation' | 'persist' | 'coordinate' | 'observe';
+
+const TOOL_TIERS: Record<string, ToolTier> = {
+  // automation — playbooks, schedules, webhooks, workflow runs
+  define_playbook: 'automation',
+  list_playbooks: 'automation',
+  run_playbook: 'automation',
+  define_schedule: 'automation',
+  list_schedules: 'automation',
+  delete_schedule: 'automation',
+  define_inbound_endpoint: 'automation',
+  list_inbound_endpoints: 'automation',
+  delete_inbound_endpoint: 'automation',
+  list_workflow_runs: 'automation',
+  get_workflow_run: 'automation',
+  // persist — tasks, context, artifacts
+  create_task: 'persist',
+  update_task: 'persist',
+  list_tasks: 'persist',
+  get_task: 'persist',
+  get_task_graph: 'persist',
+  save_context: 'persist',
+  get_context: 'persist',
+  save_artifact: 'persist',
+  get_artifact: 'persist',
+  list_artifacts: 'persist',
+  // coordinate — events, messaging, agent registry
+  broadcast: 'coordinate',
+  get_updates: 'coordinate',
+  wait_for_event: 'coordinate',
+  register_agent: 'coordinate',
+  list_agents: 'coordinate',
+  heartbeat: 'coordinate',
+  send_message: 'coordinate',
+  get_messages: 'coordinate',
+  // observe — analytics, profiles, export
+  get_analytics: 'observe',
+  define_profile: 'observe',
+  list_profiles: 'observe',
+  get_profile: 'observe',
+  delete_profile: 'observe',
+  export_workspace_data: 'observe',
+};
+
+function parseEnabledTiers(latticeTools: string): Set<ToolTier> | 'all' {
+  const val = latticeTools.trim().toLowerCase();
+  if (val === 'all' || val === '') return 'all';
+  const tiers = val.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  return new Set(tiers as ToolTier[]);
+}
+
+function isToolEnabled(toolName: string, enabledTiers: Set<ToolTier> | 'all'): boolean {
+  if (enabledTiers === 'all') return true;
+  const tier = TOOL_TIERS[toolName];
+  if (!tier) return true; // unknown tools are always enabled
+  return enabledTiers.has(tier);
+}
 
 /**
  * Wrap an array schema so that MCP clients which stringify array arguments
@@ -54,6 +117,9 @@ export function createMcpServer(db: DbAdapter): McpServer {
     name: 'lattice',
     version: '0.1.0',
   });
+
+  const config = loadConfig();
+  const enabledTiers = parseEnabledTiers(config.latticeTools);
 
   // ─── Audit wrapper for mutating MCP tools ─────────────────────────
   const TOOL_AUDIT_MAP: Record<string, { resource: string; verb: string }> = {
@@ -109,6 +175,20 @@ export function createMcpServer(db: DbAdapter): McpServer {
       } catch { /* swallow logger failures */ }
     }
   }
+
+  // ─── Tier-aware tool registration ──────────────────────────────────
+  // Wraps server.tool() to skip registration for disabled tiers.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalTool = server.tool.bind(server) as (...args: any[]) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const registerTool = (...args: any[]) => {
+    const toolName = args[0] as string;
+    if (!isToolEnabled(toolName, enabledTiers)) return;
+    return originalTool(...args);
+  };
+  // Monkey-patch for the duration of registration
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool = registerTool;
 
   // ─── save_context ─────────────────────────────────────────────────
   server.tool(
@@ -1003,6 +1083,10 @@ export function createMcpServer(db: DbAdapter): McpServer {
       }
     },
   );
+
+  // Restore original tool method after registration
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool = originalTool;
 
   return server;
 }

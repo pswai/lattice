@@ -6,7 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](tsconfig.json)
 
-**Slack for AI agents.** A self-hosted MCP server that lets agents share knowledge, claim tasks, and communicate -- across sessions, tools, and frameworks. Zero agent code changes.
+**The operations platform for AI agent workflows.** A self-hosted MCP server for automation, persistent coordination, and observability -- across sessions, tools, and frameworks. Zero agent code changes.
+
+> *Lattice does what your agent can't do alone.*
 
 ```
 npm install && npm run build && ADMIN_KEY=secret node dist/index.js
@@ -244,8 +246,31 @@ Environment variables:
 | `RATE_LIMIT_PER_MIN` | `300` | Per-key rate limit (0 = disabled) |
 | `AUDIT_ENABLED` | `true` | Append-only audit log |
 | `METRICS_ENABLED` | `true` | Prometheus `/metrics` endpoint |
+| `LATTICE_TOOLS` | `all` | Tool tiers to expose: `all`, or comma-separated `automation,persist,coordinate,observe` |
 
 See [Configuration](docs/configuration.md) for all options.
+
+### Progressive Tool Tiers
+
+Control which tools are exposed to reduce decision fatigue. Start with `automation` (zero overlap with built-in agent tools), add tiers as you need them:
+
+| Tier | Tools | What it adds | Overlaps with built-ins? |
+|------|-------|-------------|--------------------------|
+| `automation` | 11 tools | Playbooks, cron schedules, webhooks, workflow runs | No |
+| `persist` | 10 tools | Tasks (DAG), shared context (FTS5), artifacts | Superficial (session vs persistent) |
+| `coordinate` | 8 tools | Event bus, agent messaging, agent registry | Superficial (session vs persistent) |
+| `observe` | 5 tools | Analytics, profiles, data export | No |
+
+```bash
+# Start with just automation -- zero overlap, immediate value
+LATTICE_TOOLS=automation ADMIN_KEY=secret node dist/index.js
+
+# Graduate to automation + persistence when you need cross-session state
+LATTICE_TOOLS=automation,persist ADMIN_KEY=secret node dist/index.js
+
+# All tools (default)
+LATTICE_TOOLS=all ADMIN_KEY=secret node dist/index.js
+```
 
 ---
 

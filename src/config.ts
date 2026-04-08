@@ -18,6 +18,7 @@ export interface AppConfig {
   hstsEnabled: boolean;
   corsOrigins: string[] | '*';
   rateLimitPerMinuteWorkspace: number;
+  latticeTools: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -41,6 +42,7 @@ export function loadConfig(): AppConfig {
     hstsEnabled: (process.env.HSTS_ENABLED || 'false').toLowerCase() === 'true',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
     rateLimitPerMinuteWorkspace: parseInt(process.env.RATE_LIMIT_PER_MIN_WORKSPACE || '1000', 10),
+    latticeTools: process.env.LATTICE_TOOLS || 'all',
   };
 }
 
