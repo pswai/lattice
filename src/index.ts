@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './http/app.js';
 import { createMcpServer } from './mcp/server.js';
-import { createSqliteAdapter } from './db/connection.js';
+import { createAdapter } from './db/connection.js';
 import { startTaskReaper } from './services/task-reaper.js';
 import { startEventCleanup } from './services/event-cleanup.js';
 import { startWebhookDispatcher } from './services/webhook-dispatcher.js';
@@ -24,7 +24,10 @@ setRootLogger(
   }),
 );
 
-const adapter = createSqliteAdapter(config.dbPath);
+const adapter = await createAdapter({
+  databaseUrl: config.databaseUrl,
+  dbPath: config.dbPath,
+});
 const app = createApp(adapter, () => createMcpServer(adapter), config);
 
 startTaskReaper(adapter, config);
