@@ -45,11 +45,15 @@ export const taskTools: ToolDefinition[] = [
   },
   {
     name: 'list_tasks',
-    description: 'List tasks visible to the team, optionally filtered by status or claimed_by.',
+    description: 'List tasks visible to the team. Use claimable=true to find work ready to claim (open/abandoned with no unfinished dependencies).',
     schema: {
-      status: z.enum(['open', 'claimed', 'completed', 'escalated', 'abandoned']).optional().describe('Filter by task status'),
+      status: z.enum(['open', 'claimed', 'completed', 'escalated', 'abandoned']).optional().describe('Filter by task status (ignored when claimable=true)'),
       claimed_by: z.string().optional().describe('Filter by claiming agent ID'),
       assigned_to: z.string().optional().describe('Filter by assigned agent ID'),
+      created_by: z.string().optional().describe('Filter by creating agent ID'),
+      priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Filter by priority level'),
+      claimable: z.boolean().optional().describe('When true, return only tasks that are open/abandoned AND have no unfinished dependencies — ready to claim'),
+      description_contains: z.string().max(200).optional().describe('Filter tasks whose description contains this substring'),
       limit: z.number().optional().describe('Max results (default 50, max 200)'),
     },
     tier: 'persist',

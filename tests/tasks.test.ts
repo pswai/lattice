@@ -488,3 +488,161 @@ describe('Task dependency blocker query includes workspace_id filter', () => {
     expect(blockers.length).toBe(0);
   });
 });
+
+// ─── list_tasks filter tests ────────────────────────────────────────
+
+describe('list_tasks filters', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('claimable=true returns only open tasks with no unfinished deps', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    const resA = await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Independent task', status: 'open' },
+    });
+    const { task_id: idA } = await resA.json();
+
+    const resB = await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Blocked task', status: 'open', depends_on: [idA] },
+    });
+    const { task_id: idB } = await resB.json();
+
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Another free task', status: 'open' },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?claimable=true', { headers });
+    const data = await listRes.json();
+    const ids = data.tasks.map((t: any) => t.id);
+    expect(ids).toContain(idA);
+    expect(ids).not.toContain(idB);
+    expect(data.total).toBe(2);
+  });
+
+  it('claimable=true includes abandoned tasks', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    const res = await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Will be abandoned' },
+    });
+    const { task_id } = await res.json();
+
+    await request(ctx.app, 'PATCH', `/api/v1/tasks/${task_id}`, {
+      headers,
+      body: { status: 'abandoned', version: 1 },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?claimable=true', { headers });
+    const data = await listRes.json();
+    expect(data.tasks.some((t: any) => t.id === task_id)).toBe(true);
+  });
+
+  it('claimable returns unblocked after dependency completes', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    const resA = await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Dep task', status: 'open' },
+    });
+    const { task_id: idA } = await resA.json();
+
+    const resB = await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Blocked then free', status: 'open', depends_on: [idA] },
+    });
+    const { task_id: idB } = await resB.json();
+
+    let listRes = await request(ctx.app, 'GET', '/api/v1/tasks?claimable=true', { headers });
+    let data = await listRes.json();
+    expect(data.tasks.map((t: any) => t.id)).not.toContain(idB);
+
+    await request(ctx.app, 'PATCH', `/api/v1/tasks/${idA}`, {
+      headers,
+      body: { status: 'claimed', version: 1 },
+    });
+    await request(ctx.app, 'PATCH', `/api/v1/tasks/${idA}`, {
+      headers,
+      body: { status: 'completed', result: 'done', version: 2 },
+    });
+
+    listRes = await request(ctx.app, 'GET', '/api/v1/tasks?claimable=true', { headers });
+    data = await listRes.json();
+    expect(data.tasks.map((t: any) => t.id)).toContain(idB);
+  });
+
+  it('filters by priority', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'High priority', status: 'open', priority: 'P0' },
+    });
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Low priority', status: 'open', priority: 'P3' },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?priority=P0', { headers });
+    const data = await listRes.json();
+    expect(data.total).toBe(1);
+    expect(data.tasks[0].description).toBe('High priority');
+  });
+
+  it('filters by created_by', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'My task', status: 'open' },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?created_by=test-agent', { headers });
+    const data = await listRes.json();
+    expect(data.total).toBeGreaterThan(0);
+    expect(data.tasks.every((t: any) => t.createdBy === 'test-agent')).toBe(true);
+  });
+
+  it('filters by description_contains', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Fix the webhook handler', status: 'open' },
+    });
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'Write unit tests', status: 'open' },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?description_contains=webhook', { headers });
+    const data = await listRes.json();
+    expect(data.total).toBe(1);
+    expect(data.tasks[0].description).toContain('webhook');
+  });
+
+  it('combines claimable with assigned_to', async () => {
+    const headers = authHeaders(ctx.apiKey);
+
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'For alice', status: 'open', assigned_to: 'alice' },
+    });
+    await request(ctx.app, 'POST', '/api/v1/tasks', {
+      headers,
+      body: { description: 'For bob', status: 'open', assigned_to: 'bob' },
+    });
+
+    const listRes = await request(ctx.app, 'GET', '/api/v1/tasks?claimable=true&assigned_to=alice', { headers });
+    const data = await listRes.json();
+    expect(data.total).toBe(1);
+    expect(data.tasks[0].description).toBe('For alice');
+  });
+});

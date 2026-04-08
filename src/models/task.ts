@@ -72,40 +72,67 @@ export interface ListTasksInput {
   status?: string;
   claimed_by?: string;
   assigned_to?: string;
+  created_by?: string;
+  priority?: string;
+  claimable?: boolean;
+  description_contains?: string;
   limit?: number;
 }
 
-/** List tasks with optional status/assignee filters, ordered by priority then age. */
+/** List tasks with optional filters, ordered by priority then age. */
 export async function listTasks(
   db: DbAdapter,
   workspaceId: string,
   input: ListTasksInput,
 ): Promise<{ tasks: Task[]; total: number }> {
   const limit = Math.min(input.limit ?? 50, 200);
-  const conditions = ['workspace_id = ?'];
+  const conditions = ['t.workspace_id = ?'];
   const params: (string | number)[] = [workspaceId];
 
-  if (input.status) {
-    conditions.push('status = ?');
+  if (input.claimable) {
+    // Claimable = open or abandoned, with no unfinished dependencies
+    conditions.push("t.status IN ('open', 'abandoned')");
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM task_dependencies td
+      JOIN tasks dep ON dep.id = td.depends_on
+      WHERE td.task_id = t.id AND dep.status != 'completed'
+    )`);
+  } else if (input.status) {
+    conditions.push('t.status = ?');
     params.push(input.status);
   }
 
   if (input.claimed_by) {
-    conditions.push('claimed_by = ?');
+    conditions.push('t.claimed_by = ?');
     params.push(input.claimed_by);
   }
 
   if (input.assigned_to) {
-    conditions.push('assigned_to = ?');
+    conditions.push('t.assigned_to = ?');
     params.push(input.assigned_to);
+  }
+
+  if (input.created_by) {
+    conditions.push('t.created_by = ?');
+    params.push(input.created_by);
+  }
+
+  if (input.priority) {
+    conditions.push('t.priority = ?');
+    params.push(input.priority);
+  }
+
+  if (input.description_contains) {
+    conditions.push('t.description LIKE ?');
+    params.push(`%${input.description_contains}%`);
   }
 
   params.push(limit);
 
   const rows = await db.all<TaskRow>(`
-    SELECT * FROM tasks
+    SELECT t.* FROM tasks t
     WHERE ${conditions.join(' AND ')}
-    ORDER BY priority ASC, created_at ASC
+    ORDER BY t.priority ASC, t.created_at ASC
     LIMIT ?
   `, ...params);
 
