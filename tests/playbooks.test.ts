@@ -188,7 +188,7 @@ describe('Playbooks API', () => {
       expect(tasksData.tasks[0].description).toBe('Research topic webhooks');
     });
 
-    it('leaves template string intact when no vars passed', async () => {
+    it('rejects run when template vars are not provided', async () => {
       const headers = authHeaders(ctx.apiKey);
       await request(ctx.app, 'POST', '/api/v1/playbooks', {
         headers,
@@ -200,11 +200,10 @@ describe('Playbooks API', () => {
       });
 
       const runRes = await request(ctx.app, 'POST', '/api/v1/playbooks/no-vars/run', { headers });
-      expect(runRes.status).toBe(201);
-
-      const tasksRes = await request(ctx.app, 'GET', '/api/v1/tasks?status=open', { headers });
-      const tasksData = await tasksRes.json();
-      expect(tasksData.tasks[0].description).toBe('Research topic {{vars.topic}}');
+      expect(runRes.status).toBe(400);
+      const data = await runRes.json();
+      expect(data.message).toContain('unresolved template variables');
+      expect(data.message).toContain('topic');
     });
 
     it('substitutes multiple vars and preserves role prefix', async () => {
@@ -236,7 +235,7 @@ describe('Playbooks API', () => {
       ].sort());
     });
 
-    it('leaves unknown keys intact as template strings', async () => {
+    it('rejects run when some template vars are missing', async () => {
       const headers = authHeaders(ctx.apiKey);
       await request(ctx.app, 'POST', '/api/v1/playbooks', {
         headers,
@@ -251,11 +250,10 @@ describe('Playbooks API', () => {
         headers,
         body: { vars: { known: 'yes' } },
       });
-      expect(runRes.status).toBe(201);
-
-      const tasksRes = await request(ctx.app, 'GET', '/api/v1/tasks?status=open', { headers });
-      const tasksData = await tasksRes.json();
-      expect(tasksData.tasks[0].description).toBe('yes and {{vars.unknown}}');
+      expect(runRes.status).toBe(400);
+      const data = await runRes.json();
+      expect(data.message).toContain('unresolved template variables');
+      expect(data.message).toContain('unknown');
     });
   });
 
@@ -287,8 +285,7 @@ describe('Playbooks API', () => {
       const listData = await listRes.json();
       expect(listData.total).toBe(1);
       expect(listData.playbooks[0].description).toBe('v2');
-      expect(listData.playbooks[0].tasks).toHaveLength(2);
-      expect(listData.playbooks[0].tasks[0].description).toBe('new-1');
+      expect(listData.playbooks[0].taskCount).toBe(2);
     });
   });
 });
@@ -337,5 +334,92 @@ describe('Playbook created_by preserved on update', () => {
 
     expect(updated.createdBy).toBe('creator');
     expect(updated.description).toBe('updated');
+  });
+});
+
+// ─── required_vars validation ──────────────────────────────────────
+
+describe('Playbook required_vars', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestContext();
+  });
+
+  it('should store and return required_vars on a playbook', async () => {
+    const headers = authHeaders(ctx.apiKey);
+    const res = await request(ctx.app, 'POST', '/api/v1/playbooks', {
+      headers,
+      body: {
+        name: 'with-vars',
+        description: 'needs vars',
+        tasks: [{ description: 'Do {{vars.thing}}' }],
+        required_vars: ['thing'],
+      },
+    });
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.requiredVars).toEqual(['thing']);
+  });
+
+  it('should reject run_playbook when required_vars are missing', async () => {
+    const headers = authHeaders(ctx.apiKey);
+    await request(ctx.app, 'POST', '/api/v1/playbooks', {
+      headers,
+      body: {
+        name: 'needs-topic',
+        description: 'requires topic',
+        tasks: [{ description: 'Research {{vars.topic}}' }],
+        required_vars: ['topic'],
+      },
+    });
+
+    const runRes = await request(ctx.app, 'POST', '/api/v1/playbooks/needs-topic/run', {
+      headers,
+    });
+    expect(runRes.status).toBe(400);
+    const data = await runRes.json();
+    expect(data.message).toContain('requires vars');
+    expect(data.message).toContain('topic');
+  });
+
+  it('should succeed when all required_vars are provided', async () => {
+    const headers = authHeaders(ctx.apiKey);
+    await request(ctx.app, 'POST', '/api/v1/playbooks', {
+      headers,
+      body: {
+        name: 'full-vars',
+        description: 'all vars provided',
+        tasks: [{ description: 'Process {{vars.item}}' }],
+        required_vars: ['item'],
+      },
+    });
+
+    const runRes = await request(ctx.app, 'POST', '/api/v1/playbooks/full-vars/run', {
+      headers,
+      body: { vars: { item: 'widget' } },
+    });
+    expect(runRes.status).toBe(201);
+
+    const tasksRes = await request(ctx.app, 'GET', '/api/v1/tasks?status=open', { headers });
+    const tasksData = await tasksRes.json();
+    expect(tasksData.tasks[0].description).toBe('Process widget');
+  });
+
+  it('should allow playbooks without vars to run without providing vars', async () => {
+    const headers = authHeaders(ctx.apiKey);
+    await request(ctx.app, 'POST', '/api/v1/playbooks', {
+      headers,
+      body: {
+        name: 'no-template-vars',
+        description: 'static tasks',
+        tasks: [{ description: 'Do a static thing' }],
+      },
+    });
+
+    const runRes = await request(ctx.app, 'POST', '/api/v1/playbooks/no-template-vars/run', {
+      headers,
+    });
+    expect(runRes.status).toBe(201);
   });
 });

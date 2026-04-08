@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS playbooks (
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     tasks_json TEXT NOT NULL DEFAULT '[]',
+    required_vars TEXT,
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE(workspace_id, name)
@@ -297,6 +298,13 @@ export const CONTEXT_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
   {
     name: 'updated_at',
     sql: 'ALTER TABLE context_entries ADD COLUMN updated_at TEXT',
+  },
+];
+
+export const PLAYBOOK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'required_vars',
+    sql: 'ALTER TABLE playbooks ADD COLUMN required_vars TEXT',
   },
 ];
 

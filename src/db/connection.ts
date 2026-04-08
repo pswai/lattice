@@ -6,6 +6,7 @@ import {
   TASK_COLUMN_MIGRATIONS,
   API_KEY_COLUMN_MIGRATIONS,
   CONTEXT_COLUMN_MIGRATIONS,
+  PLAYBOOK_COLUMN_MIGRATIONS,
 } from './schema.js';
 import { SqliteAdapter, PgAdapter } from './adapter.js';
 import type { DbAdapter } from './adapter.js';
@@ -56,6 +57,7 @@ export function createSqliteAdapter(dbPath: string): SqliteAdapter {
   runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'context_entries', CONTEXT_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'playbooks', PLAYBOOK_COLUMN_MIGRATIONS);
 
   migrateFtsToTrigram(db);
   migrateInboundActionTypes(db);

@@ -20,6 +20,7 @@ const DefinePlaybookSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(1).max(10_000),
   tasks: z.array(PlaybookTaskSchema),
+  required_vars: z.array(z.string().min(1).max(100)).optional(),
 });
 
 export function createPlaybookRoutes(db: DbAdapter): Hono {
