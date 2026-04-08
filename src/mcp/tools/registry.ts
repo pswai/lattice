@@ -69,6 +69,7 @@ async function mcpAudit(db: DbAdapter, toolName: string, agentId: string): Promi
 }
 
 // ─── Tier filtering ─────────────────────────────────────────────
+/** Parse the LATTICE_TOOLS env var into a set of enabled tiers (or 'all'). */
 export function parseEnabledTiers(latticeTools: string): Set<ToolTier> | 'all' {
   const val = latticeTools.trim().toLowerCase();
   if (val === 'all' || val === '') return 'all';
@@ -77,6 +78,7 @@ export function parseEnabledTiers(latticeTools: string): Set<ToolTier> | 'all' {
 }
 
 // ─── Registration loop ─────────────────────────────────────────
+/** Register tool definitions with the MCP server, filtering by enabled tiers. */
 export function registerTools(
   server: McpServer,
   db: DbAdapter,
