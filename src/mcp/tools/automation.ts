@@ -28,6 +28,7 @@ export const automationTools: ToolDefinition[] = [
         role: z.string().max(100).optional(),
         depends_on_index: arrayParam(z.array(z.number().int().nonnegative())).optional().default([]),
       }))).describe('Ordered task templates. depends_on_index references earlier templates by position.'),
+      required_vars: arrayParam(z.array(z.string().min(1).max(100))).optional().describe('Variable names that must be provided when running this playbook via {{vars.KEY}} substitution.'),
     },
     tier: 'automation',
     write: true,
