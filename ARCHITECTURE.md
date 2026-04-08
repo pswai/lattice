@@ -39,10 +39,10 @@ Lattice runs as a single process serving both MCP and HTTP traffic. Background s
            +-------+-------+
                    |
                    v
-           +-------+-------+
+           +----------------+
            |   DbAdapter    |
-           | SQLite | Postgres
-           +-------+-------+
+           | SQLite|Postgres |
+           +----------------+
                    |
                    v
               [Database]
@@ -157,7 +157,7 @@ Every row in every table carries a `workspace_id` foreign key. Workspace isolati
 
 ### Full-text search
 
-`context_entries_fts` is an FTS5 virtual table using a trigram tokenizer. It indexes the `key` and `value` columns, enabling substring and fuzzy matching on knowledge base entries. The FTS index is kept in sync via triggers on `context_entries`.
+`context_entries_fts` is an FTS5 virtual table using a trigram tokenizer. It indexes the `key`, `value`, and `tags` columns, enabling substring and fuzzy matching on knowledge base entries. The FTS index is kept in sync via triggers on `context_entries`.
 
 ### Schema evolution
 

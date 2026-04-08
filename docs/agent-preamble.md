@@ -335,7 +335,7 @@ Not all 35 tools may be available. The operator can restrict tools via the `LATT
 - **observe** -- Analytics, profiles, and export (`get_analytics`, `define_profile`, `export_workspace_data`, etc.)
 - **automation** -- Playbooks, schedules, and webhooks (`define_playbook`, `define_schedule`, `define_inbound_endpoint`, etc.)
 
-If a tool call fails with a "not found" error, it may be restricted by the server configuration. Check with your operator or see [Configuration Reference](../docs/configuration.md).
+If a tool call fails with a "not found" error, it may be restricted by the server configuration. Check with your operator or see [Configuration Reference](./configuration.md).
 
 ### Artifacts vs. Context
 
