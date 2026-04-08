@@ -1,5 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
 import type { AppConfig } from '../config.js';
+import { markStaleAgents } from '../models/agent.js';
 import { getLogger } from '../logger.js';
 
 interface StaleTaskRow {
@@ -21,6 +22,11 @@ export function startTaskReaper(db: DbAdapter, config: AppConfig): NodeJS.Timeou
 }
 
 async function reapAbandonedTasks(db: DbAdapter, config: AppConfig): Promise<void> {
+  // Mark stale agents as offline before checking for orphaned tasks,
+  // so the offline-agent reap below has fresh agent statuses.
+  await markStaleAgents(db, config.agentHeartbeatTimeoutMinutes);
+
+  // 1. Time-based reap: tasks claimed longer than the timeout
   const cutoff = new Date(Date.now() - config.taskReapTimeoutMinutes * 60 * 1000).toISOString();
 
   const staleTasks = await db.all<StaleTaskRow>(`
@@ -31,22 +37,39 @@ async function reapAbandonedTasks(db: DbAdapter, config: AppConfig): Promise<voi
   `, cutoff);
 
   for (const task of staleTasks) {
-    const result = await db.run(`
-      UPDATE tasks
-      SET status = 'abandoned',
-          claimed_by = NULL,
-          claimed_at = NULL,
-          result = 'Auto-released: agent did not complete within timeout',
-          version = version + 1,
-          updated_at = ?
-      WHERE id = ? AND version = ?
-    `, new Date().toISOString(), task.id, task.version);
+    await reapTask(db, task, 'Auto-released: agent did not complete within timeout');
+  }
 
-    if (result.changes > 0) {
-      await db.run(`
-        INSERT INTO events (workspace_id, event_type, message, tags, created_by)
-        VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
-      `, task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, timed out)`);
-    }
+  // 2. Heartbeat-based reap: tasks claimed by agents that are now offline
+  const offlineAgentTasks = await db.all<StaleTaskRow>(`
+    SELECT t.id, t.workspace_id, t.description, t.claimed_by, t.version
+    FROM tasks t
+    JOIN agents a ON a.id = t.claimed_by AND a.workspace_id = t.workspace_id
+    WHERE t.status = 'claimed'
+      AND a.status = 'offline'
+  `);
+
+  for (const task of offlineAgentTasks) {
+    await reapTask(db, task, 'Auto-released: claiming agent went offline');
+  }
+}
+
+async function reapTask(db: DbAdapter, task: StaleTaskRow, reason: string): Promise<void> {
+  const result = await db.run(`
+    UPDATE tasks
+    SET status = 'abandoned',
+        claimed_by = NULL,
+        claimed_at = NULL,
+        result = ?,
+        version = version + 1,
+        updated_at = ?
+    WHERE id = ? AND version = ?
+  `, reason, new Date().toISOString(), task.id, task.version);
+
+  if (result.changes > 0) {
+    await db.run(`
+      INSERT INTO events (workspace_id, event_type, message, tags, created_by)
+      VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
+    `, task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, ${reason.toLowerCase()})`);
   }
 }
