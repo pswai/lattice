@@ -7,6 +7,7 @@ import {
   deleteSchedule,
 } from '../../models/schedule.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const DefineScheduleSchema = z.object({
   playbook_name: z.string().min(1).max(100),
@@ -20,13 +21,10 @@ export function createScheduleRoutes(db: DbAdapter): Hono {
   // POST /schedules — define (upsert)
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = DefineScheduleSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(DefineScheduleSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
-    const result = await defineSchedule(db, workspaceId, agentId, parsed.data);
+    const result = await defineSchedule(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 

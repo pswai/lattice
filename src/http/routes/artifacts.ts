@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { saveArtifact, getArtifact, listArtifacts, deleteArtifact, ALLOWED_CONTENT_TYPES } from '../../models/artifact.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 import type { ArtifactContentType } from '../../models/types.js';
 
 const ContentTypeSchema = z.enum(ALLOWED_CONTENT_TYPES as unknown as [ArtifactContentType, ...ArtifactContentType[]]);
@@ -20,13 +21,10 @@ export function createArtifactRoutes(db: DbAdapter): Hono {
   // POST /artifacts — save_artifact
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = SaveArtifactSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(SaveArtifactSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
-    const result = await saveArtifact(db, workspaceId, agentId, parsed.data);
+    const result = await saveArtifact(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { createTask, updateTask, listTasks, getTask, getTaskGraph } from '../../models/task.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const CreateTaskSchema = z.object({
   description: z.string().min(1).max(10_000),
@@ -88,13 +89,10 @@ export function createTaskRoutes(db: DbAdapter): Hono {
   // POST /tasks — create_task
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = CreateTaskSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(CreateTaskSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
-    const result = await createTask(db, workspaceId, agentId, parsed.data);
+    const result = await createTask(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 
@@ -106,15 +104,12 @@ export function createTaskRoutes(db: DbAdapter): Hono {
     }
 
     const body = await c.req.json();
-    const parsed = UpdateTaskSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(UpdateTaskSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
     const result = await updateTask(db, workspaceId, agentId, {
       task_id: taskId,
-      ...parsed.data,
+      ...parsed,
     });
     return c.json(result);
   });

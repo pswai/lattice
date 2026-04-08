@@ -4,6 +4,7 @@ import type { DbAdapter } from '../../db/adapter.js';
 import { broadcastEvent, getUpdates, waitForEvent } from '../../models/event.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 import type { EventType } from '../../models/types.js';
 
 const EVENT_TYPES: EventType[] = ['LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE'];
@@ -20,17 +21,14 @@ export function createEventRoutes(db: DbAdapter): Hono {
   // POST /events — broadcast
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = BroadcastSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(BroadcastSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
 
     // Secret scan on message
-    throwIfSecretsFound(parsed.data.message);
+    throwIfSecretsFound(parsed.message);
 
-    const result = await broadcastEvent(db, workspaceId, agentId, parsed.data);
+    const result = await broadcastEvent(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 

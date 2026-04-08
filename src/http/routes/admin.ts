@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const CreateWorkspaceSchema = z.object({
   id: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/),
@@ -33,16 +34,13 @@ export function createAdminRoutes(db: DbAdapter, config: AppConfig): Hono {
   // POST /admin/teams — create a new team
   router.post('/teams', async (c) => {
     const body = await c.req.json();
-    const parsed = CreateWorkspaceSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(CreateWorkspaceSchema, body);
 
     try {
-      await db.run('INSERT INTO workspaces (id, name) VALUES (?, ?)', parsed.data.id, parsed.data.name);
+      await db.run('INSERT INTO workspaces (id, name) VALUES (?, ?)', parsed.id, parsed.name);
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
-        throw new ValidationError(`Team "${parsed.data.id}" already exists`);
+        throw new ValidationError(`Team "${parsed.id}" already exists`);
       }
       throw err;
     }
@@ -52,10 +50,10 @@ export function createAdminRoutes(db: DbAdapter, config: AppConfig): Hono {
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
     await db.run(
       'INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
-      parsed.data.id, keyHash, 'default', 'write',
+      parsed.id, keyHash, 'default', 'write',
     );
 
-    return c.json({ workspace_id: parsed.data.id, api_key: rawKey, scope: 'write' }, 201);
+    return c.json({ workspace_id: parsed.id, api_key: rawKey, scope: 'write' }, 201);
   });
 
   // GET /admin/teams — list all teams
@@ -68,10 +66,7 @@ export function createAdminRoutes(db: DbAdapter, config: AppConfig): Hono {
   router.post('/teams/:id/keys', async (c) => {
     const workspaceId = c.req.param('id');
     const body = await c.req.json().catch(() => ({}));
-    const parsed = CreateKeySchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(CreateKeySchema, body);
 
     // Verify team exists
     const team = await db.get('SELECT id FROM workspaces WHERE id = ?', workspaceId);
@@ -81,8 +76,8 @@ export function createAdminRoutes(db: DbAdapter, config: AppConfig): Hono {
 
     const rawKey = `lt_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    const label = parsed.data?.label || '';
-    const scope = parsed.data?.scope || 'write';
+    const label = parsed.label || '';
+    const scope = parsed.scope || 'write';
 
     await db.run(
       'INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',

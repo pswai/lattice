@@ -11,6 +11,7 @@ import {
   type InboundActionType,
 } from '../../models/inbound.js';
 import { AppError, ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const CreateEndpointSchema = z.object({
   name: z.string().min(1).max(200),
@@ -90,18 +91,13 @@ export function createInboundManagementRoutes(db: DbAdapter): Hono {
   // POST /inbound — create endpoint
   router.post('/', async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const parsed = CreateEndpointSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', {
-        issues: parsed.error.flatten().fieldErrors,
-      });
-    }
+    const parsed = validate(CreateEndpointSchema, body);
     const { workspaceId, agentId } = c.get('auth');
     const endpoint = await defineInboundEndpoint(db, workspaceId, agentId, {
-      name: parsed.data.name,
-      action_type: parsed.data.action_type as InboundActionType,
-      action_config: parsed.data.action_config,
-      hmac_secret: parsed.data.hmac_secret,
+      name: parsed.name,
+      action_type: parsed.action_type as InboundActionType,
+      action_config: parsed.action_config,
+      hmac_secret: parsed.hmac_secret,
     });
     const { hmacSecret: _, ...safe } = endpoint;
     return c.json({ ...safe, hasHmac: !!endpoint.hmacSecret }, 201);

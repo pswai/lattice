@@ -7,7 +7,7 @@ import {
   getProfile,
   deleteProfile,
 } from '../../models/profile.js';
-import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const DefineProfileSchema = z.object({
   name: z.string().min(1).max(100),
@@ -32,13 +32,10 @@ export function createProfileRoutes(db: DbAdapter): Hono {
   // POST /profiles — define (upsert)
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = DefineProfileSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(DefineProfileSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
-    const result = await defineProfile(db, workspaceId, agentId, parsed.data);
+    const result = await defineProfile(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 

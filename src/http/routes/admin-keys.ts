@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import type { AppConfig } from '../../config.js';
-import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 /**
  * Admin key-management endpoints. Mounted at `/admin` (same base as
@@ -75,18 +75,13 @@ export function createAdminKeyRoutes(db: DbAdapter, config: AppConfig): Hono {
       return c.json({ error: 'NOT_FOUND', message: `Team "${workspaceId}" not found` }, 404);
     }
     const body = await c.req.json().catch(() => ({}));
-    const parsed = CreateKeySchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', {
-        issues: parsed.error.flatten().fieldErrors,
-      });
-    }
-    const label = parsed.data.label || '';
-    const scope = parsed.data.scope || 'write';
+    const parsed = validate(CreateKeySchema, body);
+    const label = parsed.label || '';
+    const scope = parsed.scope || 'write';
     let expiresAt: string | null = null;
-    if (parsed.data.expires_in_days) {
+    if (parsed.expires_in_days) {
       expiresAt = new Date(
-        Date.now() + parsed.data.expires_in_days * 86_400_000,
+        Date.now() + parsed.expires_in_days * 86_400_000,
       ).toISOString();
     }
 

@@ -8,6 +8,7 @@ import {
   runPlaybook,
 } from '../../models/playbook.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const PlaybookTaskSchema = z.object({
   description: z.string().min(1).max(10_000),
@@ -27,13 +28,10 @@ export function createPlaybookRoutes(db: DbAdapter): Hono {
   // POST /playbooks — define (upsert)
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = DefinePlaybookSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(DefinePlaybookSchema, body);
 
     const { workspaceId, agentId } = c.get('auth');
-    const result = await definePlaybook(db, workspaceId, agentId, parsed.data);
+    const result = await definePlaybook(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
   });
 

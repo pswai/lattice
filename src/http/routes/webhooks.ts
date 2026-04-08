@@ -9,6 +9,7 @@ import {
   listDeliveries,
 } from '../../models/webhook.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const CreateWebhookSchema = z.object({
   url: z.string().min(1).max(2048),
@@ -21,12 +22,9 @@ export function createWebhookRoutes(db: DbAdapter): Hono {
   // POST /webhooks
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = CreateWebhookSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(CreateWebhookSchema, body);
     const { workspaceId, agentId } = c.get('auth');
-    const webhook = await createWebhook(db, workspaceId, agentId, parsed.data);
+    const webhook = await createWebhook(db, workspaceId, agentId, parsed);
     return c.json(webhook, 201);
   });
 

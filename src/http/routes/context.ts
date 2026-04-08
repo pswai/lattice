@@ -4,6 +4,7 @@ import type { DbAdapter } from '../../db/adapter.js';
 import { saveContext, getContext } from '../../models/context.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const SaveContextSchema = z.object({
   key: z.string().min(1).max(255),
@@ -17,20 +18,16 @@ export function createContextRoutes(db: DbAdapter): Hono {
   // POST /context — save_context
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = SaveContextSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
-
+    const parsed = validate(SaveContextSchema, body);
     const { workspaceId, agentId } = c.get('auth');
 
     // Secret scan on both key and value
-    for (const field of [parsed.data.key, parsed.data.value]) {
+    for (const field of [parsed.key, parsed.value]) {
       throwIfSecretsFound(field);
     }
 
     // saveContext handles both DB write and auto-broadcast of LEARNING event
-    const result = await saveContext(db, workspaceId, agentId, parsed.data);
+    const result = await saveContext(db, workspaceId, agentId, parsed);
 
     return c.json(result, 201);
   });

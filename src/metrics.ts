@@ -330,7 +330,7 @@ export const tasksGauge = metricsRegistry.register(
   }),
 );
 
-export const eventsTotal = metricsRegistry.register(
+const eventsTotal = metricsRegistry.register(
   new Counter({
     name: 'lattice_events_total',
     help: 'Total number of events emitted.',
@@ -338,7 +338,7 @@ export const eventsTotal = metricsRegistry.register(
   }),
 );
 
-export const upGauge = metricsRegistry.register(
+const upGauge = metricsRegistry.register(
   new Gauge({
     name: 'lattice_up',
     help: 'Lattice process liveness (1 = up).',

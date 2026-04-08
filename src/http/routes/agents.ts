@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { registerAgent, heartbeat, listAgents } from '../../models/agent.js';
-import { ValidationError } from '../../errors.js';
+import { validate } from '../validation.js';
 
 const RegisterAgentSchema = z.object({
   agent_id: z.string().min(1).max(100),
@@ -24,13 +24,10 @@ export function createAgentRoutes(db: DbAdapter): Hono {
   // POST /agents — register or update an agent
   router.post('/', async (c) => {
     const body = await c.req.json();
-    const parsed = RegisterAgentSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid input', { issues: parsed.error.flatten().fieldErrors });
-    }
+    const parsed = validate(RegisterAgentSchema, body);
 
     const { workspaceId } = c.get('auth');
-    const result = await registerAgent(db, workspaceId, parsed.data);
+    const result = await registerAgent(db, workspaceId, parsed);
     return c.json(result, 201);
   });
 
