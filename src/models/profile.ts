@@ -109,17 +109,44 @@ export async function defineProfile(
   return rowToProfile(row!);
 }
 
+/** Summary shape for list — omits systemPrompt (can be 100KB+). */
+export interface ProfileSummary {
+  id: number;
+  workspaceId: string;
+  name: string;
+  description: string;
+  defaultCapabilities: string[];
+  defaultTags: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function rowToProfileSummary(row: ProfileRow): ProfileSummary {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    description: row.description,
+    defaultCapabilities: JSON.parse(row.default_capabilities) as string[],
+    defaultTags: JSON.parse(row.default_tags) as string[],
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export async function listProfiles(
   db: DbAdapter,
   workspaceId: string,
-): Promise<{ profiles: AgentProfile[]; total: number }> {
+): Promise<{ profiles: ProfileSummary[]; total: number }> {
   const rows = await db.all<ProfileRow>(
-    'SELECT * FROM agent_profiles WHERE workspace_id = ? ORDER BY name ASC',
+    'SELECT id, workspace_id, name, description, default_capabilities, default_tags, created_by, created_at, updated_at FROM agent_profiles WHERE workspace_id = ? ORDER BY name ASC',
     workspaceId,
   );
 
   return {
-    profiles: rows.map(rowToProfile),
+    profiles: rows.map(rowToProfileSummary),
     total: rows.length,
   };
 }

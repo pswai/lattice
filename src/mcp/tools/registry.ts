@@ -68,6 +68,24 @@ async function mcpAudit(db: DbAdapter, toolName: string, agentId: string): Promi
   }
 }
 
+// ─── Response stripping ────────────────────────────────────────
+/**
+ * Strip workspaceId from MCP responses. It's always the caller's own workspace,
+ * so including it wastes tokens on every response. Handles nested arrays.
+ */
+function stripForMcp(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(stripForMcp);
+
+  const obj = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'workspaceId') continue;
+    result[k] = Array.isArray(v) ? v.map(stripForMcp) : v;
+  }
+  return result;
+}
+
 // ─── Tier filtering ─────────────────────────────────────────────
 export function parseEnabledTiers(latticeTools: string): Set<ToolTier> | 'all' {
   const val = latticeTools.trim().toLowerCase();
@@ -113,7 +131,7 @@ export function registerTools(
           await mcpAudit(db, tool.name, agentId);
         }
 
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(stripForMcp(result)) }] };
       } catch (err) {
         if (err instanceof AppError) return errorResult(err);
         throw err;

@@ -87,7 +87,9 @@ describe('Agent Profiles API', () => {
       const data = await res.json();
       expect(data.total).toBe(2);
       expect(data.profiles.map((p: any) => p.name).sort()).toEqual(['researcher', 'writer']);
-      expect(data.profiles[0].systemPrompt).toBeTruthy();
+      // list returns summaries — systemPrompt is omitted to save tokens
+      expect(data.profiles[0].systemPrompt).toBeUndefined();
+      expect(data.profiles[0].description).toBeTruthy();
     });
   });
 
@@ -147,8 +149,14 @@ describe('Agent Profiles API', () => {
       const listData = await listRes.json();
       expect(listData.total).toBe(1);
       expect(listData.profiles[0].description).toBe('v2');
-      expect(listData.profiles[0].systemPrompt).toBe('updated prompt');
+      // list returns summaries — verify via get_profile for full details
+      expect(listData.profiles[0].systemPrompt).toBeUndefined();
       expect(listData.profiles[0].defaultCapabilities).toEqual(['b', 'c']);
+
+      // Verify full profile via get
+      const getRes = await request(ctx.app, 'GET', '/api/v1/profiles/role', { headers });
+      const profile = await getRes.json();
+      expect(profile.systemPrompt).toBe('updated prompt');
     });
   });
 

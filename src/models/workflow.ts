@@ -69,7 +69,15 @@ export interface ListWorkflowRunsInput {
   limit?: number;
 }
 
-export interface WorkflowRunListItem extends WorkflowRun {
+/** Summary shape for list — omits taskIds array (taskCount is sufficient). */
+export interface WorkflowRunListItem {
+  id: number;
+  workspaceId: string;
+  playbookName: string;
+  startedBy: string;
+  status: WorkflowRunStatus;
+  startedAt: string;
+  completedAt: string | null;
   taskCount: number;
 }
 
@@ -96,15 +104,28 @@ export async function listWorkflowRuns(
     LIMIT ?
   `, ...params);
 
-  const items = rows.map((row) => {
-    const run = rowToRun(row);
-    return { ...run, taskCount: run.taskIds.length };
-  });
+  const items: WorkflowRunListItem[] = rows.map((row) => ({
+    id: row.id,
+    workspaceId: row.workspace_id,
+    playbookName: row.playbook_name,
+    startedBy: row.started_by,
+    status: row.status as WorkflowRunStatus,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    taskCount: safeJsonParse<number[]>(row.task_ids, []).length,
+  }));
 
   return { workflow_runs: items, total: items.length };
 }
 
-export interface WorkflowRunDetails extends WorkflowRun {
+export interface WorkflowRunDetails {
+  id: number;
+  workspaceId: string;
+  playbookName: string;
+  startedBy: string;
+  status: WorkflowRunStatus;
+  startedAt: string;
+  completedAt: string | null;
   tasks: Array<{ id: number; description: string; status: string }>;
 }
 
@@ -134,7 +155,16 @@ export async function getWorkflowRun(
     tasks.push(...taskRows);
   }
 
-  return { ...run, tasks };
+  return {
+    id: run.id,
+    workspaceId: run.workspaceId,
+    playbookName: run.playbookName,
+    startedBy: run.startedBy,
+    status: run.status,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    tasks,
+  };
 }
 
 /**
