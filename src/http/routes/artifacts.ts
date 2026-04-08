@@ -2,8 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { saveArtifact, getArtifact, listArtifacts, deleteArtifact, ALLOWED_CONTENT_TYPES } from '../../models/artifact.js';
-import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, optionalInt } from '../validation.js';
 import type { ArtifactContentType } from '../../models/types.js';
 
 const ContentTypeSchema = z.enum(ALLOWED_CONTENT_TYPES as unknown as [ArtifactContentType, ...ArtifactContentType[]]);
@@ -33,13 +32,8 @@ export function createArtifactRoutes(db: DbAdapter): Hono {
     const { workspaceId } = c.get('auth');
 
     const contentTypeParam = c.req.query('content_type');
-    const limitParam = c.req.query('limit');
-
     const content_type = contentTypeParam ? (contentTypeParam as ArtifactContentType) : undefined;
-    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
-    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
-      throw new ValidationError('limit must be a positive integer');
-    }
+    const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 });
 
     const result = await listArtifacts(db, workspaceId, { content_type, limit });
     return c.json(result);

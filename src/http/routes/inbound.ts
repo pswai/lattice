@@ -10,8 +10,8 @@ import {
   verifyHmacSignature,
   type InboundActionType,
 } from '../../models/inbound.js';
-import { AppError, ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { AppError } from '../../errors.js';
+import { validate, requireInt } from '../validation.js';
 
 const CreateEndpointSchema = z.object({
   name: z.string().min(1).max(200),
@@ -114,10 +114,7 @@ export function createInboundManagementRoutes(db: DbAdapter): Hono {
   // DELETE /inbound/:id — delete endpoint
   router.delete('/:id', async (c) => {
     const { workspaceId } = c.get('auth');
-    const id = parseInt(c.req.param('id'), 10);
-    if (!Number.isFinite(id)) {
-      throw new ValidationError('id must be a number');
-    }
+    const id = requireInt(c.req.param('id'), 'id');
     const result = await deleteInboundEndpoint(db, workspaceId, id);
     return c.json(result);
   });

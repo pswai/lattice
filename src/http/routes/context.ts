@@ -3,8 +3,7 @@ import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { saveContext, getContext } from '../../models/context.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
-import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, optionalInt } from '../validation.js';
 
 const SaveContextSchema = z.object({
   key: z.string().min(1).max(255),
@@ -38,13 +37,8 @@ export function createContextRoutes(db: DbAdapter): Hono {
 
     const query = c.req.query('query') || '';
     const tagsParam = c.req.query('tags');
-    const limitParam = c.req.query('limit');
-
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
-    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
-    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
-      throw new ValidationError('limit must be a positive integer');
-    }
+    const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 });
 
     const result = await getContext(db, workspaceId, { query, tags, limit });
     return c.json(result);

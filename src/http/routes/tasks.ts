@@ -2,8 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { createTask, updateTask, listTasks, getTask, getTaskGraph } from '../../models/task.js';
-import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, optionalInt, requireInt } from '../validation.js';
 
 const CreateTaskSchema = z.object({
   description: z.string().min(1).max(10_000),
@@ -31,11 +30,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
     const status = c.req.query('status');
     const claimedBy = c.req.query('claimed_by');
     const assignedTo = c.req.query('assigned_to');
-    const limitParam = c.req.query('limit');
-    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
-    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
-      throw new ValidationError('limit must be a positive integer');
-    }
+    const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 });
 
     const result = await listTasks(db, workspaceId, { status, claimed_by: claimedBy, assigned_to: assignedTo, limit });
     return c.json(result);
@@ -45,26 +40,8 @@ export function createTaskRoutes(db: DbAdapter): Hono {
   router.get('/graph', async (c) => {
     const { workspaceId } = c.get('auth');
     const status = c.req.query('status');
-    const workflowRunIdStr = c.req.query('workflow_run_id');
-    const limitStr = c.req.query('limit');
-
-    let workflowRunId: number | undefined;
-    if (workflowRunIdStr !== undefined) {
-      const parsed = parseInt(workflowRunIdStr, 10);
-      if (isNaN(parsed)) {
-        throw new ValidationError('Invalid workflow_run_id');
-      }
-      workflowRunId = parsed;
-    }
-
-    let limit: number | undefined;
-    if (limitStr !== undefined) {
-      const parsed = parseInt(limitStr, 10);
-      if (isNaN(parsed)) {
-        throw new ValidationError('Invalid limit');
-      }
-      limit = parsed;
-    }
+    const workflowRunId = optionalInt(c.req.query('workflow_run_id'), 'workflow_run_id');
+    const limit = optionalInt(c.req.query('limit'), 'limit');
 
     const result = await getTaskGraph(db, workspaceId, {
       status,
@@ -77,10 +54,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
   // GET /tasks/:id — get single task
   router.get('/:id', async (c) => {
     const { workspaceId } = c.get('auth');
-    const taskId = parseInt(c.req.param('id'), 10);
-    if (isNaN(taskId)) {
-      throw new ValidationError('Invalid task ID');
-    }
+    const taskId = requireInt(c.req.param('id'), 'task_id');
 
     const task = await getTask(db, workspaceId, taskId);
     return c.json(task);
@@ -98,10 +72,7 @@ export function createTaskRoutes(db: DbAdapter): Hono {
 
   // PATCH /tasks/:id — update_task
   router.patch('/:id', async (c) => {
-    const taskId = parseInt(c.req.param('id'), 10);
-    if (isNaN(taskId)) {
-      throw new ValidationError('Invalid task ID');
-    }
+    const taskId = requireInt(c.req.param('id'), 'task_id');
 
     const body = await c.req.json();
     const parsed = validate(UpdateTaskSchema, body);

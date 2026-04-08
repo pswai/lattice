@@ -8,8 +8,7 @@ import {
   deleteWebhook,
   listDeliveries,
 } from '../../models/webhook.js';
-import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, optionalInt } from '../validation.js';
 
 const CreateWebhookSchema = z.object({
   url: z.string().min(1).max(2048),
@@ -56,11 +55,7 @@ export function createWebhookRoutes(db: DbAdapter): Hono {
   router.get('/:id/deliveries', async (c) => {
     const { workspaceId } = c.get('auth');
     const id = c.req.param('id');
-    const limitParam = c.req.query('limit');
-    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : 100;
-    if (!Number.isFinite(limit) || limit < 1) {
-      throw new ValidationError('limit must be a positive integer');
-    }
+    const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 }) ?? 100;
     const deliveries = await listDeliveries(db, workspaceId, id, limit);
     return c.json({ deliveries, total: deliveries.length });
   });

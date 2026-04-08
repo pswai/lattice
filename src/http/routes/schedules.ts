@@ -6,8 +6,7 @@ import {
   listSchedules,
   deleteSchedule,
 } from '../../models/schedule.js';
-import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, requireInt } from '../validation.js';
 
 const DefineScheduleSchema = z.object({
   playbook_name: z.string().min(1).max(100),
@@ -38,11 +37,7 @@ export function createScheduleRoutes(db: DbAdapter): Hono {
   // DELETE /schedules/:id — delete
   router.delete('/:id', async (c) => {
     const { workspaceId } = c.get('auth');
-    const idStr = c.req.param('id');
-    const id = parseInt(idStr, 10);
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new ValidationError('Invalid schedule id');
-    }
+    const id = requireInt(c.req.param('id'), 'schedule_id', { min: 1 });
     const result = await deleteSchedule(db, workspaceId, id);
     return c.json(result);
   });

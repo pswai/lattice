@@ -162,40 +162,51 @@ export class SqliteAdapter implements DbAdapter {
 // Postgres adapter (lazy-loaded to avoid requiring pg when using SQLite)
 // ---------------------------------------------------------------------------
 
-export class PgAdapter implements DbAdapter {
+/**
+ * Shared Postgres query logic — both pool-level and client-level adapters
+ * need adaptSql() + query(), so we factor it into a base class.
+ */
+abstract class PgBase implements DbAdapter {
   readonly dialect = 'pg' as const;
-  private pool: any; // pg.Pool — typed as any to avoid hard dep when unused
-
-  constructor(pool: any) {
-    this.pool = pool;
-  }
+  protected abstract conn: any; // pg.Pool or pg.PoolClient
 
   async get<T = any>(sql: string, ...params: any[]): Promise<T | undefined> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.pool.query(adapted, params);
+    const result = await this.conn.query(adaptSql(sql, 'pg'), params);
     return result.rows[0] as T | undefined;
   }
 
   async all<T = any>(sql: string, ...params: any[]): Promise<T[]> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.pool.query(adapted, params);
+    const result = await this.conn.query(adaptSql(sql, 'pg'), params);
     return result.rows as T[];
   }
 
   async run(sql: string, ...params: any[]): Promise<RunResult> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.pool.query(adapted, params);
-    // Postgres returns rowCount for changes. For INSERT RETURNING, the
-    // lastInsertRowid comes from a RETURNING clause; for non-RETURNING
-    // inserts we return 0 (callers that need the ID should use RETURNING).
+    const result = await this.conn.query(adaptSql(sql, 'pg'), params);
     return {
       changes: result.rowCount ?? 0,
       lastInsertRowid: result.rows?.[0]?.id ?? 0,
     };
   }
 
+  abstract transaction<T>(fn: (tx: DbAdapter) => Promise<T>): Promise<T>;
+
+  async exec(sql: string): Promise<void> {
+    await this.conn.query(sql);
+  }
+
+  abstract close(): Promise<void>;
+}
+
+export class PgAdapter extends PgBase {
+  protected conn: any; // pg.Pool
+
+  constructor(pool: any) {
+    super();
+    this.conn = pool;
+  }
+
   async transaction<T>(fn: (tx: DbAdapter) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+    const client = await this.conn.connect();
     try {
       await client.query('BEGIN');
       const txAdapter = new PgClientAdapter(client);
@@ -210,63 +221,34 @@ export class PgAdapter implements DbAdapter {
     }
   }
 
-  async exec(sql: string): Promise<void> {
-    await this.pool.query(sql);
-  }
-
   async close(): Promise<void> {
-    await this.pool.end();
+    await this.conn.end();
   }
 }
 
 /**
  * Transaction-scoped Postgres adapter that uses a single client connection.
  */
-class PgClientAdapter implements DbAdapter {
-  readonly dialect = 'pg' as const;
-  private client: any;
+class PgClientAdapter extends PgBase {
+  protected conn: any; // pg.PoolClient
 
   constructor(client: any) {
-    this.client = client;
+    super();
+    this.conn = client;
   }
 
-  async get<T = any>(sql: string, ...params: any[]): Promise<T | undefined> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.client.query(adapted, params);
-    return result.rows[0] as T | undefined;
-  }
-
-  async all<T = any>(sql: string, ...params: any[]): Promise<T[]> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.client.query(adapted, params);
-    return result.rows as T[];
-  }
-
-  async run(sql: string, ...params: any[]): Promise<RunResult> {
-    const adapted = adaptSql(sql, 'pg');
-    const result = await this.client.query(adapted, params);
-    return {
-      changes: result.rowCount ?? 0,
-      lastInsertRowid: result.rows?.[0]?.id ?? 0,
-    };
-  }
-
-  async transaction<T>(_fn: (tx: DbAdapter) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (tx: DbAdapter) => Promise<T>): Promise<T> {
     // Nested transactions use SAVEPOINTs
     const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await this.client.query(`SAVEPOINT ${savepointName}`);
+    await this.conn.query(`SAVEPOINT ${savepointName}`);
     try {
-      const result = await _fn(this);
-      await this.client.query(`RELEASE SAVEPOINT ${savepointName}`);
+      const result = await fn(this);
+      await this.conn.query(`RELEASE SAVEPOINT ${savepointName}`);
       return result;
     } catch (err) {
-      await this.client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      await this.conn.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
       throw err;
     }
-  }
-
-  async exec(sql: string): Promise<void> {
-    await this.client.query(sql);
   }
 
   async close(): Promise<void> {

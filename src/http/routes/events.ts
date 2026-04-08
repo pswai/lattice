@@ -4,7 +4,7 @@ import type { DbAdapter } from '../../db/adapter.js';
 import { broadcastEvent, getUpdates, waitForEvent } from '../../models/event.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { ValidationError } from '../../errors.js';
-import { validate } from '../validation.js';
+import { validate, optionalInt, requireInt } from '../validation.js';
 import type { EventType } from '../../models/types.js';
 
 const EVENT_TYPES: EventType[] = ['LEARNING', 'BROADCAST', 'ESCALATION', 'ERROR', 'TASK_UPDATE'];
@@ -36,20 +36,8 @@ export function createEventRoutes(db: DbAdapter): Hono {
   router.get('/wait', async (c) => {
     const { workspaceId } = c.get('auth');
 
-    const sinceIdParam = c.req.query('since_id');
-    if (sinceIdParam === undefined) {
-      throw new ValidationError('since_id is required');
-    }
-    const since_id = parseInt(sinceIdParam, 10);
-    if (!Number.isFinite(since_id) || since_id < 0) {
-      throw new ValidationError('since_id must be a non-negative integer');
-    }
-
-    const timeoutParam = c.req.query('timeout_sec');
-    const timeout_sec = timeoutParam !== undefined ? parseInt(timeoutParam, 10) : undefined;
-    if (timeout_sec !== undefined && (!Number.isFinite(timeout_sec) || timeout_sec < 0)) {
-      throw new ValidationError('timeout_sec must be a non-negative integer');
-    }
+    const since_id = requireInt(c.req.query('since_id'), 'since_id', { min: 0 });
+    const timeout_sec = optionalInt(c.req.query('timeout_sec'), 'timeout_sec', { min: 0 });
 
     const topicsParam = c.req.query('topics');
     const topics = topicsParam ? topicsParam.split(',').filter(Boolean) : undefined;
@@ -68,21 +56,13 @@ export function createEventRoutes(db: DbAdapter): Hono {
   router.get('/', async (c) => {
     const { workspaceId, agentId } = c.get('auth');
 
-    const sinceIdParam = c.req.query('since_id');
     const sinceTimestamp = c.req.query('since_timestamp');
     const topicsParam = c.req.query('topics');
-    const limitParam = c.req.query('limit');
     const includeContextParam = c.req.query('include_context');
 
-    const since_id = sinceIdParam !== undefined ? parseInt(sinceIdParam, 10) : undefined;
-    if (since_id !== undefined && (!Number.isFinite(since_id) || since_id < 0)) {
-      throw new ValidationError('since_id must be a non-negative integer');
-    }
+    const since_id = optionalInt(c.req.query('since_id'), 'since_id', { min: 0 });
     const topics = topicsParam ? topicsParam.split(',').filter(Boolean) : undefined;
-    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : undefined;
-    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) {
-      throw new ValidationError('limit must be a positive integer');
-    }
+    const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 });
     const include_context = includeContextParam === 'false' ? false : true;
 
     const result = await getUpdates(db, workspaceId, {
