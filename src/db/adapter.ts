@@ -275,11 +275,11 @@ export function jsonArrayTable(dialect: 'sqlite' | 'pg', col: string, alias?: st
   if (!alias) {
     return dialect === 'sqlite'
       ? `json_each(${col})`
-      : `jsonb_array_elements_text(${col})`;
+      : `jsonb_array_elements_text((${col})::jsonb)`;
   }
   return dialect === 'sqlite'
     ? `json_each(${col}) AS ${alias}`
-    : `jsonb_array_elements_text(${col}) AS ${alias}(value)`;
+    : `jsonb_array_elements_text((${col})::jsonb) AS ${alias}(value)`;
 }
 
 /**
