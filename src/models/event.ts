@@ -2,10 +2,12 @@ import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
 import type { Event, EventType, BroadcastInput, GetUpdatesInput, GetUpdatesResponse, WaitForEventInput, WaitForEventResponse, RecommendedContextEntry } from './types.js';
 import { eventBus } from '../services/event-emitter.js';
+import { sessionRegistry } from '../mcp/session-registry.js';
+import { getLogger } from '../logger.js';
 
 import { safeJsonParse } from '../safe-json.js';
 
-const RECOMMENDED_CONTEXT_LIMIT = 3;
+const RECOMMENDED_CONTEXT_LIMIT = 5;
 const RECOMMENDED_ACTIVITY_LOOKBACK = 10;
 const RECOMMENDED_PREVIEW_CHARS = 200;
 
@@ -32,13 +34,17 @@ function rowToRecommended(row: ContextEntryRow): RecommendedContextEntry {
   };
 }
 
-/** Compute top 2-3 context entries relevant to the caller's recent activity. */
-async function computeRecommendedContext(
+/** Compute context entries relevant to the caller's recent activity.
+ *  Extracts tags from BOTH events and claimed tasks, includes own entries,
+ *  and weights by recency. Exported for standalone use. */
+export async function computeRecommendedContext(
   db: DbAdapter,
   workspaceId: string,
   agentId: string,
 ): Promise<RecommendedContextEntry[]> {
-  // Look at the caller's recent broadcasts/context-save LEARNING events to extract active tags.
+  const activeTags = new Set<string>();
+
+  // 1. Tags from recent events (broadcasts, learnings)
   const recentEventRows = await db.all<{ tags: string }>(`
     SELECT tags FROM events
     WHERE workspace_id = ? AND created_by = ?
@@ -46,37 +52,52 @@ async function computeRecommendedContext(
     LIMIT ?
   `, workspaceId, agentId, RECOMMENDED_ACTIVITY_LOOKBACK);
 
-  const activeTags = new Set<string>();
   for (const row of recentEventRows) {
-    const tags = safeJsonParse<string[]>(row.tags, []);
-    for (const t of tags) activeTags.add(t);
+    for (const t of safeJsonParse<string[]>(row.tags, [])) activeTags.add(t);
+  }
+
+  // 2. Keywords from claimed task descriptions (for task-heavy agents with few events)
+  const claimedTasks = await db.all<{ description: string }>(`
+    SELECT description FROM tasks
+    WHERE workspace_id = ? AND claimed_by = ? AND status = 'claimed'
+    ORDER BY created_at DESC
+    LIMIT 5
+  `, workspaceId, agentId);
+
+  for (const task of claimedTasks) {
+    // Extract significant words (4+ chars) as pseudo-tags
+    const words = task.description.toLowerCase().split(/\s+/)
+      .filter(w => w.length >= 4 && !['this', 'that', 'with', 'from', 'have', 'been', 'will', 'should', 'could', 'would'].includes(w));
+    for (const w of words.slice(0, 5)) activeTags.add(w);
   }
 
   let rows: ContextEntryRow[];
   if (activeTags.size > 0) {
     const tagList = Array.from(activeTags);
     const placeholders = tagList.map(() => '?').join(', ');
+    // Include own entries (removed the created_by != ? exclusion) and weight by recency
     rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
       WHERE workspace_id = ?
-        AND created_by != ?
+        AND (expires_at IS NULL OR expires_at > ?)
         AND EXISTS (
           SELECT 1 FROM ${jsonArrayTable(db.dialect, 'tags', 't')}
           WHERE t.value IN (${placeholders})
         )
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `, workspaceId, agentId, ...tagList, RECOMMENDED_CONTEXT_LIMIT);
+    `, workspaceId, new Date().toISOString(), ...tagList, RECOMMENDED_CONTEXT_LIMIT);
   } else {
-    // No recent activity from this agent — return most-recent team entries (still excluding self).
+    // No recent activity — return most-recent team entries
     rows = await db.all<ContextEntryRow>(`
       SELECT id, key, value, tags, created_by, created_at
       FROM context_entries
-      WHERE workspace_id = ? AND created_by != ?
+      WHERE workspace_id = ?
+        AND (expires_at IS NULL OR expires_at > ?)
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `, workspaceId, agentId, RECOMMENDED_CONTEXT_LIMIT);
+    `, workspaceId, new Date().toISOString(), RECOMMENDED_CONTEXT_LIMIT);
   }
 
   return rows.map(rowToRecommended);
@@ -118,6 +139,9 @@ export async function broadcastEvent(
 
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { workspaceId, eventId });
+
+  // Push notification to all connected agents in the workspace
+  pushBroadcastToSessions(workspaceId, agentId, eventId, input.event_type, input.message);
 
   return { eventId };
 }
@@ -253,7 +277,42 @@ export async function broadcastInternal(
   `, workspaceId, eventType, message, JSON.stringify(tags), createdBy);
   const eventId = Number(result.lastInsertRowid);
   eventBus.emit('event', { workspaceId, eventId });
+
+  // Push notification to all connected agents in the workspace
+  pushBroadcastToSessions(workspaceId, createdBy, eventId, eventType, message);
+
   return eventId;
+}
+
+/** Push a broadcast event notification to all connected MCP sessions in the workspace (except sender). */
+function pushBroadcastToSessions(
+  workspaceId: string,
+  senderAgentId: string,
+  eventId: number,
+  eventType: string,
+  message: string,
+): void {
+  const sessions = sessionRegistry.getSessionsForWorkspace(workspaceId);
+  for (const session of sessions) {
+    // Don't push to the sender
+    if (session.agentId === senderAgentId) continue;
+    session.server.sendLoggingMessage({
+      level: 'info',
+      data: JSON.stringify({
+        type: 'event_broadcast',
+        eventId,
+        eventType,
+        from: senderAgentId,
+        preview: message.slice(0, 200),
+      }),
+    }, session.sessionId).catch((err) => {
+      getLogger().debug('mcp_event_push_failed', {
+        eventId,
+        toAgent: session.agentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 }
 
 interface BroadcastResponse {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ToolDefinition } from './types.js';
 import { arrayParam } from './helpers.js';
-import { broadcastEvent, getUpdates, waitForEvent } from '../../models/event.js';
+import { broadcastEvent, getUpdates, waitForEvent, computeRecommendedContext } from '../../models/event.js';
 import type { BroadcastInput, WaitForEventInput } from '../../models/types.js';
 
 export const eventTools: ToolDefinition[] = [
@@ -49,6 +49,19 @@ export const eventTools: ToolDefinition[] = [
     tier: 'coordinate',
     handler: async (ctx, params) => {
       return waitForEvent(ctx.db, ctx.workspaceId, params as unknown as WaitForEventInput);
+    },
+  },
+  {
+    name: 'get_recommended_context',
+    description: 'Get context entries relevant to your current work. Analyzes your recent events and claimed tasks to surface the most useful knowledge from the team. Use this to orient yourself at the start of work.',
+    schema: {
+      agent_id: z.string().min(1).max(100).describe('Your agent identity'),
+    },
+    tier: 'coordinate',
+    autoRegister: true,
+    handler: async (ctx) => {
+      const entries = await computeRecommendedContext(ctx.db, ctx.workspaceId, ctx.agentId);
+      return { recommended_context: entries };
     },
   },
 ];

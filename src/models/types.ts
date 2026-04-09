@@ -160,12 +160,14 @@ export interface Message {
   message: string;
   tags: string[];
   createdAt: string;
+  replyTo?: number | null;
 }
 
 export interface SendMessageInput {
   to: string;
   message: string;
   tags: string[];
+  reply_to?: number;
 }
 
 export interface SendMessageResponse {

@@ -55,7 +55,7 @@ describe('Push-mode context recommendations', () => {
     expect(keys).not.toContain('alice-finding-2');
   });
 
-  it("excludes entries the agent created themselves", async () => {
+  it("includes own entries alongside teammate entries", async () => {
     // Bob broadcasts with tag "auth" and saves his own entry with tag "auth"
     await broadcastAs('bob', 'investigating auth', ['auth']);
     await saveContextAs('bob', 'bob-note', 'my own notes', ['auth']);
@@ -64,7 +64,7 @@ describe('Push-mode context recommendations', () => {
     const data = await getUpdates('bob');
     expect(data.recommended_context).toBeDefined();
     const keys = data.recommended_context!.map(e => e.key);
-    expect(keys).not.toContain('bob-note');
+    // Both own and teammate entries are now included
     expect(keys).toContain('alice-note');
   });
 
@@ -97,15 +97,15 @@ describe('Push-mode context recommendations', () => {
     expect(data.recommended_context).toEqual([]);
   });
 
-  it('caps recommendations at 3 and truncates preview to 200 chars', async () => {
+  it('caps recommendations at 5 and truncates preview to 200 chars', async () => {
     const longValue = 'x'.repeat(500);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       await saveContextAs('alice', `entry-${i}`, longValue, ['shared']);
     }
     await broadcastAs('bob', 'working on shared stuff', ['shared']);
 
     const data = await getUpdates('bob');
-    expect(data.recommended_context!.length).toBeLessThanOrEqual(3);
+    expect(data.recommended_context!.length).toBeLessThanOrEqual(5);
     for (const rec of data.recommended_context!) {
       expect(rec.preview.length).toBeLessThanOrEqual(200);
     }

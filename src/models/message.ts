@@ -13,6 +13,7 @@ interface MessageRow {
   message: string;
   tags: string;
   created_at: string;
+  reply_to: number | null;
 }
 
 function rowToMessage(row: MessageRow): Message {
@@ -24,6 +25,7 @@ function rowToMessage(row: MessageRow): Message {
     message: row.message,
     tags: safeJsonParse<string[]>(row.tags, []),
     createdAt: row.created_at,
+    replyTo: row.reply_to ?? null,
   };
 }
 
@@ -34,9 +36,9 @@ export async function sendMessage(
   input: SendMessageInput,
 ): Promise<SendMessageResponse> {
   const result = await db.run(`
-    INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags)
-    VALUES (?, ?, ?, ?, ?)
-  `, workspaceId, fromAgent, input.to, input.message, JSON.stringify(input.tags));
+    INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags, reply_to)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, workspaceId, fromAgent, input.to, input.message, JSON.stringify(input.tags), input.reply_to ?? null);
 
   const messageId = Number(result.lastInsertRowid);
   eventBus.emit('message', { workspaceId, toAgent: input.to, messageId });
@@ -142,4 +144,57 @@ export async function waitForMessage(
 
     eventBus.on('message', onMessage);
   });
+}
+
+/** Search messages involving an agent (sent or received) with optional text filter. */
+export async function searchMessages(
+  db: DbAdapter,
+  workspaceId: string,
+  agentId: string,
+  input: { query?: string; with_agent?: string; limit?: number; since_id?: number },
+): Promise<GetMessagesResponse> {
+  const limit = Math.min(input.limit ?? 50, 200);
+  const sinceId = input.since_id ?? 0;
+
+  const conditions = ['workspace_id = ?', 'id > ?', '(from_agent = ? OR to_agent = ?)'];
+  const params: (string | number)[] = [workspaceId, sinceId, agentId, agentId];
+
+  if (input.with_agent) {
+    conditions.push('(from_agent = ? OR to_agent = ?)');
+    params.push(input.with_agent, input.with_agent);
+  }
+
+  if (input.query) {
+    conditions.push('message LIKE ?');
+    params.push(`%${input.query}%`);
+  }
+
+  params.push(limit);
+
+  const rows = await db.all<MessageRow>(`
+    SELECT * FROM messages
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY id DESC
+    LIMIT ?
+  `, ...params);
+
+  const messages = rows.map(rowToMessage);
+  const cursor = messages.length > 0 ? messages[messages.length - 1].id : sinceId;
+  return { messages, cursor };
+}
+
+/** Get all messages in a thread (the original message plus all replies). */
+export async function getThread(
+  db: DbAdapter,
+  workspaceId: string,
+  messageId: number,
+): Promise<GetMessagesResponse> {
+  const rows = await db.all<MessageRow>(`
+    SELECT * FROM messages
+    WHERE workspace_id = ? AND (id = ? OR reply_to = ?)
+    ORDER BY id ASC
+  `, workspaceId, messageId, messageId);
+  const messages = rows.map(rowToMessage);
+  const cursor = messages.length > 0 ? messages[messages.length - 1].id : 0;
+  return { messages, cursor };
 }
