@@ -30,6 +30,8 @@ class SessionRegistry {
   private sessions = new Map<string, McpSession>();
   /** workspaceId:agentId → sessionId (reverse lookup for message routing) */
   private agentSessions = new Map<string, string>();
+  /** workspaceId → Set<sessionId> (for broadcast push) */
+  private workspaceSessions = new Map<string, Set<string>>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   registerSession(init: McpSessionInit): void {
@@ -53,6 +55,9 @@ class SessionRegistry {
 
     this.sessions.set(session.sessionId, session);
     this.agentSessions.set(key, session.sessionId);
+    const wsSet = this.workspaceSessions.get(session.workspaceId) ?? new Set();
+    wsSet.add(session.sessionId);
+    this.workspaceSessions.set(session.workspaceId, wsSet);
     this.ensureSweep();
   }
 
@@ -63,6 +68,11 @@ class SessionRegistry {
       // Only remove reverse mapping if it still points to this session
       if (this.agentSessions.get(key) === sessionId) {
         this.agentSessions.delete(key);
+      }
+      const wsSet = this.workspaceSessions.get(session.workspaceId);
+      if (wsSet) {
+        wsSet.delete(sessionId);
+        if (wsSet.size === 0) this.workspaceSessions.delete(session.workspaceId);
       }
       this.sessions.delete(sessionId);
     }
@@ -108,6 +118,19 @@ class SessionRegistry {
   clear(): void {
     this.sessions.clear();
     this.agentSessions.clear();
+    this.workspaceSessions.clear();
+  }
+
+  /** Get all active sessions for a workspace (for broadcast push). */
+  getSessionsForWorkspace(workspaceId: string): McpSession[] {
+    const sessionIds = this.workspaceSessions.get(workspaceId);
+    if (!sessionIds) return [];
+    const sessions: McpSession[] = [];
+    for (const sid of sessionIds) {
+      const s = this.sessions.get(sid);
+      if (s) sessions.push(s);
+    }
+    return sessions;
   }
 
   get size(): number {
