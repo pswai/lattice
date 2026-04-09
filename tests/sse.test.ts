@@ -251,8 +251,8 @@ describe('EventEmitter (eventBus)', () => {
     expect(received).toEqual(['before']);
   });
 
-  it('should have maxListeners set to at least 100', () => {
-    expect(eventBus.getMaxListeners()).toBeGreaterThanOrEqual(100);
+  it('should have unlimited maxListeners (0 = no cap)', () => {
+    expect(eventBus.getMaxListeners()).toBe(0);
   });
 
   it('should isolate different event names', () => {

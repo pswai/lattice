@@ -1,6 +1,7 @@
 import type { DbAdapter } from '../db/adapter.js';
 import type { AppConfig } from '../config.js';
 import { markStaleAgents } from '../models/agent.js';
+import { broadcastInternal } from '../models/event.js';
 import { getLogger } from '../logger.js';
 
 interface StaleTaskRow {
@@ -67,9 +68,6 @@ async function reapTask(db: DbAdapter, task: StaleTaskRow, reason: string): Prom
   `, reason, new Date().toISOString(), task.id, task.version);
 
   if (result.changes > 0) {
-    await db.run(`
-      INSERT INTO events (workspace_id, event_type, message, tags, created_by)
-      VALUES (?, 'TASK_UPDATE', ?, '["task-reaper"]', 'system:reaper')
-    `, task.workspace_id, `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, ${reason.toLowerCase()})`);
+    await broadcastInternal(db, task.workspace_id, 'TASK_UPDATE', `Task "${task.description}" auto-released (claimed by ${task.claimed_by}, ${reason.toLowerCase()})`, ['task-reaper'], 'system:reaper');
   }
 }

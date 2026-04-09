@@ -1,6 +1,5 @@
 import type { DbAdapter } from '../db/adapter.js';
 import type { Message, SendMessageInput, SendMessageResponse, GetMessagesInput, GetMessagesResponse, WaitForMessageInput, WaitForMessageResponse } from './types.js';
-import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { safeJsonParse } from '../safe-json.js';
 import { eventBus } from '../services/event-emitter.js';
 import { sessionRegistry } from '../mcp/session-registry.js';
@@ -34,9 +33,6 @@ export async function sendMessage(
   fromAgent: string,
   input: SendMessageInput,
 ): Promise<SendMessageResponse> {
-  // Scan message content for secrets
-  throwIfSecretsFound(input.message);
-
   const result = await db.run(`
     INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags)
     VALUES (?, ?, ?, ?, ?)
