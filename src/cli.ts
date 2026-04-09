@@ -6,6 +6,7 @@
  * Subcommands:
  *   init     Set up a new team (created by cli-dev-1)
  *   status   Show server health, stats, and recent events
+ *   tui      Launch the interactive terminal dashboard
  */
 
 import { createInterface } from 'node:readline';
@@ -328,6 +329,7 @@ const USAGE = `
     init      Create a new team and get API keys
     start     Start the Lattice server
     status    Show server health, stats, and recent events
+    tui       Launch the interactive terminal dashboard
 
   ${bold('Flags:')}
     --version, -v   Show version number
@@ -337,7 +339,7 @@ const USAGE = `
     DB_PATH           Database file path (default: ./data/lattice.db)
     LATTICE_URL       Server URL for status command (default: http://localhost:$PORT)
     ADMIN_KEY         Admin key for server stats
-    LATTICE_API_KEY   Team API key for events
+    LATTICE_API_KEY   Team API key for events/tui
 `;
 
 async function main(): Promise<void> {
@@ -354,6 +356,16 @@ async function main(): Promise<void> {
     case 'start':
       await startCommand();
       break;
+    case 'tui': {
+      const tuiOpts: Record<string, string> = {};
+      for (let i = 1; i < args.length; i += 2) {
+        if (args[i] === '--server' && args[i + 1]) tuiOpts.server = args[i + 1];
+        if (args[i] === '--key' && args[i + 1]) tuiOpts.key = args[i + 1];
+      }
+      const { startTui } = await import('./tui/index.js');
+      await startTui(tuiOpts);
+      break;
+    }
     case '--version':
     case '-v': {
       const { createRequire } = await import('node:module');
