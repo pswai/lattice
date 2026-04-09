@@ -254,33 +254,33 @@ describe('MCP Session Management', () => {
     });
   });
 
-  describe('end-to-end direct messaging', () => {
-    async function mcpToolCall(
-      sessionCtx: TestContext,
-      sessionId: string,
-      agentId: string,
-      toolName: string,
-      args: Record<string, unknown>,
-      requestId: number = 10,
-    ): Promise<Response> {
-      return sessionCtx.app.request('/mcp', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionCtx.apiKey}`,
-          'X-Agent-ID': agentId,
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-          'mcp-session-id': sessionId,
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: requestId,
-          method: 'tools/call',
-          params: { name: toolName, arguments: args },
-        }),
-      });
-    }
+  async function mcpToolCall(
+    sessionCtx: TestContext,
+    sessionId: string,
+    agentId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    requestId: number = 10,
+  ): Promise<Response> {
+    return sessionCtx.app.request('/mcp', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sessionCtx.apiKey}`,
+        'X-Agent-ID': agentId,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'mcp-session-id': sessionId,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+      }),
+    });
+  }
 
+  describe('end-to-end direct messaging', () => {
     it('full flow: send, store, and retrieve via getMessages', async () => {
       // Both agents initialize MCP sessions
       const { sessionId: sessionA } = await initMcpSession(ctx, 'agent-a');
@@ -366,6 +366,96 @@ describe('MCP Session Management', () => {
       expect(parsed.messages).toHaveLength(1);
       expect(parsed.messages[0].fromAgent).toBe('agent-a');
       expect(parsed.messages[0].message).toBe('Cross-session hello!');
+    });
+  });
+
+  describe('server-generated agent ID and session remap', () => {
+    /** Helper to parse SSE response body into JSON-RPC messages */
+    async function parseToolCallResponse(res: Response): Promise<any> {
+      const text = await res.text();
+      const jsonLines = text
+        .split('\n')
+        .filter((l: string) => l.startsWith('data: '))
+        .map((l: string) => l.slice(6));
+      const rpcResponse = jsonLines
+        .map((l: string) => JSON.parse(l))
+        .find((msg: any) => msg.result !== undefined);
+      return rpcResponse;
+    }
+
+    it('register_agent without agent_id returns a server-generated ID', async () => {
+      const { sessionId } = await initMcpSession(ctx, 'generic-agent');
+
+      const res = await mcpToolCall(ctx, sessionId, 'generic-agent', 'register_agent', {
+        capabilities: ['testing'],
+      });
+
+      expect(res.status).toBe(200);
+      const rpc = await parseToolCallResponse(res);
+      expect(rpc).toBeDefined();
+      const agent = JSON.parse(rpc.result.content[0].text);
+      expect(agent.id).toMatch(/^ag_[a-f0-9]{16}$/);
+      expect(agent.status).toBe('online');
+      expect(agent.capabilities).toEqual(['testing']);
+    });
+
+    it('register_agent with explicit agent_id uses provided ID', async () => {
+      const { sessionId } = await initMcpSession(ctx, 'generic-agent');
+
+      const res = await mcpToolCall(ctx, sessionId, 'generic-agent', 'register_agent', {
+        agent_id: 'my-custom-id',
+        capabilities: [],
+      });
+
+      expect(res.status).toBe(200);
+      const rpc = await parseToolCallResponse(res);
+      const agent = JSON.parse(rpc.result.content[0].text);
+      expect(agent.id).toBe('my-custom-id');
+    });
+
+    it('registration remaps the MCP session to the new agent ID', async () => {
+      const { sessionId } = await initMcpSession(ctx, 'lattice-core');
+
+      // Session is initially mapped to "lattice-core"
+      expect(sessionRegistry.getSessionForAgent(ctx.workspaceId, 'lattice-core')).toBeDefined();
+
+      // Register with no agent_id → server generates one
+      const res = await mcpToolCall(ctx, sessionId, 'lattice-core', 'register_agent', {
+        capabilities: ['code-review'],
+      });
+
+      const rpc = await parseToolCallResponse(res);
+      const agent = JSON.parse(rpc.result.content[0].text);
+      const newId = agent.id;
+
+      // Session should now be mapped to the new ID
+      expect(sessionRegistry.getSessionForAgent(ctx.workspaceId, newId)).toBeDefined();
+      // Old mapping should be gone
+      expect(sessionRegistry.getSessionForAgent(ctx.workspaceId, 'lattice-core')).toBeUndefined();
+    });
+
+    it('push notification routes to remapped agent ID', async () => {
+      const { sessionId } = await initMcpSession(ctx, 'lattice-core');
+
+      // Register to get a unique ID
+      const res = await mcpToolCall(ctx, sessionId, 'lattice-core', 'register_agent', {
+        capabilities: [],
+      });
+
+      const rpc = await parseToolCallResponse(res);
+      const agentId = JSON.parse(rpc.result.content[0].text).id;
+
+      // Send a message to the new agent ID — should not throw
+      await expect(
+        sendMessage(ctx.db, ctx.workspaceId, 'other-agent', {
+          to: agentId,
+          message: 'Routed to your new ID!',
+          tags: [],
+        }),
+      ).resolves.toEqual(expect.objectContaining({ messageId: expect.any(Number) }));
+
+      // Session should still be valid
+      expect(sessionRegistry.getSessionForAgent(ctx.workspaceId, agentId)).toBeDefined();
     });
   });
 });

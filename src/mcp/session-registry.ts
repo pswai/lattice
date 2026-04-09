@@ -64,6 +64,28 @@ class SessionRegistry {
     return this.sessions.get(sessionId);
   }
 
+  /** Remap a session's agent identity. Used when an agent registers and
+   *  receives a server-assigned ID, replacing the generic header-based ID. */
+  remapAgent(sessionId: string, newAgentId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    // Remove old reverse mapping
+    const oldKey = agentKey(session.workspaceId, session.agentId);
+    if (this.agentSessions.get(oldKey) === sessionId) {
+      this.agentSessions.delete(oldKey);
+    }
+
+    // Update session and add new reverse mapping
+    session.agentId = newAgentId;
+    this.agentSessions.set(agentKey(session.workspaceId, newAgentId), sessionId);
+  }
+
+  /** Find the session ID for a given MCP auth context (workspace + header agent ID). */
+  findSessionByAuth(workspaceId: string, agentId: string): string | undefined {
+    return this.agentSessions.get(agentKey(workspaceId, agentId));
+  }
+
   /** Remove all sessions (for testing). */
   clear(): void {
     this.sessions.clear();

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
 import { broadcastInternal } from './event.js';
@@ -54,7 +55,7 @@ export async function autoRegisterAgent(
 }
 
 export interface RegisterAgentInput {
-  agent_id: string;
+  agent_id?: string;
   capabilities: string[];
   status?: AgentStatus;
   metadata?: Record<string, unknown>;
@@ -65,6 +66,7 @@ export async function registerAgent(
   workspaceId: string,
   input: RegisterAgentInput,
 ): Promise<Agent> {
+  const agentId = input.agent_id || `ag_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const status = input.status ?? 'online';
   const metadata = input.metadata ?? {};
 
@@ -76,17 +78,17 @@ export async function registerAgent(
       status = excluded.status,
       metadata = excluded.metadata,
       last_heartbeat = ?
-  `, input.agent_id, workspaceId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata), new Date().toISOString(), new Date().toISOString());
+  `, agentId, workspaceId, JSON.stringify(input.capabilities), status, JSON.stringify(metadata), new Date().toISOString(), new Date().toISOString());
 
   const row = await db.get<AgentRow>(
     'SELECT * FROM agents WHERE workspace_id = ? AND id = ?',
-    workspaceId, input.agent_id,
+    workspaceId, agentId,
   );
 
   await broadcastInternal(
     db, workspaceId, 'BROADCAST',
-    `Agent "${input.agent_id}" registered (capabilities: ${input.capabilities.join(', ')})`,
-    ['agent-registry'], input.agent_id,
+    `Agent "${agentId}" registered (capabilities: ${input.capabilities.join(', ')})`,
+    ['agent-registry'], agentId,
   );
 
   return rowToAgent(row!);

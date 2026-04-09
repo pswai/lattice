@@ -3,13 +3,15 @@ import type { ToolDefinition } from './types.js';
 import { arrayParam } from './helpers.js';
 import { registerAgent, heartbeat, listAgents } from '../../models/agent.js';
 import type { RegisterAgentInput, ListAgentsInput, AgentStatus } from '../../models/agent.js';
+import { sessionRegistry } from '../session-registry.js';
+import { getMcpAuth } from '../auth-context.js';
 
 export const agentTools: ToolDefinition[] = [
   {
     name: 'register_agent',
-    description: 'Register this agent in the team registry with its capabilities. Enables other agents to discover what you can do.',
+    description: 'Register this agent in the team registry with its capabilities. Enables other agents to discover what you can do. If agent_id is omitted, the server generates a unique ID — use the returned id for all subsequent calls.',
     schema: {
-      agent_id: z.string().min(1).max(100).describe('Your agent identity'),
+      agent_id: z.string().min(1).max(100).optional().describe('Your agent identity. If omitted, the server generates a unique ID for you.'),
       capabilities: arrayParam(z.array(z.string().max(100)).max(50)).optional().default([]).describe('List of capabilities (e.g. "python", "code-review", "data-analysis")'),
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Agent status (default: online)'),
       metadata: z.record(z.unknown()).optional().refine(
@@ -20,7 +22,18 @@ export const agentTools: ToolDefinition[] = [
     tier: 'coordinate',
     write: true,
     handler: async (ctx, params) => {
-      return registerAgent(ctx.db, ctx.workspaceId, params as unknown as RegisterAgentInput);
+      const agent = await registerAgent(ctx.db, ctx.workspaceId, params as unknown as RegisterAgentInput);
+
+      // Remap the MCP session so push notifications route to this agent's new ID.
+      // The session was initially created with the generic X-Agent-ID header value
+      // (e.g. "lattice-core"); now bind it to the agent's actual registered ID.
+      const auth = getMcpAuth();
+      const sessionId = sessionRegistry.findSessionByAuth(auth.workspaceId, auth.agentId);
+      if (sessionId) {
+        sessionRegistry.remapAgent(sessionId, agent.id);
+      }
+
+      return agent;
     },
   },
   {
