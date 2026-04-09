@@ -259,4 +259,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_workspace_time ON audit_log(workspace_id, c
 CREATE INDEX IF NOT EXISTS idx_audit_workspace_actor ON audit_log(workspace_id, actor, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_workspace_action ON audit_log(workspace_id, action, created_at DESC);
 
+-- Additive column migrations for existing databases
+DO $$ BEGIN
+  ALTER TABLE context_entries ADD COLUMN expires_at TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 `;

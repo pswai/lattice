@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
-import { saveContext, getContext } from '../../models/context.js';
+import { saveContext, getContext, deleteContext } from '../../models/context.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { validate, optionalInt } from '../validation.js';
 
@@ -40,7 +40,16 @@ export function createContextRoutes(db: DbAdapter): Hono {
     const tags = tagsParam ? tagsParam.split(',').filter(Boolean) : undefined;
     const limit = optionalInt(c.req.query('limit'), 'limit', { min: 1 });
 
-    const result = await getContext(db, workspaceId, { query, tags, limit });
+    const createdBy = c.req.query('created_by');
+    const result = await getContext(db, workspaceId, { query, tags, created_by: createdBy, limit });
+    return c.json(result);
+  });
+
+  // DELETE /context/:key — delete_context
+  router.delete('/:key', async (c) => {
+    const { workspaceId } = c.get('auth');
+    const key = c.req.param('key');
+    const result = await deleteContext(db, workspaceId, key);
     return c.json(result);
   });
 

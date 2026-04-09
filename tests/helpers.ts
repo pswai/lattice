@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
-import { SCHEMA_SQL } from '../src/db/schema.js';
+import { SCHEMA_SQL, TASK_COLUMN_MIGRATIONS, CONTEXT_COLUMN_MIGRATIONS, API_KEY_COLUMN_MIGRATIONS, PLAYBOOK_COLUMN_MIGRATIONS } from '../src/db/schema.js';
 import { PG_SCHEMA_SQL } from '../src/db/schema-pg.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
@@ -30,6 +30,15 @@ export function createTestAdapter(): SqliteAdapter {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+
+  // Run additive column migrations (same as production createSqliteAdapter)
+  const existing = (table: string) =>
+    new Set((db.pragma(`table_info(${table})`) as Array<{ name: string }>).map(c => c.name));
+  for (const { name, sql } of TASK_COLUMN_MIGRATIONS) if (!existing('tasks').has(name)) db.exec(sql);
+  for (const { name, sql } of API_KEY_COLUMN_MIGRATIONS) if (!existing('api_keys').has(name)) db.exec(sql);
+  for (const { name, sql } of CONTEXT_COLUMN_MIGRATIONS) if (!existing('context_entries').has(name)) db.exec(sql);
+  for (const { name, sql } of PLAYBOOK_COLUMN_MIGRATIONS) if (!existing('playbooks').has(name)) db.exec(sql);
+
   return new SqliteAdapter(db);
 }
 

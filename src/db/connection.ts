@@ -6,6 +6,7 @@ import {
   TASK_COLUMN_MIGRATIONS,
   API_KEY_COLUMN_MIGRATIONS,
   CONTEXT_COLUMN_MIGRATIONS,
+  MESSAGE_COLUMN_MIGRATIONS,
   PLAYBOOK_COLUMN_MIGRATIONS,
 } from './schema.js';
 import { SqliteAdapter, PgAdapter } from './adapter.js';
@@ -57,6 +58,7 @@ export function createSqliteAdapter(dbPath: string): SqliteAdapter {
   runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'context_entries', CONTEXT_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'messages', MESSAGE_COLUMN_MIGRATIONS);
   runSqliteColumnMigrations(db, 'playbooks', PLAYBOOK_COLUMN_MIGRATIONS);
 
   migrateFtsToTrigram(db);
@@ -73,6 +75,13 @@ export function createMemoryAdapter(): SqliteAdapter {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+
+  // Run the same column migrations as the file-backed adapter
+  runSqliteColumnMigrations(db, 'tasks', TASK_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'api_keys', API_KEY_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'context_entries', CONTEXT_COLUMN_MIGRATIONS);
+  runSqliteColumnMigrations(db, 'playbooks', PLAYBOOK_COLUMN_MIGRATIONS);
+
   return new SqliteAdapter(db);
 }
 

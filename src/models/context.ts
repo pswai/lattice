@@ -18,6 +18,7 @@ interface ContextRow {
   created_at: string;
   updated_by: string | null;
   updated_at: string | null;
+  expires_at: string | null;
 }
 
 function rowToEntry(row: ContextRow, truncate = false): ContextEntry {
@@ -35,6 +36,7 @@ function rowToEntry(row: ContextRow, truncate = false): ContextEntry {
     createdAt: row.created_at,
     updatedBy: row.updated_by,
     updatedAt: row.updated_at,
+    expiresAt: row.expires_at ?? null,
   };
 }
 
@@ -85,19 +87,22 @@ export async function saveContext(
   let entryId: number;
 
   const now = new Date().toISOString();
+  const expiresAt = input.ttl_seconds
+    ? new Date(Date.now() + input.ttl_seconds * 1000).toISOString()
+    : null;
 
   if (existing) {
     // Update in place — preserves the original ID
     await db.run(`
-      UPDATE context_entries SET value = ?, tags = ?, updated_by = ?, updated_at = ?
+      UPDATE context_entries SET value = ?, tags = ?, updated_by = ?, updated_at = ?, expires_at = ?
       WHERE workspace_id = ? AND key = ?
-    `, input.value, JSON.stringify(input.tags), agentId, now, workspaceId, input.key);
+    `, input.value, JSON.stringify(input.tags), agentId, now, expiresAt, workspaceId, input.key);
     entryId = existing.id;
   } else {
     const result = await db.run(`
-      INSERT INTO context_entries (workspace_id, key, value, tags, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId, now);
+      INSERT INTO context_entries (workspace_id, key, value, tags, created_by, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, workspaceId, input.key, input.value, JSON.stringify(input.tags), agentId, now, expiresAt);
     entryId = Number(result.lastInsertRowid);
   }
 
@@ -116,307 +121,146 @@ export async function saveContext(
   };
 }
 
-/** Full-text search over context entries, dispatching to SQLite FTS5 or Postgres pg_trgm. */
+/** Delete a context entry by key. */
+export async function deleteContext(
+  db: DbAdapter,
+  workspaceId: string,
+  key: string,
+): Promise<{ deleted: boolean }> {
+  const result = await db.run(
+    'DELETE FROM context_entries WHERE workspace_id = ? AND key = ?',
+    workspaceId, key,
+  );
+  return { deleted: result.changes > 0 };
+}
+
+/** Full-text search over context entries (SQLite FTS5 / Postgres pg_trgm). */
 export async function getContext(
   db: DbAdapter,
   workspaceId: string,
   input: GetContextInput,
 ): Promise<GetContextResponse> {
-  if (db.dialect === 'pg') {
-    return getContextPg(db, workspaceId, input);
-  } else {
-    return getContextSqlite(db, workspaceId, input);
-  }
+  return getContextWithBuilder(db, workspaceId, input);
 }
 
 // ---------------------------------------------------------------------------
-// SQLite path — FTS5 MATCH with LIKE fallback for short tokens
+// Query builder — shared logic for SQLite and Postgres context search
 // ---------------------------------------------------------------------------
 
-async function getContextSqlite(
-  db: DbAdapter,
-  workspaceId: string,
-  input: GetContextInput,
-): Promise<GetContextResponse> {
-  const limit = Math.min(input.limit ?? 20, 100);
-  const hasTags = input.tags && input.tags.length > 0;
-  const hasQuery = input.query && input.query.trim().length > 0;
-  const useLike = hasQuery && needsLikeFallback(input.query!);
-
-  // Build LIKE clause + params for short-query fallback (one AND-ed clause
-  // per token, each matching key/value/tags).
-  let likeClause = '';
-  const likeParams: string[] = [];
-  if (useLike) {
-    const parts: string[] = [];
-    for (const t of queryTokens(input.query!)) {
-      const pat = `%${escapeLikeToken(t)}%`;
-      parts.push("(ce.key LIKE ? ESCAPE '\\' OR ce.value LIKE ? ESCAPE '\\' OR ce.tags LIKE ? ESCAPE '\\')");
-      likeParams.push(pat, pat, pat);
-    }
-    likeClause = parts.join(' AND ');
-  }
-
-  let rows: ContextRow[];
-
-  if (hasQuery && hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    if (useLike) {
-      rows = await db.all<ContextRow>(`
-        SELECT ce.* FROM context_entries ce
-        WHERE ce.workspace_id = ?
-          AND EXISTS (
-            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-            WHERE t.value IN (${placeholders})
-          )
-          AND ${likeClause}
-        ORDER BY ce.created_at DESC
-        LIMIT ?
-      `, workspaceId, ...input.tags!, ...likeParams, limit);
-    } else {
-      const ftsQuery = escapeFts5Query(input.query!);
-      rows = await db.all<ContextRow>(`
-        SELECT ce.* FROM context_entries ce
-        JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.workspace_id = ?
-          AND EXISTS (
-            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-            WHERE t.value IN (${placeholders})
-          )
-          AND context_entries_fts MATCH ?
-        ORDER BY fts.rank
-        LIMIT ?
-      `, workspaceId, ...input.tags!, ftsQuery, limit);
-    }
-  } else if (hasQuery) {
-    if (useLike) {
-      rows = await db.all<ContextRow>(`
-        SELECT ce.* FROM context_entries ce
-        WHERE ce.workspace_id = ?
-          AND ${likeClause}
-        ORDER BY ce.created_at DESC
-        LIMIT ?
-      `, workspaceId, ...likeParams, limit);
-    } else {
-      const ftsQuery = escapeFts5Query(input.query!);
-      rows = await db.all<ContextRow>(`
-        SELECT ce.* FROM context_entries ce
-        JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.workspace_id = ?
-          AND context_entries_fts MATCH ?
-        ORDER BY fts.rank
-        LIMIT ?
-      `, workspaceId, ftsQuery, limit);
-    }
-  } else if (hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    rows = await db.all<ContextRow>(`
-      SELECT ce.* FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-          WHERE t.value IN (${placeholders})
-        )
-      ORDER BY ce.created_at DESC
-      LIMIT ?
-    `, workspaceId, ...input.tags!, limit);
-  } else {
-    // No filters — browse all entries for this team
-    rows = await db.all<ContextRow>(`
-      SELECT * FROM context_entries
-      WHERE workspace_id = ?
-      ORDER BY created_at DESC
-      LIMIT ?
-    `, workspaceId, limit);
-  }
-
-  // Compute true total (not capped by LIMIT) for proper pagination
-  let total: number;
-  if (hasQuery && hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    if (useLike) {
-      const countRow = await db.get<{ cnt: number }>(`
-        SELECT COUNT(*) as cnt FROM context_entries ce
-        WHERE ce.workspace_id = ?
-          AND EXISTS (
-            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-            WHERE t.value IN (${placeholders})
-          )
-          AND ${likeClause}
-      `, workspaceId, ...input.tags!, ...likeParams);
-      total = countRow!.cnt;
-    } else {
-      const ftsQuery = escapeFts5Query(input.query!);
-      const countRow = await db.get<{ cnt: number }>(`
-        SELECT COUNT(*) as cnt FROM context_entries ce
-        JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.workspace_id = ?
-          AND EXISTS (
-            SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-            WHERE t.value IN (${placeholders})
-          )
-          AND context_entries_fts MATCH ?
-      `, workspaceId, ...input.tags!, ftsQuery);
-      total = countRow!.cnt;
-    }
-  } else if (hasQuery) {
-    if (useLike) {
-      const countRow = await db.get<{ cnt: number }>(`
-        SELECT COUNT(*) as cnt FROM context_entries ce
-        WHERE ce.workspace_id = ?
-          AND ${likeClause}
-      `, workspaceId, ...likeParams);
-      total = countRow!.cnt;
-    } else {
-      const ftsQuery = escapeFts5Query(input.query!);
-      const countRow = await db.get<{ cnt: number }>(`
-        SELECT COUNT(*) as cnt FROM context_entries ce
-        JOIN context_entries_fts fts ON ce.id = fts.rowid
-        WHERE ce.workspace_id = ?
-          AND context_entries_fts MATCH ?
-      `, workspaceId, ftsQuery);
-      total = countRow!.cnt;
-    }
-  } else if (hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArrayTable(db.dialect, 'ce.tags', 't')}
-          WHERE t.value IN (${placeholders})
-        )
-    `, workspaceId, ...input.tags!);
-    total = countRow!.cnt;
-  } else {
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries WHERE workspace_id = ?
-    `, workspaceId);
-    total = countRow!.cnt;
-  }
-
-  return {
-    entries: rows.map(r => rowToEntry(r, hasQuery === true)),
-    total,
-  };
+interface QueryParts {
+  from: string;
+  conditions: string[];
+  params: unknown[];
+  orderBy: string;
+  /** Extra params appended after conditions (e.g. similarity() args in ORDER BY) */
+  orderParams: unknown[];
 }
 
-// ---------------------------------------------------------------------------
-// Postgres path — ILIKE + pg_trgm similarity() for relevance ordering
-// ---------------------------------------------------------------------------
-
-async function getContextPg(
-  db: DbAdapter,
+function buildContextQuery(
+  dialect: 'sqlite' | 'pg',
   workspaceId: string,
   input: GetContextInput,
-): Promise<GetContextResponse> {
-  const limit = Math.min(input.limit ?? 20, 100);
+): QueryParts {
   const hasTags = input.tags && input.tags.length > 0;
   const hasQuery = input.query && input.query.trim().length > 0;
 
-  const jsonArr = jsonArrayTable('pg', 'ce.tags');
+  const conditions: string[] = ['ce.workspace_id = ?', '(ce.expires_at IS NULL OR ce.expires_at > ?)'];
+  const params: unknown[] = [workspaceId, new Date().toISOString()];
+  const orderParams: unknown[] = [];
 
-  // Build ILIKE clause + params for text search (one AND-ed clause per token,
-  // each token must match at least one of key/value/tags).
-  let ilikeClause = '';
-  const ilikeParams: string[] = [];
-  if (hasQuery) {
+  // Default FROM and ORDER
+  let from = 'context_entries ce';
+  let orderBy = 'ce.created_at DESC';
+
+  // --- Creator filter ---
+  if (input.created_by) {
+    conditions.push('ce.created_by = ?');
+    params.push(input.created_by);
+  }
+
+  // --- Tag filtering (same structure, dialect-specific json function) ---
+  if (hasTags) {
+    const placeholders = input.tags!.map(() => '?').join(', ');
+    if (dialect === 'sqlite') {
+      conditions.push(`EXISTS (
+            SELECT 1 FROM ${jsonArrayTable(dialect, 'ce.tags', 't')}
+            WHERE t.value IN (${placeholders})
+          )`);
+    } else {
+      conditions.push(`EXISTS (
+            SELECT 1 FROM ${jsonArrayTable('pg', 'ce.tags')} AS t
+            WHERE t IN (${placeholders})
+          )`);
+    }
+    params.push(...input.tags!);
+  }
+
+  // --- Text search (dialect-specific) ---
+  if (hasQuery && dialect === 'sqlite') {
+    const useLike = needsLikeFallback(input.query!);
+    if (useLike) {
+      // LIKE fallback for short tokens
+      const likeParts: string[] = [];
+      for (const t of queryTokens(input.query!)) {
+        const pat = `%${escapeLikeToken(t)}%`;
+        likeParts.push("(ce.key LIKE ? ESCAPE '\\' OR ce.value LIKE ? ESCAPE '\\' OR ce.tags LIKE ? ESCAPE '\\')");
+        params.push(pat, pat, pat);
+      }
+      conditions.push(likeParts.join(' AND '));
+      // LIKE fallback uses recency ordering
+    } else {
+      // FTS5 path
+      const ftsQuery = escapeFts5Query(input.query!);
+      from = 'context_entries ce\n        JOIN context_entries_fts fts ON ce.id = fts.rowid';
+      conditions.push('context_entries_fts MATCH ?');
+      params.push(ftsQuery);
+      orderBy = 'bm25(context_entries_fts, 10.0, 1.0, 5.0)';
+    }
+  } else if (hasQuery && dialect === 'pg') {
+    // ILIKE search
     const tokens = input.query!.trim().split(/\s+/).filter(Boolean);
-    const parts: string[] = [];
+    const ilikeParts: string[] = [];
     for (const t of tokens) {
       const pat = `%${escapeLikeToken(t)}%`;
-      parts.push("(ce.key ILIKE ? OR ce.value ILIKE ? OR ce.tags::text ILIKE ?)");
-      ilikeParams.push(pat, pat, pat);
+      ilikeParts.push('(ce.key ILIKE ? OR ce.value ILIKE ? OR ce.tags::text ILIKE ?)');
+      params.push(pat, pat, pat);
     }
-    ilikeClause = parts.join(' AND ');
+    conditions.push(ilikeParts.join(' AND '));
+    orderBy = '(similarity(ce.key, ?) + similarity(ce.value, ?)) DESC';
+    orderParams.push(input.query!, input.query!);
   }
 
-  let rows: ContextRow[];
+  return { from, conditions, params, orderBy, orderParams };
+}
 
-  if (hasQuery && hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    rows = await db.all<ContextRow>(`
-      SELECT ce.* FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArr} AS t
-          WHERE t IN (${placeholders})
-        )
-        AND ${ilikeClause}
-      ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
-      LIMIT ?
-    `, workspaceId, ...input.tags!, ...ilikeParams, input.query!, input.query!, limit);
-  } else if (hasQuery) {
-    rows = await db.all<ContextRow>(`
-      SELECT ce.* FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND ${ilikeClause}
-      ORDER BY (similarity(ce.key, ?) + similarity(ce.value, ?)) DESC
-      LIMIT ?
-    `, workspaceId, ...ilikeParams, input.query!, input.query!, limit);
-  } else if (hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    rows = await db.all<ContextRow>(`
-      SELECT ce.* FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArr} AS t
-          WHERE t IN (${placeholders})
-        )
-      ORDER BY ce.created_at DESC
-      LIMIT ?
-    `, workspaceId, ...input.tags!, limit);
-  } else {
-    // No filters — browse all entries for this team
-    rows = await db.all<ContextRow>(`
-      SELECT * FROM context_entries
-      WHERE workspace_id = ?
-      ORDER BY created_at DESC
-      LIMIT ?
-    `, workspaceId, limit);
-  }
+async function getContextWithBuilder(
+  db: DbAdapter,
+  workspaceId: string,
+  input: GetContextInput,
+): Promise<GetContextResponse> {
+  const limit = Math.min(input.limit ?? 20, 100);
+  const hasQuery = !!(input.query && input.query.trim().length > 0);
+  const qp = buildContextQuery(db.dialect, workspaceId, input);
 
-  // Compute true total (not capped by LIMIT) for proper pagination
-  let total: number;
-  if (hasQuery && hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArr} AS t
-          WHERE t IN (${placeholders})
-        )
-        AND ${ilikeClause}
-    `, workspaceId, ...input.tags!, ...ilikeParams);
-    total = countRow!.cnt;
-  } else if (hasQuery) {
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND ${ilikeClause}
-    `, workspaceId, ...ilikeParams);
-    total = countRow!.cnt;
-  } else if (hasTags) {
-    const placeholders = input.tags!.map(() => '?').join(', ');
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries ce
-      WHERE ce.workspace_id = ?
-        AND EXISTS (
-          SELECT 1 FROM ${jsonArr} AS t
-          WHERE t IN (${placeholders})
-        )
-    `, workspaceId, ...input.tags!);
-    total = countRow!.cnt;
-  } else {
-    const countRow = await db.get<{ cnt: number }>(`
-      SELECT COUNT(*) as cnt FROM context_entries WHERE workspace_id = ?
-    `, workspaceId);
-    total = countRow!.cnt;
-  }
+  const where = qp.conditions.join('\n          AND ');
+
+  // Data query (with ORDER BY + LIMIT)
+  const dataSql = `
+        SELECT ce.* FROM ${qp.from}
+        WHERE ${where}
+        ORDER BY ${qp.orderBy}
+        LIMIT ?`;
+  const rows = await db.all<ContextRow>(dataSql, ...qp.params, ...qp.orderParams, limit);
+
+  // Count query (no ORDER BY, no LIMIT)
+  const countSql = `
+        SELECT COUNT(*) as cnt FROM ${qp.from}
+        WHERE ${where}`;
+  const countRow = await db.get<{ cnt: number }>(countSql, ...qp.params);
+  const total = countRow!.cnt;
 
   return {
-    entries: rows.map(r => rowToEntry(r, hasQuery === true)),
+    entries: rows.map(r => rowToEntry(r, hasQuery)),
     total,
   };
 }
