@@ -1,6 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
-import { NotFoundError } from '../errors.js';
+import { NotFoundError, ValidationError } from '../errors.js';
 import { safeJsonParse } from '../safe-json.js';
 
 export type WorkflowRunStatus = 'running' | 'completed' | 'failed';
@@ -115,12 +115,13 @@ export async function listWorkflowRuns(
     taskCount: safeJsonParse<number[]>(row.task_ids, []).length,
   }));
 
-  const countResult = await db.get<{ cnt: number }>(`
+  const countParams = params.slice(0, -1); // exclude the limit param
+  const countRow = await db.get<{ cnt: number }>(`
     SELECT COUNT(*) as cnt FROM workflow_runs
     WHERE ${conditions.join(' AND ')}
-  `, ...params.slice(0, -1));
+  `, ...countParams);
 
-  return { workflow_runs: items, total: countResult!.cnt };
+  return { workflow_runs: items, total: countRow!.cnt };
 }
 
 export interface WorkflowRunDetails {
@@ -170,6 +171,41 @@ export async function getWorkflowRun(
     completedAt: run.completedAt,
     tasks,
   };
+}
+
+export async function cancelWorkflowRun(
+  db: DbAdapter,
+  workspaceId: string,
+  agentId: string,
+  workflowRunId: number,
+): Promise<{ workflow_run_id: number; status: WorkflowRunStatus; cancelled_tasks: number }> {
+  const row = await db.get<WorkflowRunRow>(
+    'SELECT * FROM workflow_runs WHERE id = ? AND workspace_id = ?',
+    workflowRunId, workspaceId,
+  );
+  if (!row) throw new NotFoundError('WorkflowRun', workflowRunId);
+
+  const run = rowToRun(row);
+  if (run.status !== 'running') {
+    throw new ValidationError(`Workflow run ${workflowRunId} is already ${run.status}`);
+  }
+
+  let cancelledCount = 0;
+  if (run.taskIds.length > 0) {
+    const placeholders = run.taskIds.map(() => '?').join(',');
+    const result = await db.run(`
+      UPDATE tasks SET status = 'abandoned', result = ?, version = version + 1, updated_at = ?
+      WHERE id IN (${placeholders}) AND workspace_id = ? AND status IN ('open', 'claimed')
+    `, `Cancelled by ${agentId} (workflow run ${workflowRunId})`, new Date().toISOString(), ...run.taskIds, workspaceId);
+    cancelledCount = result.changes;
+  }
+
+  await db.run(`
+    UPDATE workflow_runs SET status = 'failed', completed_at = ?
+    WHERE id = ?
+  `, new Date().toISOString(), workflowRunId);
+
+  return { workflow_run_id: workflowRunId, status: 'failed', cancelled_tasks: cancelledCount };
 }
 
 /**

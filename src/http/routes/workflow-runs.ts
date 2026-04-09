@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { DbAdapter } from '../../db/adapter.js';
-import { listWorkflowRuns, getWorkflowRun, type WorkflowRunStatus } from '../../models/workflow.js';
+import { listWorkflowRuns, getWorkflowRun, cancelWorkflowRun, type WorkflowRunStatus } from '../../models/workflow.js';
 import { ValidationError } from '../../errors.js';
 
 const VALID_STATUSES: WorkflowRunStatus[] = ['running', 'completed', 'failed'];
@@ -35,6 +35,17 @@ export function createWorkflowRunRoutes(db: DbAdapter): Hono {
       throw new ValidationError('Invalid workflow run id');
     }
     const result = await getWorkflowRun(db, workspaceId, id);
+    return c.json(result);
+  });
+
+  // POST /workflow-runs/:id/cancel — cancel a running workflow
+  router.post('/:id/cancel', async (c) => {
+    const { workspaceId, agentId } = c.get('auth');
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Invalid workflow run id');
+    }
+    const result = await cancelWorkflowRun(db, workspaceId, agentId, id);
     return c.json(result);
   });
 

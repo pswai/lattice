@@ -106,6 +106,21 @@ export interface UpdateTaskInput {
   assigned_to?: string | null;
 }
 
+export interface CreateTasksInput {
+  tasks: Array<{
+    description: string;
+    status?: 'open' | 'claimed';
+    priority?: TaskPriority;
+    assigned_to?: string;
+    depends_on_index?: number[];
+  }>;
+}
+
+export interface CreateTasksResponse {
+  task_ids: number[];
+  count: number;
+}
+
 // ─── MCP Tool Response Types ─────────────────────────────────────────
 
 export interface SaveContextResponse {
