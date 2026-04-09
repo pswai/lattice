@@ -144,9 +144,8 @@ export async function listArtifacts(
   input: ListArtifactsInput,
 ): Promise<ListArtifactsResponse> {
   const limit = Math.min(input.limit ?? 50, 200);
-
-  let rows: Omit<ArtifactRow, 'content'>[];
-  let total: number;
+  const conditions = ['workspace_id = ?'];
+  const params: (string | number)[] = [workspaceId];
 
   if (input.content_type) {
     if (!isAllowedContentType(input.content_type)) {
@@ -155,36 +154,38 @@ export async function listArtifacts(
         { content_type: input.content_type },
       );
     }
-    rows = await db.all<Omit<ArtifactRow, 'content'>>(`
-      SELECT id, workspace_id, key, content_type, metadata, size, created_by, created_at, updated_at
-      FROM artifacts
-      WHERE workspace_id = ? AND content_type = ?
-      ORDER BY updated_at DESC
-      LIMIT ?
-    `, workspaceId, input.content_type, limit);
-    const countRow = await db.get<{ cnt: number }>(
-      'SELECT COUNT(*) as cnt FROM artifacts WHERE workspace_id = ? AND content_type = ?',
-      workspaceId, input.content_type,
-    );
-    total = countRow!.cnt;
-  } else {
-    rows = await db.all<Omit<ArtifactRow, 'content'>>(`
-      SELECT id, workspace_id, key, content_type, metadata, size, created_by, created_at, updated_at
-      FROM artifacts
-      WHERE workspace_id = ?
-      ORDER BY updated_at DESC
-      LIMIT ?
-    `, workspaceId, limit);
-    const countRow = await db.get<{ cnt: number }>(
-      'SELECT COUNT(*) as cnt FROM artifacts WHERE workspace_id = ?',
-      workspaceId,
-    );
-    total = countRow!.cnt;
+    conditions.push('content_type = ?');
+    params.push(input.content_type);
   }
+
+  if (input.key_contains) {
+    conditions.push('key LIKE ?');
+    params.push(`%${input.key_contains}%`);
+  }
+
+  if (input.metadata_contains) {
+    conditions.push('metadata LIKE ?');
+    params.push(`%${input.metadata_contains}%`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const rows = await db.all<Omit<ArtifactRow, 'content'>>(`
+    SELECT id, workspace_id, key, content_type, metadata, size, created_by, created_at, updated_at
+    FROM artifacts
+    WHERE ${where}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `, ...params, limit);
+
+  const countRow = await db.get<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM artifacts WHERE ${where}`,
+    ...params,
+  );
 
   return {
     artifacts: rows.map(rowToSummary),
-    total,
+    total: countRow!.cnt,
   };
 }
 

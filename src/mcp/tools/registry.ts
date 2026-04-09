@@ -94,6 +94,14 @@ export function parseEnabledTiers(latticeTools: string): Set<ToolTier> | 'all' {
   return new Set(tiers as ToolTier[]);
 }
 
+// ─── Tool catalog (populated during registration) ─────────────
+let registeredToolCatalog: Array<{ name: string; description: string; tier: ToolTier; write: boolean }> = [];
+
+/** Return metadata about all registered tools. Used by list_tools. */
+export function getToolCatalog(): typeof registeredToolCatalog {
+  return registeredToolCatalog;
+}
+
 // ─── Registration loop ─────────────────────────────────────────
 export function registerTools(
   server: McpServer,
@@ -101,8 +109,16 @@ export function registerTools(
   tools: ToolDefinition[],
   enabledTiers: Set<ToolTier> | 'all',
 ): void {
+  registeredToolCatalog = [];
   for (const tool of tools) {
     if (enabledTiers !== 'all' && !enabledTiers.has(tool.tier)) continue;
+
+    registeredToolCatalog.push({
+      name: tool.name,
+      description: tool.description,
+      tier: tool.tier,
+      write: tool.write ?? false,
+    });
 
     server.tool(tool.name, tool.description, tool.schema, async (params) => {
       const { workspaceId, agentId: headerAgentId } = getMcpAuth();

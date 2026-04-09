@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { ToolDefinition } from './types.js';
 import { arrayParam } from './helpers.js';
 import { getWorkspaceAnalytics, parseSinceDuration } from '../../models/analytics.js';
+import { getToolCatalog } from './registry.js';
+import { getMyStatus } from '../../models/agent.js';
 import { defineProfile, listProfiles, getProfile, deleteProfile } from '../../models/profile.js';
 import type { DefineProfileInput } from '../../models/profile.js';
 import { exportWorkspaceData } from '../../models/export.js';
@@ -25,6 +27,34 @@ export const observeTools: ToolDefinition[] = [
         }
         throw err;
       }
+    },
+  },
+
+  // ─── Self-Status ────────────────────────────────────────────────
+  {
+    name: 'get_my_status',
+    description: 'Get a snapshot of your current state: agent registration, claimed tasks, recent messages, and recent events you created. One call to orient yourself.',
+    schema: {
+      agent_id: z.string().min(1).max(100).describe('Your agent identity'),
+    },
+    tier: 'observe',
+    handler: async (ctx, _params) => {
+      return getMyStatus(ctx.db, ctx.workspaceId, ctx.agentId);
+    },
+  },
+
+  {
+    name: 'list_tools',
+    description: 'List all MCP tools available in this workspace, grouped by tier. Use this to discover capabilities.',
+    schema: {
+      tier: z.enum(['persist', 'coordinate', 'automation', 'observe']).optional().describe('Filter by tool tier'),
+    },
+    tier: 'observe',
+    handler: async (_ctx, params) => {
+      const catalog = getToolCatalog();
+      const tier = params.tier as string | undefined;
+      const tools = tier ? catalog.filter(t => t.tier === tier) : catalog;
+      return { tools, total: tools.length };
     },
   },
 
