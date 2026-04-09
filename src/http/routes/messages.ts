@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
-import { sendMessage, getMessages } from '../../models/message.js';
-import { validate, optionalInt } from '../validation.js';
+import { sendMessage, getMessages, waitForMessage } from '../../models/message.js';
+import { validate, optionalInt, requireInt } from '../validation.js';
 
 const SendMessageSchema = z.object({
   to: z.string().min(1).max(100),
@@ -21,6 +21,17 @@ export function createMessageRoutes(db: DbAdapter): Hono {
     const { workspaceId, agentId } = c.get('auth');
     const result = await sendMessage(db, workspaceId, agentId, parsed);
     return c.json(result, 201);
+  });
+
+  // GET /messages/wait — long-poll for new messages
+  router.get('/wait', async (c) => {
+    const { workspaceId, agentId } = c.get('auth');
+
+    const since_id = requireInt(c.req.query('since_id'), 'since_id', { min: 0 });
+    const timeout_sec = optionalInt(c.req.query('timeout_sec'), 'timeout_sec', { min: 0 });
+
+    const result = await waitForMessage(db, workspaceId, agentId, { since_id, timeout_sec });
+    return c.json(result);
   });
 
   // GET /messages — get messages for the authenticated agent

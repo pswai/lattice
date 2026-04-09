@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Hono } from 'hono';
 import type { DbAdapter } from '../db/adapter.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -36,6 +36,7 @@ import { createAdminKeyRoutes } from './routes/admin-keys.js';
 import { createOpsRoutes } from './routes/ops.js';
 import { createAuditRoutes } from './routes/audit.js';
 import { mcpAuthStorage } from '../mcp/auth-context.js';
+import { sessionRegistry } from '../mcp/session-registry.js';
 import { AppError } from '../errors.js';
 import type { AppConfig } from '../config.js';
 import { getLogger } from '../logger.js';
@@ -124,14 +125,15 @@ export function createApp(
   // Operational endpoints: /metrics (Prometheus), /healthz, /readyz — all public.
   app.route('/', createOpsRoutes(db, { metricsEnabled: config?.metricsEnabled ?? true }));
 
-  // MCP endpoint — authenticated, stateless per-request mode.
+  // MCP endpoint — session-based Streamable HTTP mode.
   //
   // The Streamable HTTP transport handles POST (JSON-RPC requests),
-  // GET (SSE event streams), and DELETE (session cleanup) internally.
-  // In stateless mode the SDK requires a fresh transport per request, and
-  // McpServer.connect() can only be called when no transport is attached,
-  // so we create a fresh McpServer+transport pair for every request to
-  // avoid concurrency issues with overlapping connections.
+  // GET (SSE event streams for server-to-client push), and DELETE
+  // (session cleanup) internally.
+  //
+  // Sessions are created on initialization and reused for subsequent
+  // requests from the same client. This enables server-initiated
+  // notifications (e.g., pushing direct messages to idle agents).
   app.all('/mcp', async (c) => {
     // Authenticate the MCP request using the same scheme as REST routes,
     // including X-Team-Override support so a single session can switch teams.
@@ -156,13 +158,42 @@ export function createApp(
     const requestId = c.get('requestId') as string | undefined;
     const auth = { workspaceId: result.resolved.workspaceId, agentId, scope: result.resolved.scope, ip: ip || undefined, requestId };
 
-    // Run the MCP handler within the auth context so tool handlers can access it
-    return mcpAuthStorage.run(auth, async () => {
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const mcpServer = createMcpServer();
-      await mcpServer.connect(transport);
-      return transport.handleRequest(c.req.raw);
+    // Reuse existing session if client provides a session ID
+    const incomingSessionId = c.req.header('mcp-session-id');
+    const existingSession = incomingSessionId ? sessionRegistry.getSession(incomingSessionId) : undefined;
+
+    if (existingSession) {
+      // Reject if the authenticated workspace doesn't match the session's workspace.
+      // Prevents cross-workspace session hijacking via stolen session IDs.
+      if (existingSession.workspaceId !== auth.workspaceId) {
+        return c.json({ error: 'INVALID_SESSION', message: 'Session does not belong to this workspace' }, 403);
+      }
+      return mcpAuthStorage.run(auth, () =>
+        existingSession.transport.handleRequest(c.req.raw),
+      );
+    }
+
+    // New session — create transport with session management
+    const mcpServer = createMcpServer();
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        sessionRegistry.registerSession({
+          sessionId: id,
+          transport,
+          server: mcpServer,
+          workspaceId: auth.workspaceId,
+          agentId: auth.agentId,
+        });
+      },
+      onsessionclosed: (id) => {
+        sessionRegistry.removeSession(id);
+      },
     });
+
+    await mcpServer.connect(transport);
+
+    return mcpAuthStorage.run(auth, () => transport.handleRequest(c.req.raw));
   });
 
   // Public inbound webhook receiver — mounted BEFORE auth middleware.
