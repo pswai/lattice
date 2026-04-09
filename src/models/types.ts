@@ -243,6 +243,8 @@ export interface SaveArtifactResponse {
 
 export interface ListArtifactsInput {
   content_type?: ArtifactContentType;
+  key_contains?: string;
+  metadata_contains?: string;
   limit?: number;
 }
 

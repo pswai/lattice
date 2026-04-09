@@ -37,12 +37,14 @@ export const artifactTools: ToolDefinition[] = [
   },
   {
     name: 'list_artifacts',
-    description: 'List artifacts in team storage (metadata only — no content). Filter by content_type.',
+    description: 'List artifacts in team storage (metadata only — no content). Filter by content_type, key, or metadata.',
     schema: {
       content_type: z.enum([
         'text/plain', 'text/markdown', 'text/html', 'application/json',
         'text/x-typescript', 'text/x-javascript', 'text/x-python', 'text/css',
       ]).optional().describe('Optional content_type filter'),
+      key_contains: z.string().max(200).optional().describe('Filter artifacts whose key contains this substring'),
+      metadata_contains: z.string().max(200).optional().describe('Filter artifacts whose metadata JSON contains this substring'),
       limit: z.number().optional().describe('Max results (default 50, max 200)'),
     },
     tier: 'persist',

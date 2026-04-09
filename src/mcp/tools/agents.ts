@@ -42,6 +42,8 @@ export const agentTools: ToolDefinition[] = [
     schema: {
       capability: z.string().optional().describe('Filter by a specific capability'),
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Filter by status'),
+      active_within_minutes: z.number().int().positive().optional().describe('Only agents with a heartbeat within the last N minutes'),
+      metadata_contains: z.string().max(200).optional().describe('Filter agents whose metadata JSON contains this substring'),
     },
     tier: 'coordinate',
     handler: async (ctx, params) => {
@@ -50,16 +52,20 @@ export const agentTools: ToolDefinition[] = [
   },
   {
     name: 'heartbeat',
-    description: 'Send a heartbeat to keep your agent status as online. Agents that stop sending heartbeats are marked offline.',
+    description: 'Send a heartbeat to keep your agent status as online. Agents that stop sending heartbeats are marked offline. Optionally merge-patch metadata.',
     schema: {
       agent_id: z.string().min(1).max(100).describe('Your agent identity'),
       status: z.enum(['online', 'offline', 'busy']).optional().describe('Optionally update your status'),
+      metadata: z.record(z.unknown()).optional().refine(
+        (v) => v === undefined || JSON.stringify(v).length <= 10_240,
+        { message: 'metadata must be under 10 KB when serialized' },
+      ).describe('Merge-patch metadata (keys are merged with existing, set null to remove a key)'),
     },
     tier: 'coordinate',
     write: true,
     autoRegister: true,
     handler: async (ctx, params) => {
-      return heartbeat(ctx.db, ctx.workspaceId, params.agent_id as string, params.status as AgentStatus | undefined);
+      return heartbeat(ctx.db, ctx.workspaceId, params.agent_id as string, params.status as AgentStatus | undefined, params.metadata as Record<string, unknown> | undefined);
     },
   },
 ];
