@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense, useMemo } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthGate } from './components/layout/AuthGate';
 import { Header } from './components/layout/Header';
 import { ToastContainer } from './components/ui/Toast';
@@ -25,8 +25,29 @@ function TabFallback() {
   );
 }
 
+/** Map the current route to the snapshot sections needed by that tab. */
+function useSectionsForRoute(): string[] | undefined {
+  const { pathname } = useLocation();
+  return useMemo(() => {
+    // Strip leading slashes and trailing segments
+    const segment = pathname.replace(/^\/+/, '').split('/')[0] || '';
+    switch (segment) {
+      case '':        return ['agents', 'tasks', 'events', 'analytics']; // Overview
+      case 'audit':   return ['auditLog'];
+      case 'keys':    return ['apiKeys'];
+      // Graph, Artifacts, Playbooks fetch their own data — no snapshot needed
+      case 'graph':
+      case 'artifacts':
+      case 'playbooks':
+        return [];
+      default:        return undefined; // all sections
+    }
+  }, [pathname]);
+}
+
 function Dashboard() {
-  const { data, loading, refresh } = useDashboard();
+  const sections = useSectionsForRoute();
+  const { data, loading, refresh } = useDashboard(sections);
   const { status: sseStatus, events: sseEvents } = useSSE({
     token: getApiKey(),
     onTaskUpdate: refresh,

@@ -71,12 +71,12 @@ export interface Analytics {
 
 export interface DashboardSnapshot {
   workspace?: { id: string; name: string };
-  agents: Agent[];
-  tasks: Task[];
-  recentEvents: LatticeEvent[];
-  analytics: Analytics;
-  auditLog: AuditEntry[];
-  apiKeys: ApiKey[];
+  agents: Agent[] | null;
+  tasks: Task[] | null;
+  recentEvents: LatticeEvent[] | null;
+  analytics: Analytics | null;
+  auditLog: AuditEntry[] | null;
+  apiKeys: ApiKey[] | null;
 }
 
 export interface GraphData {

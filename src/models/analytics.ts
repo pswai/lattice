@@ -1,5 +1,10 @@
 import type { DbAdapter } from '../db/adapter.js';
 
+/** Coerce Postgres bigint strings (and any other non-number) to a JS number. */
+function num(v: unknown): number {
+  return Number(v) || 0;
+}
+
 /**
  * Dialect-aware SQL for computing millisecond difference between two timestamp columns.
  * SQLite uses julianday(); Postgres uses EXTRACT(EPOCH FROM ...).
@@ -123,7 +128,7 @@ export async function getWorkspaceAnalytics(
   } as TaskAnalytics['by_status'];
   for (const row of taskStatusRows) {
     if ((TASK_STATUSES as readonly string[]).includes(row.status)) {
-      byStatus[row.status as keyof typeof byStatus] = row.cnt;
+      byStatus[row.status as keyof typeof byStatus] = num(row.cnt);
     }
   }
   const tasksTotal =
@@ -139,7 +144,7 @@ export async function getWorkspaceAnalytics(
     FROM tasks
     WHERE workspace_id = ? AND status = 'completed' AND created_at >= ?
   `, workspaceId, sinceIso);
-  const avgCompletionMs = avgRow!.avg_ms;
+  const avgCompletionMs = avgRow?.avg_ms != null ? num(avgRow.avg_ms) : null;
 
   const medianRow = await db.get<{ median: number | null }>(`
     WITH ordered AS (
@@ -152,7 +157,7 @@ export async function getWorkspaceAnalytics(
     SELECT AVG(ms) AS median FROM ordered
     WHERE cnt > 0 AND rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
   `, workspaceId, sinceIso);
-  const medianCompletionMs = medianRow?.median ?? null;
+  const medianCompletionMs = medianRow?.median != null ? num(medianRow.median) : null;
 
   // ── Events ───────────────────────────────────────────────────────
   const eventTypeRows = await db.all<{ event_type: string; cnt: number }>(`
@@ -166,7 +171,7 @@ export async function getWorkspaceAnalytics(
   } as EventAnalytics['by_type'];
   for (const row of eventTypeRows) {
     if ((EVENT_TYPES as readonly string[]).includes(row.event_type)) {
-      byType[row.event_type as keyof typeof byType] = row.cnt;
+      byType[row.event_type as keyof typeof byType] = num(row.cnt);
     }
   }
   const eventsTotal = byType.LEARNING + byType.BROADCAST + byType.ESCALATION + byType.ERROR + byType.TASK_UPDATE;
@@ -184,8 +189,9 @@ export async function getWorkspaceAnalytics(
 
   const perHour = new Array(24).fill(0) as number[];
   for (const row of perHourRows) {
-    if (row.hours_ago >= 0 && row.hours_ago < 24) {
-      perHour[row.hours_ago] = row.cnt;
+    const h = num(row.hours_ago);
+    if (h >= 0 && h < 24) {
+      perHour[h] = num(row.cnt);
     }
   }
 
@@ -224,13 +230,13 @@ export async function getWorkspaceAnalytics(
     'SELECT COUNT(*) AS cnt FROM context_entries WHERE workspace_id = ?',
     workspaceId,
   );
-  const contextTotal = contextTotalRow!.cnt;
+  const contextTotal = num(contextTotalRow!.cnt);
 
   const contextSinceRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM context_entries WHERE workspace_id = ? AND created_at >= ?',
     workspaceId, sinceIso,
   );
-  const contextSince = contextSinceRow!.cnt;
+  const contextSince = num(contextSinceRow!.cnt);
 
   const topAuthors = await db.all<TopAuthor>(`
     SELECT created_by AS agent_id, COUNT(*) AS count
@@ -246,13 +252,13 @@ export async function getWorkspaceAnalytics(
     'SELECT COUNT(*) AS cnt FROM messages WHERE workspace_id = ?',
     workspaceId,
   );
-  const messagesTotal = messagesTotalRow!.cnt;
+  const messagesTotal = num(messagesTotalRow!.cnt);
 
   const messagesSinceRow = await db.get<{ cnt: number }>(
     'SELECT COUNT(*) AS cnt FROM messages WHERE workspace_id = ? AND created_at >= ?',
     workspaceId, sinceIso,
   );
-  const messagesSince = messagesSinceRow!.cnt;
+  const messagesSince = num(messagesSinceRow!.cnt);
 
   return {
     tasks: {
@@ -268,14 +274,18 @@ export async function getWorkspaceAnalytics(
       per_hour_last_24h: perHour,
     },
     agents: {
-      total: agentCounts!.total,
-      online: agentCounts!.online ?? 0,
-      top_producers: topProducers,
+      total: num(agentCounts!.total),
+      online: num(agentCounts!.online),
+      top_producers: topProducers.map((p) => ({
+        agent_id: p.agent_id,
+        events: num(p.events),
+        tasks_completed: num(p.tasks_completed),
+      })),
     },
     context: {
       total_entries: contextTotal,
       entries_since: contextSince,
-      top_authors: topAuthors,
+      top_authors: topAuthors.map((a) => ({ agent_id: a.agent_id, count: num(a.count) })),
     },
     messages: {
       total: messagesTotal,

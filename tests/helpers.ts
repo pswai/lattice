@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { SCHEMA_SQL } from '../src/db/schema.js';
+import { PG_SCHEMA_SQL } from '../src/db/schema-pg.js';
 import { createApp } from '../src/http/app.js';
 import { createMcpServer } from '../src/mcp/server.js';
-import { SqliteAdapter } from '../src/db/adapter.js';
+import { SqliteAdapter, PgAdapter } from '../src/db/adapter.js';
 import type { DbAdapter } from '../src/db/adapter.js';
 import type { AppConfig } from '../src/config.js';
 import type { Hono } from 'hono';
@@ -165,4 +166,140 @@ export async function request(
     init.body = JSON.stringify(opts.body);
   }
   return app.request(path, init);
+}
+
+// ---------------------------------------------------------------------------
+// Postgres test helpers
+// ---------------------------------------------------------------------------
+
+const PG_TRUNCATE_SQL = `
+  TRUNCATE workspaces, api_keys, context_entries, events, tasks, task_dependencies,
+           agents, messages, playbooks, artifacts, agent_profiles, workflow_runs,
+           webhooks, webhook_deliveries, schedules, inbound_endpoints, audit_log
+  CASCADE;
+`;
+
+/**
+ * Create a PgAdapter connected to TEST_DATABASE_URL.
+ * Returns null if the env var is not set.
+ */
+export async function createTestPgAdapter(): Promise<PgAdapter | null> {
+  const url = process.env.TEST_DATABASE_URL;
+  if (!url) return null;
+
+  const { default: pg } = await import('pg');
+  const pool = new pg.Pool({ connectionString: url, max: 5 });
+  await pool.query(PG_SCHEMA_SQL);
+
+  return new PgAdapter(pool);
+}
+
+/**
+ * Truncate all tables between tests (fast, keeps schema).
+ */
+export async function truncatePgTables(db: DbAdapter): Promise<void> {
+  await db.exec(PG_TRUNCATE_SQL);
+}
+
+/**
+ * Create a full test context backed by Postgres.
+ */
+export async function createPgTestContext(db: DbAdapter): Promise<{
+  app: Hono;
+  workspaceId: string;
+  apiKey: string;
+  agentId: string;
+}> {
+  const workspaceId = 'test-team';
+  const apiKey = 'ltk_test_key_12345678901234567890';
+  const keyHash = createHash('sha256').update(apiKey).digest('hex');
+
+  await db.run('INSERT INTO workspaces (id, name) VALUES (?, ?)', workspaceId, `Team ${workspaceId}`);
+  await db.run(
+    'INSERT INTO api_keys (workspace_id, key_hash, label, scope) VALUES (?, ?, ?, ?)',
+    workspaceId, keyHash, 'test key', 'write',
+  );
+
+  const config = testConfig();
+  const app = createApp(db, () => createMcpServer(db), config);
+
+  return { app, workspaceId, apiKey, agentId: 'test-agent' };
+}
+
+// ---------------------------------------------------------------------------
+// Adapter-level seed helpers (work with both SQLite and Postgres)
+// ---------------------------------------------------------------------------
+
+export async function seedTask(
+  db: DbAdapter,
+  workspaceId: string,
+  opts: {
+    description?: string;
+    status: string;
+    createdBy: string;
+    claimedBy?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  },
+): Promise<number> {
+  const result = await db.run(
+    `INSERT INTO tasks (workspace_id, description, status, created_by, claimed_by, claimed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    workspaceId,
+    opts.description ?? 'test task',
+    opts.status,
+    opts.createdBy,
+    opts.claimedBy ?? null,
+    opts.claimedBy ? opts.createdAt : null,
+    opts.createdAt,
+    opts.updatedAt,
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export async function seedEvent(
+  db: DbAdapter,
+  workspaceId: string,
+  opts: { eventType: string; message: string; createdBy: string; createdAt: string },
+): Promise<void> {
+  await db.run(
+    `INSERT INTO events (workspace_id, event_type, message, tags, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    workspaceId, opts.eventType, opts.message, '[]', opts.createdBy, opts.createdAt,
+  );
+}
+
+export async function seedAgent(
+  db: DbAdapter,
+  workspaceId: string,
+  opts: { id: string; status: string },
+): Promise<void> {
+  await db.run(
+    `INSERT INTO agents (id, workspace_id, capabilities, status, metadata) VALUES (?, ?, ?, ?, ?)`,
+    opts.id, workspaceId, '[]', opts.status, '{}',
+  );
+}
+
+export async function seedContext(
+  db: DbAdapter,
+  workspaceId: string,
+  opts: { key: string; value: string; createdBy: string; createdAt: string },
+): Promise<void> {
+  await db.run(
+    `INSERT INTO context_entries (workspace_id, key, value, tags, created_by, created_at)
+     VALUES (?, ?, ?, '[]', ?, ?)`,
+    workspaceId, opts.key, opts.value, opts.createdBy, opts.createdAt,
+  );
+}
+
+export async function seedMessage(
+  db: DbAdapter,
+  workspaceId: string,
+  opts: { from: string; to: string; message: string; createdAt: string },
+): Promise<void> {
+  await db.run(
+    `INSERT INTO messages (workspace_id, from_agent, to_agent, message, tags, created_at)
+     VALUES (?, ?, ?, ?, '[]', ?)`,
+    workspaceId, opts.from, opts.to, opts.message, opts.createdAt,
+  );
 }

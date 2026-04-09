@@ -12,12 +12,19 @@ interface UseDashboardReturn {
   refresh: () => void;
 }
 
-export function useDashboard(): UseDashboardReturn {
+/**
+ * Fetch the dashboard snapshot, optionally limited to specific sections.
+ * Pass a sections array to avoid fetching data irrelevant to the active tab.
+ */
+export function useDashboard(sections?: string[]): UseDashboardReturn {
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const lastFetchRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stable key so the effect re-fires when sections change
+  const sectionsKey = sections ? sections.sort().join(',') : '';
 
   const fetchData = useCallback(async (force = false) => {
     const now = Date.now();
@@ -25,7 +32,8 @@ export function useDashboard(): UseDashboardReturn {
     lastFetchRef.current = now;
 
     try {
-      const snapshot = await api<DashboardSnapshot>('/dashboard-snapshot');
+      const qs = sectionsKey ? `?sections=${sectionsKey}` : '';
+      const snapshot = await api<DashboardSnapshot>(`/dashboard-snapshot${qs}`);
       setData(snapshot);
       setError(null);
     } catch (e) {
@@ -36,7 +44,7 @@ export function useDashboard(): UseDashboardReturn {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sectionsKey]);
 
   const refresh = useCallback(() => {
     fetchData(true);
