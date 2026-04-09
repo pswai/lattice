@@ -1,65 +1,98 @@
-## Workflow Orchestration
+## Operating Principles
 
-### 1. Plan Mode Default
+- **Simplicity.** Every change should be as small and focused as possible. Touch only what's necessary.
+- **Root causes, not patches.** Diagnose before fixing. Temporary workarounds don't ship.
+- **Prove it works.** Never declare something done without evidence — run tests, check logs, demonstrate correctness. Ask yourself: "Would a staff engineer approve this?"
+- **Elegance where it matters.** For non-trivial changes, pause and consider if there's a cleaner approach. For simple fixes, just ship it. Know the difference.
 
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+## Lattice-First Coordination
 
-### 2. Subagent Strategy
+Lattice is the default coordination layer. Every session, every agent, every subagent.
 
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
+Tools are called with the `mcp__lattice__` prefix (e.g., `mcp__lattice__get_context`, `mcp__lattice__create_task`). The main agent's identity is `"lattice-core"` (set in `.mcp.json`). Subagents use descriptive IDs like `"sub-research-auth"`.
 
-### 3. Self-Improvement Loop
+**If Lattice is unreachable**, fall back to built-in tools (TodoWrite, MEMORY.md) and note the fallback to the user.
 
-- After ANY correction from the user: update tasks/lessons md with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
+### Orient before acting
 
-### 4. Verification Before Done
+At session start, before doing any work:
 
-- Never mark a task complete without proving it works
-- After writing code, list what could break and suggest tests to cover it
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
+```
+mcp__lattice__get_context(query: "<keywords from user's request>")
+mcp__lattice__list_tasks(status: "open")
+```
 
-### 5. Demand Elegance (Balanced)
+Derive the query from the user's request. User says "fix the auth bug" → query `"auth bug"`. User says "add rate limiting" → query `"rate limiting"`. When in doubt, use broad terms.
 
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
+### During work
 
-### 6. Autonomous Bug Fixing
+- **Tasks** → `mcp__lattice__create_task` / `mcp__lattice__update_task`. This is the task tracker. TodoWrite is scratch paper for a single turn — nothing more.
+  - **Optimistic locking**: `update_task` requires the current `version`. Always call `mcp__lattice__get_task` first to get the latest version. On 409 conflict, re-fetch and retry.
+- **Knowledge** → `mcp__lattice__save_context` with descriptive keys (`"auth-jwt-rotation-analysis"`, not `"finding-1"`) and generous tags (3-5 per entry). If you learned something another agent could use, save it.
+- **Communication** → `mcp__lattice__broadcast` for workspace-wide discoveries. `mcp__lattice__send_message` for targeted handoffs.
+- **Long work** → Call `mcp__lattice__heartbeat` every 15-20 minutes. The task reaper abandons claimed tasks after 30 minutes of silence.
 
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests - then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
+### After completing a task
 
-## Lattice Coordination
+Every time you finish a unit of work (not just at session end):
 
-Use Lattice for **persistent state and automation** — things that survive beyond a single session. Use built-in tools (TodoWrite, SendMessage, memory) for **session-local work**.
+1. Mark the Lattice task `completed` with a `result` summary, or `escalated` with a reason.
+2. `mcp__lattice__save_context` for any findings worth preserving.
+3. `mcp__lattice__broadcast` if the result affects other agents or ongoing work.
 
-**When to reach for Lattice:**
-- Cross-session knowledge: `save_context` / `get_context` (FTS5 search, tags)
-- Persistent tasks with dependencies: `create_task` / `update_task` (DAG, claim-before-work)
-- Automated pipelines: `define_playbook`, `define_schedule`, `define_inbound_endpoint`
-- Multi-agent communication: `broadcast`, `send_message`
+### Built-in tools are for ephemeral scratch only
 
-**When built-ins are enough:**
-- Scratch planning for this session → TodoWrite
-- Talking to the user → direct text output
-- Remembering across conversations → MEMORY.md
+| Need | Default | Fallback (Lattice unreachable) |
+|------|---------|-------------------------------|
+| Task tracking | `mcp__lattice__create_task` / `update_task` | TodoWrite (single-turn only) |
+| Persistent knowledge | `mcp__lattice__save_context` | MEMORY.md (user prefs only) |
+| Team communication | `mcp__lattice__broadcast` / `send_message` | SendMessage (intra-session only) |
 
-## Core Principles
+## Subagent Discipline
 
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+Use subagents liberally to keep the main context window clean. One focused task per agent.
+
+All subagent types (general-purpose, Explore, Plan) have access to Lattice MCP tools. Only general-purpose agents can edit files.
+
+**Every non-trivial subagent prompt must include:**
+
+1. **Lattice orientation** — `mcp__lattice__get_context(query: "<topic>")` before starting work
+2. **Lattice persistence** — `mcp__lattice__save_context` with findings before returning
+3. **Agent identity** — a descriptive `agent_id` (e.g., `"sub-research-auth"`, `"sub-review-api"`)
+4. **Task linkage** — if working on a Lattice task, pass the `task_id` so the subagent can `update_task` on completion
+
+**Example subagent prompt:**
+> Before starting, call `mcp__lattice__get_context(query: "auth middleware")` to check existing findings. Use agent_id `"sub-auth-research"` for all Lattice calls. When done, save your findings via `mcp__lattice__save_context(agent_id: "sub-auth-research", key: "auth-middleware-analysis", value: "<your findings>", tags: ["auth", "middleware", "research"])` before returning your answer.
+
+## Agent Teams
+
+Use teams (via `TeamCreate`) when the work benefits from **opposing perspectives** or **parallel execution with coordination**. Solo subagents are fine for independent research — teams are for tension and synthesis.
+
+### When to use a team
+
+- **Decisions that need challenge**: PM vs Devil's Advocate, Proposer vs Critic
+- **Implementation with quality gates**: Implementer vs Reviewer, Builder vs Tester
+- **Research with synthesis**: Multiple researchers covering different angles, then a synthesizer
+- **Any task where a single perspective risks blind spots**
+
+### Team patterns
+
+| Pattern | Roles | When |
+|---------|-------|------|
+| **Build + Review** | Implementer writes code, Reviewer critiques it | Features, refactors, migrations |
+| **Propose + Challenge** | PM defines approach, Devil's Advocate finds holes | Architecture decisions, PRD review |
+| **Research + Synthesize** | 2-3 researchers explore in parallel, Lead synthesizes | Market research, tech evaluations |
+| **Fix + Verify** | Fixer resolves the bug, Tester writes and runs regression tests | Bug fixes with risk |
+
+### Team rules
+
+1. **Every teammate gets Lattice instructions** — same orientation/persistence requirements as solo subagents.
+2. **Opposing roles must be independent** — don't let the Reviewer see the Implementer's reasoning before forming their own opinion. Use separate subagents, not sequential prompts.
+3. **The main agent synthesizes** — teams produce perspectives, the main agent makes the final call and presents it to the user.
+4. **Shut down when done** — send `SendMessage` with shutdown request to all teammates after synthesis.
+
+## Autonomous Execution
+
+- When given a bug: investigate, fix, verify. Zero hand-holding required.
+- When corrected: capture the pattern via `mcp__lattice__save_context` with tags `["lesson", "correction"]` so future agents learn from it.
+- When CI fails: go read the logs and fix it. Don't wait to be told how.
