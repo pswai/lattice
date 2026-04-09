@@ -17,6 +17,41 @@ export function startEventCleanup(db: DbAdapter, config: AppConfig): NodeJS.Time
 async function runCleanup(db: DbAdapter, config: AppConfig): Promise<void> {
   await cleanupOldEvents(db, config.eventRetentionDays);
   await markStaleAgents(db, config.agentHeartbeatTimeoutMinutes);
+  await cleanupExpiredContext(db);
+  await cleanupOldDeliveries(db, config.eventRetentionDays);
+}
+
+async function cleanupExpiredContext(db: DbAdapter): Promise<void> {
+  const result = await db.run(`
+    DELETE FROM context_entries WHERE expires_at IS NOT NULL AND expires_at < ?
+  `, new Date().toISOString());
+
+  if (result.changes > 0) {
+    getLogger().info('context_ttl_cleanup', {
+      component: 'event-cleanup',
+      removed: result.changes,
+    });
+  }
+}
+
+async function cleanupOldDeliveries(db: DbAdapter, retentionDays: number): Promise<void> {
+  if (retentionDays <= 0) return;
+
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const result = await db.run(`
+    DELETE FROM webhook_deliveries
+    WHERE status IN ('success', 'failed', 'dead')
+      AND updated_at < ?
+  `, cutoff);
+
+  if (result.changes > 0) {
+    getLogger().info('delivery_cleanup', {
+      component: 'event-cleanup',
+      removed: result.changes,
+      retention_days: retentionDays,
+    });
+  }
 }
 
 async function cleanupOldEvents(db: DbAdapter, retentionDays: number): Promise<void> {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ToolDefinition } from './types.js';
 import { arrayParam } from './helpers.js';
-import { saveContext, getContext } from '../../models/context.js';
+import { saveContext, getContext, deleteContext } from '../../models/context.js';
 import type { SaveContextInput, GetContextInput } from '../../models/types.js';
 
 export const contextTools: ToolDefinition[] = [
@@ -13,6 +13,7 @@ export const contextTools: ToolDefinition[] = [
       key: z.string().min(1).max(255).describe('Unique identifier for this context entry'),
       value: z.string().min(1).max(100_000).describe('The context content to save'),
       tags: arrayParam(z.array(z.string().max(50)).max(20)).optional().default([]).describe('Tags for categorization and filtering'),
+      ttl_seconds: z.number().int().positive().max(86400 * 30).optional().describe('Optional TTL in seconds. Entry auto-expires after this duration. Max 30 days.'),
     },
     tier: 'persist',
     write: true,
@@ -28,11 +29,26 @@ export const contextTools: ToolDefinition[] = [
     schema: {
       query: z.string().min(1).describe('Full-text search query'),
       tags: arrayParam(z.array(z.string())).optional().default([]).describe('Optional tag filter (OR matching)'),
+      created_by: z.string().max(100).optional().describe('Filter entries created by this agent ID'),
       limit: z.number().optional().describe('Max results (default 20, max 100)'),
     },
     tier: 'persist',
     handler: async (ctx, params) => {
       return getContext(ctx.db, ctx.workspaceId, params as unknown as GetContextInput);
+    },
+  },
+  {
+    name: 'delete_context',
+    description: 'Delete a context entry by key. Returns whether the entry existed.',
+    schema: {
+      agent_id: z.string().min(1).max(100).describe('Your agent identity'),
+      key: z.string().min(1).max(255).describe('Key of the entry to delete'),
+    },
+    tier: 'persist',
+    write: true,
+    autoRegister: true,
+    handler: async (ctx, params) => {
+      return deleteContext(ctx.db, ctx.workspaceId, params.key as string);
     },
   },
 ];

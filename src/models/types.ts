@@ -10,6 +10,7 @@ export interface ContextEntry {
   createdAt: string; // ISO 8601
   updatedBy?: string | null;
   updatedAt?: string | null;
+  expiresAt?: string | null;
 }
 
 export type EventType = 'LEARNING' | 'BROADCAST' | 'ESCALATION' | 'ERROR' | 'TASK_UPDATE';
@@ -50,11 +51,13 @@ export interface SaveContextInput {
   key: string;
   value: string;
   tags: string[];
+  ttl_seconds?: number;
 }
 
 export interface GetContextInput {
   query: string;
   tags?: string[];
+  created_by?: string;
   limit?: number; // default 20, max 100
 }
 

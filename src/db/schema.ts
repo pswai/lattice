@@ -299,6 +299,17 @@ export const CONTEXT_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
     name: 'updated_at',
     sql: 'ALTER TABLE context_entries ADD COLUMN updated_at TEXT',
   },
+  {
+    name: 'expires_at',
+    sql: 'ALTER TABLE context_entries ADD COLUMN expires_at TEXT',
+  },
+];
+
+export const MESSAGE_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
+  {
+    name: 'reply_to',
+    sql: 'ALTER TABLE messages ADD COLUMN reply_to INTEGER REFERENCES messages(id)',
+  },
 ];
 
 export const PLAYBOOK_COLUMN_MIGRATIONS: Array<{ name: string; sql: string }> = [
