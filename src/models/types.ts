@@ -179,6 +179,16 @@ export interface GetMessagesResponse {
   cursor: number;
 }
 
+export interface WaitForMessageInput {
+  since_id: number;
+  timeout_sec?: number; // default 30, max 60
+}
+
+export interface WaitForMessageResponse {
+  messages: Message[];
+  cursor: number;
+}
+
 // ─── Artifact Types ──────────────────────────────────────────────────
 
 export type ArtifactContentType =

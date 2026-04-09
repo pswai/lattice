@@ -10,7 +10,7 @@ export interface CorsOptions {
 }
 
 const ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
-const ALLOWED_HEADERS = 'Authorization, Content-Type, X-Agent-ID, X-Team-Override, X-Request-ID';
+const ALLOWED_HEADERS = 'Authorization, Content-Type, X-Agent-ID, X-Team-Override, X-Request-ID, mcp-session-id, Last-Event-ID, mcp-protocol-version';
 
 /**
  * CORS middleware. Supports exact-match origin list or `'*'`. Never emits
@@ -62,6 +62,7 @@ export function createCorsMiddleware(opts: CorsOptions) {
     // Actual request — set headers then continue.
     if (allowOrigin) {
       c.header('Access-Control-Allow-Origin', allowOrigin);
+      c.header('Access-Control-Expose-Headers', 'mcp-session-id, mcp-protocol-version');
       if (credentials) {
         c.header('Access-Control-Allow-Credentials', 'true');
       }
