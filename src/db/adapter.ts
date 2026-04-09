@@ -182,7 +182,13 @@ abstract class PgBase implements DbAdapter {
   }
 
   async run(sql: string, ...params: any[]): Promise<RunResult> {
-    const result = await this.conn.query(adaptSql(sql, 'pg'), params);
+    let adapted = adaptSql(sql, 'pg');
+    // Append RETURNING id for INSERT statements so we can retrieve the auto-generated id
+    const isInsert = /^\s*INSERT\s+INTO/i.test(sql);
+    if (isInsert && !/RETURNING/i.test(adapted)) {
+      adapted = adapted.replace(/;?\s*$/, ' RETURNING id');
+    }
+    const result = await this.conn.query(adapted, params);
     return {
       changes: result.rowCount ?? 0,
       lastInsertRowid: result.rows?.[0]?.id ?? 0,
