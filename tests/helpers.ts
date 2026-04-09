@@ -115,6 +115,7 @@ export function testConfig(overrides?: Partial<AppConfig>): AppConfig {
     hstsEnabled: false,
     corsOrigins: [],
     rateLimitPerMinuteWorkspace: 0,
+    mcpRateLimitPerMinute: 0,
     ...overrides,
   };
 }

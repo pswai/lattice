@@ -34,3 +34,4 @@ data/*.db.bak
 
 # Local MCP configuration (contains API keys)
 .mcp.json
+.claude/

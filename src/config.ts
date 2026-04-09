@@ -19,6 +19,7 @@ export interface AppConfig {
   auditRetentionDays: number;
   metricsEnabled: boolean;
   rateLimitPerMinute: number;
+  mcpRateLimitPerMinute: number;
   maxBodyBytes: number;
   hstsEnabled: boolean;
   corsOrigins: string[] | '*';
@@ -43,6 +44,7 @@ export function loadConfig(): AppConfig {
     auditRetentionDays: parseInt(process.env.AUDIT_RETENTION_DAYS || '365', 10),
     metricsEnabled: (process.env.METRICS_ENABLED || 'true').toLowerCase() !== 'false',
     rateLimitPerMinute: parseInt(process.env.RATE_LIMIT_PER_MIN || '300', 10),
+    mcpRateLimitPerMinute: parseInt(process.env.MCP_RATE_LIMIT_PER_MIN || '600', 10),
     maxBodyBytes: parseInt(process.env.MAX_BODY_BYTES || '1048576', 10),
     hstsEnabled: (process.env.HSTS_ENABLED || 'false').toLowerCase() === 'true',
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),

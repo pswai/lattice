@@ -115,7 +115,12 @@ export async function listWorkflowRuns(
     taskCount: safeJsonParse<number[]>(row.task_ids, []).length,
   }));
 
-  return { workflow_runs: items, total: items.length };
+  const countResult = await db.get<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM workflow_runs
+    WHERE ${conditions.join(' AND ')}
+  `, ...params.slice(0, -1));
+
+  return { workflow_runs: items, total: countResult!.cnt };
 }
 
 export interface WorkflowRunDetails {

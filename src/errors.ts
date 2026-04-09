@@ -6,6 +6,7 @@ export class AppError extends Error {
     public readonly statusCode: number,
     message: string,
     public readonly details?: Record<string, unknown>,
+    public readonly hint?: string,
   ) {
     super(message);
     this.name = 'AppError';
@@ -16,6 +17,7 @@ export class AppError extends Error {
       error: this.code,
       message: this.message,
       ...(this.details && { details: this.details }),
+      ...(this.hint && { hint: this.hint }),
     };
   }
 }
@@ -49,13 +51,15 @@ export class InvalidTransitionError extends AppError {
 
 export class NotFoundError extends AppError {
   constructor(resource: string, id: number | string) {
-    super('NOT_FOUND', 404, `${resource} with id '${id}' not found.`);
+    const snake = resource.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+    super('NOT_FOUND', 404, `${resource} with id '${id}' not found.`, undefined,
+      `Use list_${snake}s to find valid IDs.`);
   }
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message: string) {
-    super('FORBIDDEN', 403, message);
+  constructor(message: string, hint?: string) {
+    super('FORBIDDEN', 403, message, undefined, hint);
   }
 }
 

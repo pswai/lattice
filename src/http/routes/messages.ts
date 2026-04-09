@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { DbAdapter } from '../../db/adapter.js';
 import { sendMessage, getMessages, waitForMessage } from '../../models/message.js';
+import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { validate, optionalInt, requireInt } from '../validation.js';
 
 const SendMessageSchema = z.object({
@@ -17,6 +18,7 @@ export function createMessageRoutes(db: DbAdapter): Hono {
   router.post('/', async (c) => {
     const body = await c.req.json();
     const parsed = validate(SendMessageSchema, body);
+    throwIfSecretsFound(parsed.message);
 
     const { workspaceId, agentId } = c.get('auth');
     const result = await sendMessage(db, workspaceId, agentId, parsed);

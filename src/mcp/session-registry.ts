@@ -1,6 +1,7 @@
 import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getLogger } from '../logger.js';
+import { checkListenerHealth } from '../services/event-emitter.js';
 
 /** Maximum session age before it's considered abandoned (24 hours). */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,8 +34,25 @@ class SessionRegistry {
 
   registerSession(init: McpSessionInit): void {
     const session: McpSession = { ...init, lastActivityAt: Date.now() };
+
+    // Close displaced session for the same agent (if any)
+    const key = agentKey(session.workspaceId, session.agentId);
+    const existingSessionId = this.agentSessions.get(key);
+    if (existingSessionId && existingSessionId !== session.sessionId) {
+      const existing = this.sessions.get(existingSessionId);
+      if (existing) {
+        existing.server.close().catch(() => {});
+        this.sessions.delete(existingSessionId);
+        getLogger().info('mcp_session_displaced', {
+          oldSessionId: existingSessionId,
+          newSessionId: session.sessionId,
+          agentId: session.agentId,
+        });
+      }
+    }
+
     this.sessions.set(session.sessionId, session);
-    this.agentSessions.set(agentKey(session.workspaceId, session.agentId), session.sessionId);
+    this.agentSessions.set(key, session.sessionId);
     this.ensureSweep();
   }
 
@@ -118,6 +136,9 @@ class SessionRegistry {
     if (evicted > 0) {
       getLogger().info('mcp_session_sweep', { evicted, remaining: this.sessions.size });
     }
+    // Monitor eventBus listener health during each sweep
+    checkListenerHealth();
+
     // Stop sweeping when no sessions remain
     if (this.sessions.size === 0 && this.sweepTimer) {
       clearInterval(this.sweepTimer);

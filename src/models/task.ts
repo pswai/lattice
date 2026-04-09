@@ -136,9 +136,15 @@ export async function listTasks(
     LIMIT ?
   `, ...params);
 
+  // True total (not capped by LIMIT) for pagination
+  const countResult = await db.get<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM tasks t
+    WHERE ${conditions.join(' AND ')}
+  `, ...params.slice(0, -1));
+
   return {
     tasks: rows.map(rowToTask),
-    total: rows.length,
+    total: countResult!.cnt,
   };
 }
 

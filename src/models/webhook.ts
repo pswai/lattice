@@ -318,7 +318,9 @@ export async function markDeliveryFailure(
     } else if (nextAttempt >= RETRY_SCHEDULE_MS.length) {
       status = 'dead';
     } else {
-      nextRetryAt = new Date(Date.now() + RETRY_SCHEDULE_MS[nextAttempt]).toISOString();
+      const baseDelay = RETRY_SCHEDULE_MS[nextAttempt];
+      const jitter = baseDelay * 0.2 * (2 * Math.random() - 1); // ±20%
+      nextRetryAt = new Date(Date.now() + baseDelay + jitter).toISOString();
     }
 
     await tx.run(`

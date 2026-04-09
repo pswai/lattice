@@ -7,7 +7,7 @@ import { createAuthMiddleware, resolveTeamFromRequest } from './middleware/auth.
 import { createRequestContextMiddleware } from './middleware/request-context.js';
 import { createMetricsMiddleware } from './middleware/metrics.js';
 import { createAuditMiddleware } from './middleware/audit.js';
-import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware, checkRateLimit } from './middleware/rate-limit.js';
+import { createRateLimitMiddleware, createWorkspaceRateLimitMiddleware, checkMcpRateLimit } from './middleware/rate-limit.js';
 import { createBodyLimitMiddleware } from './middleware/body-limit.js';
 import { createSecurityHeadersMiddleware } from './middleware/security-headers.js';
 import { createCorsMiddleware } from './middleware/cors.js';
@@ -89,6 +89,7 @@ export function createApp(
     return c.json({
       error: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
+      request_id: c.get('requestId') ?? undefined,
     }, 500);
   });
 
@@ -142,11 +143,11 @@ export function createApp(
       return c.json({ error: result.error, message: result.message }, result.status);
     }
 
-    // Rate-limit MCP requests using the same per-key bucket as REST
-    if (config && config.rateLimitPerMinute > 0) {
+    // Rate-limit MCP requests using a separate per-key bucket from REST
+    if (config && config.mcpRateLimitPerMinute > 0) {
       const authHeader = c.req.header('Authorization') || '';
       const keyId = createHash('sha256').update(authHeader).digest('hex');
-      const rl = checkRateLimit(keyId, config.rateLimitPerMinute);
+      const rl = checkMcpRateLimit(keyId, config.mcpRateLimitPerMinute);
       if (rl.limited) {
         return c.json({ error: 'RATE_LIMITED', message: 'Too many requests' }, 429);
       }

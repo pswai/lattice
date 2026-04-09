@@ -13,11 +13,13 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 const workspaceBuckets = new Map<string, Bucket>();
+const mcpBuckets = new Map<string, Bucket>();
 
 /** Test helper — clears in-memory rate-limit state. */
 export function __resetRateLimit(): void {
   buckets.clear();
   workspaceBuckets.clear();
+  mcpBuckets.clear();
 }
 
 /** Sweep interval for pruning stale bucket entries (every 5 minutes). */
@@ -26,14 +28,11 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null;
 
 function sweepStaleBuckets(windowMs: number): void {
   const cutoff = Date.now() - windowMs * 2;
-  for (const [key, bucket] of buckets) {
-    if (bucket.hits.length === 0 || bucket.hits[bucket.hits.length - 1] < cutoff) {
-      buckets.delete(key);
-    }
-  }
-  for (const [key, bucket] of workspaceBuckets) {
-    if (bucket.hits.length === 0 || bucket.hits[bucket.hits.length - 1] < cutoff) {
-      workspaceBuckets.delete(key);
+  for (const store of [buckets, workspaceBuckets, mcpBuckets]) {
+    for (const [key, bucket] of store) {
+      if (bucket.hits.length === 0 || bucket.hits[bucket.hits.length - 1] < cutoff) {
+        store.delete(key);
+      }
     }
   }
 }
@@ -109,22 +108,21 @@ export function createRateLimitMiddleware({ perMinute, windowMs = 60_000 }: Rate
   });
 }
 
-/**
- * Standalone rate-limit check for use outside middleware (e.g. MCP handler).
- * Returns { limited: false } or { limited: true, retryAfterSec }.
- */
-export function checkRateLimit(
+type RateLimitResult = { limited: false } | { limited: true; retryAfterSec: number };
+
+function checkBucket(
+  store: Map<string, Bucket>,
   key: string,
   perMinute: number,
-  windowMs = 60_000,
-): { limited: false } | { limited: true; retryAfterSec: number } {
+  windowMs: number,
+): RateLimitResult {
   if (perMinute <= 0) return { limited: false };
   const now = Date.now();
   const windowStart = now - windowMs;
-  let bucket = buckets.get(key);
+  let bucket = store.get(key);
   if (!bucket) {
     bucket = { hits: [] };
-    buckets.set(key, bucket);
+    store.set(key, bucket);
   }
   pruneOld(bucket, windowStart);
   if (bucket.hits.length >= perMinute) {
@@ -134,6 +132,16 @@ export function checkRateLimit(
   }
   bucket.hits.push(now);
   return { limited: false };
+}
+
+/** Standalone rate-limit check for REST (per-key bucket). */
+export function checkRateLimit(key: string, perMinute: number, windowMs = 60_000): RateLimitResult {
+  return checkBucket(buckets, key, perMinute, windowMs);
+}
+
+/** Standalone MCP rate-limit check — separate bucket pool from REST. */
+export function checkMcpRateLimit(key: string, perMinute: number, windowMs = 60_000): RateLimitResult {
+  return checkBucket(mcpBuckets, key, perMinute, windowMs);
 }
 
 /**
