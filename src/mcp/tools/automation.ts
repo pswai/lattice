@@ -5,7 +5,7 @@ import { definePlaybook, listPlaybooks, runPlaybook } from '../../models/playboo
 import type { DefinePlaybookInput } from '../../models/playbook.js';
 import { defineSchedule, listSchedules, deleteSchedule } from '../../models/schedule.js';
 import type { DefineScheduleInput } from '../../models/schedule.js';
-import { listWorkflowRuns, getWorkflowRun, type WorkflowRunStatus } from '../../models/workflow.js';
+import { listWorkflowRuns, getWorkflowRun, cancelWorkflowRun, type WorkflowRunStatus } from '../../models/workflow.js';
 import type { ListWorkflowRunsInput } from '../../models/workflow.js';
 import {
   defineInboundEndpoint,
@@ -126,6 +126,21 @@ export const automationTools: ToolDefinition[] = [
     tier: 'automation',
     handler: async (ctx, params) => {
       return getWorkflowRun(ctx.db, ctx.workspaceId, params.id as number);
+    },
+  },
+
+  {
+    name: 'cancel_workflow_run',
+    description: 'Cancel a running workflow. Abandons all non-terminal tasks and marks the run as failed.',
+    schema: {
+      agent_id: z.string().min(1).max(100).describe('Your agent identity'),
+      workflow_run_id: z.number().int().positive().describe('Workflow run ID to cancel'),
+    },
+    tier: 'automation',
+    write: true,
+    autoRegister: true,
+    handler: async (ctx, params) => {
+      return cancelWorkflowRun(ctx.db, ctx.workspaceId, ctx.agentId, params.workflow_run_id as number);
     },
   },
 

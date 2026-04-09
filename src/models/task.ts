@@ -1,6 +1,6 @@
 import type { DbAdapter } from '../db/adapter.js';
 import { jsonArrayTable } from '../db/adapter.js';
-import type { Task, TaskStatus, TaskPriority, CreateTaskInput, UpdateTaskInput, CreateTaskResponse, UpdateTaskResponse } from './types.js';
+import type { Task, TaskStatus, TaskPriority, CreateTaskInput, CreateTasksInput, UpdateTaskInput, CreateTaskResponse, CreateTasksResponse, UpdateTaskResponse } from './types.js';
 import { TaskConflictError, InvalidTransitionError, NotFoundError, ForbiddenError, ValidationError } from '../errors.js';
 import { throwIfSecretsFound } from '../services/secret-scanner.js';
 import { broadcastInternal } from './event.js';
@@ -76,6 +76,9 @@ export interface ListTasksInput {
   priority?: string;
   claimable?: boolean;
   description_contains?: string;
+  created_after?: string;
+  updated_after?: string;
+  result_contains?: string;
   limit?: number;
 }
 
@@ -127,6 +130,21 @@ export async function listTasks(
     params.push(`%${input.description_contains}%`);
   }
 
+  if (input.created_after) {
+    conditions.push('t.created_at > ?');
+    params.push(input.created_after);
+  }
+
+  if (input.updated_after) {
+    conditions.push('t.updated_at > ?');
+    params.push(input.updated_after);
+  }
+
+  if (input.result_contains) {
+    conditions.push('t.result LIKE ?');
+    params.push(`%${input.result_contains}%`);
+  }
+
   params.push(limit);
 
   const rows = await db.all<TaskRow>(`
@@ -136,7 +154,6 @@ export async function listTasks(
     LIMIT ?
   `, ...params);
 
-  // True total (not capped by LIMIT) for pagination
   const countResult = await db.get<{ cnt: number }>(`
     SELECT COUNT(*) as cnt FROM tasks t
     WHERE ${conditions.join(' AND ')}
@@ -460,4 +477,35 @@ export async function updateTask(
     status: input.status,
     version: newVersion,
   };
+}
+
+/** Create multiple tasks in a single call with intra-batch dependency wiring. */
+export async function createTasks(
+  db: DbAdapter,
+  workspaceId: string,
+  agentId: string,
+  input: CreateTasksInput,
+): Promise<CreateTasksResponse> {
+  const createdIds: number[] = [];
+  for (let i = 0; i < input.tasks.length; i++) {
+    const t = input.tasks[i];
+    const dependsOn: number[] = [];
+    if (t.depends_on_index) {
+      for (const idx of t.depends_on_index) {
+        if (idx < 0 || idx >= i) {
+          throw new ValidationError(`depends_on_index[${idx}] out of range at task ${i}`);
+        }
+        dependsOn.push(createdIds[idx]);
+      }
+    }
+    const result = await createTask(db, workspaceId, agentId, {
+      description: t.description,
+      status: t.status,
+      priority: t.priority,
+      assigned_to: t.assigned_to,
+      depends_on: dependsOn.length > 0 ? dependsOn : undefined,
+    });
+    createdIds.push(result.task_id);
+  }
+  return { task_ids: createdIds, count: createdIds.length };
 }
