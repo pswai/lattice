@@ -18,8 +18,9 @@ const HelloSchema = z.object({
   replay: z.boolean().optional(),
 });
 
-// .strict() rejects unknown fields so extra keys (including topic) fail validation
-const SendSchema = z
+// Two strict variants: one for direct sends (requires `to`), one for topic sends (requires `topic`).
+// .strict() on each branch rejects unknown fields and forces Zod to try the other branch.
+const DirectSendSchema = z
   .object({
     op: z.literal('send'),
     to: z.string().min(1),
@@ -27,6 +28,26 @@ const SendSchema = z
     payload: z.unknown(),
     idempotency_key: z.string().optional(),
     correlation_id: z.string().optional(),
+  })
+  .strict();
+
+const TopicSendSchema = z
+  .object({
+    op: z.literal('send'),
+    topic: z.string().min(1),
+    type: z.enum(['broadcast', 'event']),
+    payload: z.unknown(),
+    idempotency_key: z.string().optional(),
+    correlation_id: z.string().optional(),
+  })
+  .strict();
+
+const SendSchema = z.union([DirectSendSchema, TopicSendSchema]);
+
+const SubscribeSchema = z
+  .object({
+    op: z.literal('subscribe'),
+    topics: z.array(z.string().min(1)).min(1),
   })
   .strict();
 
@@ -44,6 +65,7 @@ type CursorRow = { max_id: number | null };
 type SubRow = { last_acked_cursor: number };
 type HeadRow = { head: number };
 type ConnIdRow = { connection_id: string };
+type TopicAgentRow = { agent_id: string };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -243,21 +265,19 @@ export class BrokerServer {
     const op = (parsed as Record<string, unknown>).op;
 
     if (op === 'send') {
-      // topic sends deferred to step 5; check before full validation for a specific error
-      if ('topic' in (parsed as Record<string, unknown>)) {
-        errorAndClose(
-          ws,
-          'malformed_frame',
-          "topic sends not yet implemented; use 'to' for direct sends",
-        );
-        return;
-      }
       const result = SendSchema.safeParse(parsed);
       if (!result.success) {
         errorAndClose(ws, 'malformed_frame', 'frame failed validation');
         return;
       }
       this.handleSend(result.data, agentId);
+    } else if (op === 'subscribe') {
+      const result = SubscribeSchema.safeParse(parsed);
+      if (!result.success) {
+        errorAndClose(ws, 'malformed_frame', 'frame failed validation');
+        return;
+      }
+      this.handleSubscribe(result.data.topics, agentId);
     } else if (op === 'ack') {
       const result = AckSchema.safeParse(parsed);
       if (!result.success) {
@@ -281,51 +301,117 @@ export class BrokerServer {
     // to TEXT; BLOB requires Buffer)
     const payloadBuf = Buffer.from(JSON.stringify(frame.payload), 'utf8');
 
-    const insertResult = this.db
-      .prepare(
-        `INSERT INTO bus_messages
-           (from_agent, to_agent, type, payload, idempotency_key, correlation_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        fromAgent,
-        frame.to,
-        frame.type,
-        payloadBuf,
-        frame.idempotency_key ?? null,
-        frame.correlation_id ?? null,
-        now,
-      );
-
-    const cursor = Number(insertResult.lastInsertRowid);
-
-    // Fan out to all active connections for the recipient
-    // Offline recipient: no rows in connectionsById; message waits for step 7 replay
-    const connRows = this.db
-      .prepare('SELECT connection_id FROM bus_subscriptions WHERE agent_id = ?')
-      .all(frame.to) as ConnIdRow[];
-
-    for (const { connection_id } of connRows) {
-      const recipientWs = this.connectionsById.get(connection_id);
-      if (!recipientWs || recipientWs.readyState !== WebSocket.OPEN) continue;
-      try {
-        sendFrame(recipientWs, {
-          op: 'message',
-          cursor,
-          from: fromAgent,
-          type: frame.type,
-          // payload is decoded from storage to round-trip correctly
-          payload: frame.payload,
-          idempotency_key: frame.idempotency_key ?? null,
-          correlation_id: frame.correlation_id ?? null,
-          created_at: now,
-        });
-      } catch {
-        // Socket closed mid-fanout; log and continue to remaining recipients
-        process.stderr.write(
-          `warn: fanout to connection ${connection_id} failed (socket closed mid-send)\n`,
+    if ('to' in frame) {
+      // Direct send
+      const insertResult = this.db
+        .prepare(
+          `INSERT INTO bus_messages
+             (from_agent, to_agent, topic, type, payload, idempotency_key, correlation_id, created_at)
+           VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          fromAgent,
+          frame.to,
+          frame.type,
+          payloadBuf,
+          frame.idempotency_key ?? null,
+          frame.correlation_id ?? null,
+          now,
         );
+
+      const cursor = Number(insertResult.lastInsertRowid);
+
+      // Fan out to all active connections for the recipient
+      // Offline recipient: no rows in connectionsById; message waits for step 7 replay
+      const connRows = this.db
+        .prepare('SELECT connection_id FROM bus_subscriptions WHERE agent_id = ?')
+        .all(frame.to) as ConnIdRow[];
+
+      for (const { connection_id } of connRows) {
+        const recipientWs = this.connectionsById.get(connection_id);
+        if (!recipientWs || recipientWs.readyState !== WebSocket.OPEN) continue;
+        try {
+          sendFrame(recipientWs, {
+            op: 'message',
+            cursor,
+            from: fromAgent,
+            type: frame.type,
+            topic: null,
+            // payload is decoded from storage to round-trip correctly
+            payload: frame.payload,
+            idempotency_key: frame.idempotency_key ?? null,
+            correlation_id: frame.correlation_id ?? null,
+            created_at: now,
+          });
+        } catch {
+          // Socket closed mid-fanout; log and continue to remaining recipients
+          process.stderr.write(
+            `warn: fanout to connection ${connection_id} failed (socket closed mid-send)\n`,
+          );
+        }
       }
+    } else {
+      // Topic send: to_agent NULL, topic name set
+      const insertResult = this.db
+        .prepare(
+          `INSERT INTO bus_messages
+             (from_agent, to_agent, topic, type, payload, idempotency_key, correlation_id, created_at)
+           VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          fromAgent,
+          frame.topic,
+          frame.type,
+          payloadBuf,
+          frame.idempotency_key ?? null,
+          frame.correlation_id ?? null,
+          now,
+        );
+
+      const cursor = Number(insertResult.lastInsertRowid);
+
+      // Resolve all agents subscribed to this topic, then fan out to their active connections.
+      // No self-suppression: if the sender is subscribed, they receive too.
+      const subscribedAgents = this.db
+        .prepare('SELECT DISTINCT agent_id FROM bus_topics WHERE topic = ?')
+        .all(frame.topic) as TopicAgentRow[];
+
+      for (const { agent_id } of subscribedAgents) {
+        const connIds = this.connectionsByAgent.get(agent_id);
+        if (!connIds) continue;
+        for (const connId of connIds) {
+          const recipientWs = this.connectionsById.get(connId);
+          if (!recipientWs || recipientWs.readyState !== WebSocket.OPEN) continue;
+          try {
+            sendFrame(recipientWs, {
+              op: 'message',
+              cursor,
+              from: fromAgent,
+              type: frame.type,
+              topic: frame.topic,
+              payload: frame.payload,
+              idempotency_key: frame.idempotency_key ?? null,
+              correlation_id: frame.correlation_id ?? null,
+              created_at: now,
+            });
+          } catch {
+            process.stderr.write(
+              `warn: topic fanout to connection ${connId} failed (socket closed mid-send)\n`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Fire-and-forget: persist agent→topic rows so subscriptions survive reconnects.
+  // No ack or response frame sent back — subscribe is write-only at the wire level.
+  private handleSubscribe(topics: string[], agentId: string): void {
+    const insert = this.db.prepare(
+      'INSERT OR IGNORE INTO bus_topics (agent_id, topic) VALUES (?, ?)',
+    );
+    for (const topic of topics) {
+      insert.run(agentId, topic);
     }
   }
 

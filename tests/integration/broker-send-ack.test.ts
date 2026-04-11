@@ -288,7 +288,7 @@ describe('send / message delivery', () => {
 // ── send validation ───────────────────────────────────────────────────────────
 
 describe('send validation', () => {
-  test('topic field present → malformed_frame with specific message', async () => {
+  test('frame with both `to` and `topic` → malformed_frame (union of strict variants rejects)', async () => {
     const wsA = await handshake(port, 'agent-a', tokenA);
 
     const framePromise = nextFrame(wsA);
@@ -306,7 +306,6 @@ describe('send validation', () => {
 
     expect(frame.op).toBe('error');
     expect(frame.code).toBe('malformed_frame');
-    expect(frame.message as string).toContain('topic sends not yet implemented');
   });
 });
 
