@@ -35,7 +35,7 @@ const TopicSendSchema = z
   .object({
     op: z.literal('send'),
     topic: z.string().min(1),
-    type: z.enum(['broadcast', 'event']),
+    type: z.enum(['direct', 'broadcast', 'event']),
     payload: z.unknown(),
     idempotency_key: z.string().optional(),
     correlation_id: z.string().optional(),
