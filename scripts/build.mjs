@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, rmSync } from 'node:fs';
 
 rmSync('dist', { recursive: true, force: true });
 
@@ -9,5 +9,6 @@ if (result.status !== 0) {
 }
 
 cpSync('src/bus/migrations', 'dist/bus/migrations', { recursive: true });
+chmodSync('dist/cli.js', 0o755);
 
-console.log('build: tsc + migration SQL copy complete');
+console.log('build: tsc + migration SQL copy + cli chmod complete');

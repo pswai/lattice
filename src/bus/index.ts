@@ -6,3 +6,9 @@ export {
   runMigrations,
   type MigrationResult,
 } from './migrations.js';
+export {
+  hashToken,
+  mintToken,
+  type MintTokenResult,
+  type TokenScope,
+} from './tokens.js';
