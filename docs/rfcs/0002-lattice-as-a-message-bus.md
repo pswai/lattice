@@ -254,6 +254,7 @@ Four client operations, four server operations. JSON frames over WebSocket. TLS 
 {"op": "message", "cursor": 143,
  "from": "agent-b",
  "type": "direct",
+ "topic": null,
  "payload": {...},
  "idempotency_key": "uuid",
  "correlation_id": "optional-uuid",
@@ -344,6 +345,8 @@ Allowed. Each connection has its own `last_acked_cursor`. A `send` fans out to e
 ### Topic subscriptions
 
 Topic subscriptions are **per-agent and persistent**, stored in `bus_topics`. When agent A subscribes to `ci-alerts` from their laptop, the subscription persists — if A connects from a different host tomorrow, they're still subscribed and receive the topic stream. This matches agent intuition: "I subscribed to X" is an agent-level action, not a session action.
+
+Topic broadcasts carry `topic: <topic-name>` on the delivered message frame; direct sends carry `topic: null`. This lets multi-topic subscribers distinguish the source.
 
 Unsubscribe is a future addition. MVP supports subscribe-only; subscriptions persist until the agent is decommissioned or the operator deletes rows directly.
 
