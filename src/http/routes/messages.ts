@@ -4,6 +4,8 @@ import type { DbAdapter } from '../../db/adapter.js';
 import { sendMessage, getMessages, searchMessages, getThread, waitForMessage } from '../../models/message.js';
 import { throwIfSecretsFound } from '../../services/secret-scanner.js';
 import { validate, optionalInt, requireInt } from '../validation.js';
+import { createSseStream } from '../sse-helper.js';
+import type { Message } from '../../models/types.js';
 
 const SendMessageSchema = z.object({
   to: z.string().min(1).max(100),
@@ -11,6 +13,10 @@ const SendMessageSchema = z.object({
   tags: z.array(z.string().max(50)).max(20),
   reply_to: z.number().int().positive().optional(),
 });
+
+function formatMessageSSE(m: Message): string {
+  return `id: ${m.id}\nevent: message\ndata: ${JSON.stringify(m)}\n\n`;
+}
 
 export function createMessageRoutes(db: DbAdapter): Hono {
   const router = new Hono();
@@ -43,6 +49,24 @@ export function createMessageRoutes(db: DbAdapter): Hono {
     const messageId = requireInt(c.req.param('id'), 'message_id');
     const result = await getThread(db, workspaceId, messageId);
     return c.json(result);
+  });
+
+  router.get('/stream', async (c) => {
+    const { workspaceId, agentId } = c.get('auth');
+
+    return createSseStream<Message, { workspaceId: string; toAgent: string; messageId: number }>({
+      eventName: 'message',
+      lastEventId: c.req.header('Last-Event-ID'),
+      signal: c.req.raw.signal,
+      fetchSince: async (sinceId, limit) => {
+        const res = await getMessages(db, workspaceId, agentId, { since_id: sinceId, limit });
+        return res.messages;
+      },
+      matches: (p) => p.workspaceId === workspaceId && p.toAgent === agentId,
+      payloadId: (p) => p.messageId,
+      itemId: (m) => m.id,
+      formatItem: formatMessageSSE,
+    });
   });
 
   // GET /messages/wait — long-poll for new messages

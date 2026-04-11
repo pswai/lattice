@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext, authHeaders, request, type TestContext } from './helpers.js';
 import { broadcastEvent } from '../src/models/event.js';
+import { sendMessage } from '../src/models/message.js';
 import { eventBus } from '../src/services/event-emitter.js';
 
 /**
@@ -155,6 +156,29 @@ describe('SSE Events Streaming', () => {
       expect(data.message).toBe('Event two');
     });
 
+    it('should still deliver new events when Last-Event-ID is larger than the current max', async () => {
+      // Connect with a stale / bogus Last-Event-ID higher than any event that exists.
+      // Regression: this used to pin lastSentId above the true max and silently drop
+      // subsequent events whose ids were lower than the bogus cursor.
+      const res = await ctx.app.request('/api/v1/events/stream', {
+        headers: {
+          ...authHeaders(ctx.apiKey),
+          'Last-Event-ID': '999999',
+        },
+      });
+
+      await broadcastEvent(ctx.db, ctx.workspaceId, 'agent-1', {
+        event_type: 'BROADCAST',
+        message: 'should still arrive',
+        tags: ['regression'],
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const data = JSON.parse(events[0].data);
+      expect(data.message).toBe('should still arrive');
+    });
+
     it('should not receive events from other teams', async () => {
       // Create a second team
       const otherTeamId = 'other-team';
@@ -207,6 +231,146 @@ describe('SSE Events Streaming', () => {
       const data = JSON.parse(events[0].data);
       expect(data.id).toBe(Number(events[0].id));
       expect(data.workspaceId).toBe(ctx.workspaceId);
+    });
+  });
+
+  describe('GET /api/v1/messages/stream', () => {
+    it('should require authentication', async () => {
+      const res = await request(ctx.app, 'GET', '/api/v1/messages/stream');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return SSE content type', async () => {
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: authHeaders(ctx.apiKey, 'agent-alice'),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('text/event-stream');
+    });
+
+    it('should backfill existing messages for the agent', async () => {
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'hello alice 1', tags: [],
+      });
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'hello alice 2', tags: [],
+      });
+
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: authHeaders(ctx.apiKey, 'agent-alice'),
+      });
+
+      const { events } = await readSSEEvents(res, 2);
+      expect(events.length).toBe(2);
+      const m0 = JSON.parse(events[0].data);
+      const m1 = JSON.parse(events[1].data);
+      expect(m0.message).toBe('hello alice 1');
+      expect(m0.toAgent).toBe('agent-alice');
+      expect(m1.message).toBe('hello alice 2');
+    });
+
+    it('should receive new messages via eventBus', async () => {
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: authHeaders(ctx.apiKey, 'agent-alice'),
+      });
+
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'live message', tags: ['live'],
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const m = JSON.parse(events[0].data);
+      expect(m.message).toBe('live message');
+      expect(m.fromAgent).toBe('agent-bob');
+    });
+
+    it('should not deliver messages addressed to a different agent', async () => {
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: authHeaders(ctx.apiKey, 'agent-alice'),
+      });
+
+      // Message to a different agent — must NOT appear on alice's stream
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-carol', message: 'not for alice', tags: [],
+      });
+      // Message to alice — should appear
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'for alice', tags: [],
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const m = JSON.parse(events[0].data);
+      expect(m.message).toBe('for alice');
+    });
+
+    it('should not deliver messages from other workspaces', async () => {
+      const otherTeamId = 'other-team';
+      const otherApiKey = 'ltk_other_key_12345678901234567890';
+      const { createHash } = await import('crypto');
+      const keyHash = createHash('sha256').update(otherApiKey).digest('hex');
+      ctx.rawDb.prepare('INSERT INTO workspaces (id, name) VALUES (?, ?)').run(otherTeamId, 'Other Team');
+      ctx.rawDb.prepare('INSERT INTO api_keys (workspace_id, key_hash, label) VALUES (?, ?, ?)').run(otherTeamId, keyHash, 'other key');
+
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: authHeaders(ctx.apiKey, 'agent-alice'),
+      });
+
+      // Cross-workspace message to an agent that happens to share the id
+      await sendMessage(ctx.db, otherTeamId, 'cross-agent', {
+        to: 'agent-alice', message: 'cross-workspace leakage', tags: [],
+      });
+      // Same-workspace message should arrive
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'same workspace', tags: [],
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const m = JSON.parse(events[0].data);
+      expect(m.message).toBe('same workspace');
+    });
+
+    it('should support Last-Event-ID for resumption', async () => {
+      const { messageId: id1 } = await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'first', tags: [],
+      });
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'second', tags: [],
+      });
+
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: {
+          ...authHeaders(ctx.apiKey, 'agent-alice'),
+          'Last-Event-ID': String(id1),
+        },
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const m = JSON.parse(events[0].data);
+      expect(m.message).toBe('second');
+    });
+
+    it('should still deliver new messages when Last-Event-ID is larger than the current max', async () => {
+      // Regression guard for the clamp fix in the onMessage handler.
+      const res = await ctx.app.request('/api/v1/messages/stream', {
+        headers: {
+          ...authHeaders(ctx.apiKey, 'agent-alice'),
+          'Last-Event-ID': '999999',
+        },
+      });
+
+      await sendMessage(ctx.db, ctx.workspaceId, 'agent-bob', {
+        to: 'agent-alice', message: 'arrives despite bogus cursor', tags: [],
+      });
+
+      const { events } = await readSSEEvents(res, 1);
+      expect(events.length).toBe(1);
+      const m = JSON.parse(events[0].data);
+      expect(m.message).toBe('arrives despite bogus cursor');
     });
   });
 });
