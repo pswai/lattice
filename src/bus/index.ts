@@ -12,3 +12,4 @@ export {
   type MintTokenResult,
   type TokenScope,
 } from './tokens.js';
+export { BrokerServer } from './broker.js';

@@ -45,6 +45,7 @@
     "ink-text-input": "^6.0.0",
     "pg": "^8.20.0",
     "react": "^18.3.1",
+    "ws": "^8.20.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
@@ -52,6 +53,7 @@
     "@types/node": "^22.0.0",
     "@types/pg": "^8.20.0",
     "@types/react": "^18.3.28",
+    "@types/ws": "^8.18.1",
     "ink-testing-library": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
