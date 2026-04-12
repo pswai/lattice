@@ -267,13 +267,13 @@ export class Bus {
    * The reply is expected as an inbound message whose correlation_id matches
    * the one generated (or provided via options). Rejects on timeout or abort.
    */
-  async request(options: RequestOptions): Promise<MessageFrame> {
+  async request<T = unknown>(options: RequestOptions): Promise<T> {
     if (this._closed) throw new BusClosedError();
 
     const correlationId = randomUUID();
-    const timeoutMs = options.timeoutMs ?? 30_000;
+    const timeoutMs = options.timeoutMs ?? 60_000;
 
-    return new Promise<MessageFrame>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       let settled = false;
 
       const done = (fn: () => void): void => {
@@ -302,7 +302,7 @@ export class Bus {
       options.signal?.addEventListener('abort', onAbort, { once: true });
 
       this.pendingRequests.set(correlationId, {
-        resolve: (msg) => done(() => resolve(msg)),
+        resolve: (msg) => done(() => resolve(msg.payload as T)),
         reject: (err) => done(() => reject(err)),
       });
 

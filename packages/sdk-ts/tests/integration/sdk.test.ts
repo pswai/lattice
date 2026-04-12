@@ -123,13 +123,13 @@ describe('Bus SDK integration', () => {
       }
     })();
 
-    const reply = await busA.request({
+    const reply = await busA.request<{ echo: unknown }>({
       to: 'agent-b',
       payload: { ping: 1 },
       timeoutMs: 5000,
     });
 
-    expect(reply.payload).toEqual({ echo: { ping: 1 } });
+    expect(reply).toEqual({ echo: { ping: 1 } });
 
     await busA.close();
     await busB.close();   // ends iterB's queue → echoTask's for-await terminates
