@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import type { DB } from './db.js';
 
 // EWMA decay constants.  Both are derived from the continuous-time formula α = 1 − e^(−dt/τ)
@@ -10,12 +10,17 @@ const ALPHA_MSG = 1 - Math.exp(-5 / 60);
 const ALPHA_DB = 1 - Math.exp(-5 / 604_800);
 
 /**
- * Return the on-disk size of the SQLite database in bytes.
+ * Return the total on-disk footprint of the SQLite database in bytes.
+ * Includes the main file plus WAL and SHM sidecar files (present when
+ * journal_mode=WAL, which this project always uses).
  * Returns 0 for in-memory databases or if the file is not yet visible to stat.
  */
 export function getDbSizeBytes(dbPath: string): number {
   try {
-    return statSync(dbPath).size;
+    const main = statSync(dbPath).size;
+    const wal = existsSync(dbPath + '-wal') ? statSync(dbPath + '-wal').size : 0;
+    const shm = existsSync(dbPath + '-shm') ? statSync(dbPath + '-shm').size : 0;
+    return main + wal + shm;
   } catch {
     return 0;
   }
