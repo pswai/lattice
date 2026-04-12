@@ -66,6 +66,17 @@ type SubRow = { last_acked_cursor: number };
 type HeadRow = { head: number };
 type ConnIdRow = { connection_id: string };
 type TopicAgentRow = { agent_id: string };
+type MsgRow = {
+  id: number;
+  from_agent: string;
+  to_agent: string | null;
+  topic: string | null;
+  type: string;
+  payload: Buffer;
+  idempotency_key: string | null;
+  correlation_id: string | null;
+  created_at: number;
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -221,27 +232,40 @@ export class BrokerServer {
       )
       .run(hello.agent_id, connectionId, hello.last_acked_cursor ?? 0, now, now);
 
-    // Add to in-memory registries
+    // Snapshot current cursor once. Any messages with id > currentCursor will be
+    // delivered via live fanout after the replay window is closed.
+    const cursorRow = this.db
+      .prepare('SELECT COALESCE(MAX(id), 0) AS max_id FROM bus_messages')
+      .get() as { max_id: number };
+    const currentCursor = cursorRow.max_id;
+
+    const willReplay = hello.replay === true;
+
+    sendFrame(ws, {
+      op: 'welcome',
+      agent_id: hello.agent_id,
+      current_cursor: currentCursor,
+      replaying: willReplay,
+      protocol_version: 1,
+    });
+
+    // Replay MUST run before adding this connection to the in-memory registries.
+    // Node.js is single-threaded and better-sqlite3 is synchronous, so no
+    // concurrent fanout can interleave with the replay loop. A live send arriving
+    // while replay is in flight will find the registry empty for this connection
+    // and skip it — the message was already captured by id <= currentCursor
+    // (if id ≤ currentCursor) or will be delivered live after registry insertion
+    // (if id > currentCursor). Both cases preserve FIFO with no duplication.
+    if (willReplay) {
+      this.handleReplay(ws, hello.agent_id, hello.last_acked_cursor ?? 0, currentCursor);
+    }
+
+    // Add to in-memory registries after replay — live fanout starts from here
     this.connectionsById.set(connectionId, ws);
     if (!this.connectionsByAgent.has(hello.agent_id)) {
       this.connectionsByAgent.set(hello.agent_id, new Set());
     }
     this.connectionsByAgent.get(hello.agent_id)!.add(connectionId);
-
-    // Current cursor (used by replay in step 7)
-    const cursorRow = this.db
-      .prepare('SELECT MAX(id) AS max_id FROM bus_messages')
-      .get() as CursorRow;
-    const currentCursor = cursorRow.max_id ?? 0;
-
-    // Welcome — replay handling deferred to step 7
-    sendFrame(ws, {
-      op: 'welcome',
-      agent_id: hello.agent_id,
-      current_cursor: currentCursor,
-      replaying: false, // replay: step 7
-      protocol_version: 1,
-    });
 
     return { connectionId, agentId: hello.agent_id };
   }
@@ -412,6 +436,81 @@ export class BrokerServer {
     );
     for (const topic of topics) {
       insert.run(agentId, topic);
+    }
+  }
+
+  // Replay missed messages for a reconnecting agent.
+  // Delivers messages in cursor order up to a cap (1000 messages OR 5 min span),
+  // then emits a `gap` op if the window was truncated.
+  // Called synchronously from handleHello BEFORE registry insertion — see inline
+  // comment in handleHello for the FIFO-safety argument.
+  private handleReplay(
+    ws: WebSocket,
+    agentId: string,
+    fromCursor: number,
+    currentCursor: number,
+  ): void {
+    const REPLAY_CAP_MESSAGES = 1000;
+    const REPLAY_CAP_MS = 5 * 60 * 1000;
+
+    try {
+      const iter = this.db
+        .prepare(
+          `SELECT id, from_agent, to_agent, topic, type, payload,
+                  idempotency_key, correlation_id, created_at
+           FROM bus_messages
+           WHERE id > ? AND id <= ?
+             AND (to_agent = ?
+                  OR (topic IS NOT NULL
+                      AND topic IN (SELECT topic FROM bus_topics WHERE agent_id = ?)))
+           ORDER BY id ASC`,
+        )
+        .iterate(fromCursor, currentCursor, agentId, agentId) as IterableIterator<MsgRow>;
+
+      let count = 0;
+      let firstCreatedAt = 0;
+      let capped = false;
+
+      for (const row of iter) {
+        // Time cap: if this row falls outside the 5-min window of the first row, stop before
+        // sending it. Check before sending so the capping row is not included in the replay.
+        if (count > 0 && row.created_at - firstCreatedAt > REPLAY_CAP_MS) {
+          capped = true;
+          break; // iterator.return() is called by for...of on break — cursor closed cleanly
+        }
+
+        if (count === 0) firstCreatedAt = row.created_at;
+
+        sendFrame(ws, {
+          op: 'message',
+          cursor: row.id,
+          from: row.from_agent,
+          type: row.type,
+          topic: row.topic ?? null,
+          payload: JSON.parse((row.payload as Buffer).toString('utf8')),
+          idempotency_key: row.idempotency_key ?? null,
+          correlation_id: row.correlation_id ?? null,
+          created_at: row.created_at,
+        });
+
+        count++;
+
+        // Count cap: stop after delivering exactly REPLAY_CAP_MESSAGES frames.
+        if (count >= REPLAY_CAP_MESSAGES) {
+          capped = true;
+          break;
+        }
+      }
+
+      if (capped) {
+        sendFrame(ws, { op: 'gap', from: fromCursor, to: currentCursor, reason: 'replay_cap' });
+      }
+    } catch (err) {
+      process.stderr.write(
+        `error: replay failed for ${agentId}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      sendFrame(ws, { op: 'error', code: 'internal_error', message: 'replay failed' });
+      ws.close();
     }
   }
 
