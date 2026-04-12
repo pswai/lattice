@@ -4,8 +4,11 @@ export type RetentionDays = number | 'forever';
 
 type ExpiredMsg = {
   id: number;
+  from_agent: string;
   to_agent: string | null;
   topic: string | null;
+  type: string;
+  created_at: number;
 };
 
 /**
@@ -37,7 +40,7 @@ export function runRetentionCleanup(
 
   // Prepare all statements outside the transaction for efficiency.
   const getExpired = db.prepare<[number], ExpiredMsg>(
-    'SELECT id, to_agent, topic FROM bus_messages WHERE created_at < ?',
+    'SELECT id, from_agent, to_agent, topic, type, created_at FROM bus_messages WHERE created_at < ?',
   );
 
   // Direct: recipient acked iff they have a bus_agent_cursors row with cursor >= msg.id.
@@ -91,6 +94,20 @@ export function runRetentionCleanup(
       }
 
       if (!fullyAcked) {
+        // Audit log: emit before insert so the record is never silently lost.
+        // Step 9 will replace this with a structured logger.
+        process.stderr.write(
+          JSON.stringify({
+            event: 'dead_letter',
+            reason: 'retention_expired',
+            message_id: msg.id,
+            from_agent: msg.from_agent,
+            to_agent: msg.to_agent,
+            topic: msg.topic,
+            type: msg.type,
+            created_at: msg.created_at,
+          }) + '\n',
+        );
         insertDeadLetter.run(now, msg.id);
         deadLettered++;
       } else {
