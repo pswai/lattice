@@ -20,4 +20,14 @@ if (sdkResult.status !== 0) {
   process.exit(sdkResult.status ?? 1);
 }
 
-console.log('build: tsc + migration SQL copy + cli chmod + sdk-ts complete');
+// Build the Claude Code channel shim (depends on sdk-ts dist)
+const shimResult = spawnSync('npx tsc -p packages/shim-claude-code/tsconfig.json', {
+  stdio: 'inherit',
+  shell: true,
+});
+if (shimResult.status !== 0) {
+  process.exit(shimResult.status ?? 1);
+}
+chmodSync('packages/shim-claude-code/dist/index.js', 0o755);
+
+console.log('build: tsc + migration SQL copy + cli chmod + sdk-ts + shim-claude-code complete');
