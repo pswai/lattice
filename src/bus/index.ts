@@ -14,5 +14,5 @@ export {
   type MintTokenResult,
   type TokenScope,
 } from './tokens.js';
-export { BrokerServer, type BrokerConfig } from './broker.js';
+export { BrokerServer, parseInboxLimit, type BrokerConfig } from './broker.js';
 export { runRetentionCleanup, parseRetentionDays, type RetentionDays } from './retention.js';

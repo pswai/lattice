@@ -53,6 +53,10 @@ export class Metrics {
     this.replayGapsTotal++;
   }
 
+  recordInboxFull(): void {
+    this.inboxFullTotal++;
+  }
+
   /**
    * Advance all EWMAs.  Called every 5 s by BrokerServer.
    */

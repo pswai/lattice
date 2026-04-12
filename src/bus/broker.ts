@@ -113,7 +113,24 @@ export type BrokerConfig = {
   retentionDays?: RetentionDays;
   /** Override the cleanup interval in ms. Default: 86_400_000 (24 h). Primarily for tests. */
   cleanupIntervalMs?: number;
+  /** Maximum unacked direct messages per recipient before sends are rejected. Default: 10000. */
+  inboxLimit?: number;
 };
+
+/**
+ * Parse the --inbox-limit / LATTICE_INBOX_LIMIT value.
+ *  - undefined → default 10000
+ *  - positive integer string → number
+ *  - anything else → throws
+ */
+export function parseInboxLimit(raw: string | undefined): number {
+  if (raw === undefined) return 10_000;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isNaN(n) && n > 0 && String(n) === raw.trim()) return n;
+  throw new Error(
+    `invalid --inbox-limit value: '${raw}' (expected positive integer)`,
+  );
+}
 
 export class BrokerServer {
   private readonly db: DB;
@@ -125,6 +142,7 @@ export class BrokerServer {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
   private readonly metrics: Metrics;
+  private readonly inboxLimit: number;
 
   // Readiness flag: false until start() resolves, false again when close() is called.
   private ready = false;
@@ -138,6 +156,7 @@ export class BrokerServer {
     this.dbPath = dbPath;
     this.retentionDays = config.retentionDays ?? 'forever';
     this.cleanupIntervalMs = config.cleanupIntervalMs ?? 86_400_000;
+    this.inboxLimit = config.inboxLimit ?? 10_000;
     this.metrics = new Metrics(dbPath);
     this.httpServer = createServer();
     // TLS is operator-terminated via reverse proxy; the broker serves plain HTTP/WS.
@@ -398,7 +417,7 @@ export class BrokerServer {
         errorAndClose(ws, 'malformed_frame', 'frame failed validation');
         return;
       }
-      this.handleSend(result.data, agentId);
+      this.handleSend(ws, result.data, agentId);
     } else if (op === 'subscribe') {
       const result = SubscribeSchema.safeParse(parsed);
       if (!result.success) {
@@ -418,7 +437,7 @@ export class BrokerServer {
     }
   }
 
-  private handleSend(frame: z.infer<typeof SendSchema>, fromAgent: string): void {
+  private handleSend(ws: WebSocket, frame: z.infer<typeof SendSchema>, fromAgent: string): void {
     // Frame size capped at 1 MB by ws maxPayload (decoder-level).
     // message_too_large error code is reserved for protocol completeness but never
     // emitted here — the ws library closes the socket with 1009 before this handler
@@ -430,24 +449,83 @@ export class BrokerServer {
     const payloadBuf = Buffer.from(JSON.stringify(frame.payload), 'utf8');
 
     if ('to' in frame) {
-      // Direct send
-      const insertResult = this.db
-        .prepare(
-          `INSERT INTO bus_messages
-             (from_agent, to_agent, topic, type, payload, idempotency_key, correlation_id, created_at)
-           VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          fromAgent,
-          frame.to,
-          frame.type,
-          payloadBuf,
-          frame.idempotency_key ?? null,
-          frame.correlation_id ?? null,
-          now,
-        );
+      // Inbox-full back-pressure applies to DIRECT sends only. Topic broadcasts are
+      // always accepted — blocking a fan-out for one slow subscriber would freeze the
+      // topic for every other subscriber. Slow topic subscribers get a `gap` op on
+      // replay instead (see handleReplay).
+      //
+      // The depth check and INSERT run inside one transaction. better-sqlite3 is
+      // synchronous and SQLite is single-writer, so no concurrent write can slip
+      // between the check and the insert. The transaction guards against future
+      // async changes being added to this path.
+      let inboxFull = false;
+      let inboxDepth = 0;
+      let cursor = 0;
 
-      const cursor = Number(insertResult.lastInsertRowid);
+      this.db.transaction(() => {
+        // Use bus_agent_cursors (not bus_subscriptions) — step 8 guarantees
+        // bus_agent_cursors.last_acked_cursor ≥ max of all active connection
+        // cursors. Using bus_subscriptions as a fallback would mask bugs in that
+        // invariant; querying bus_agent_cursors alone is the correct choice.
+        const depthRow = this.db
+          .prepare(
+            `SELECT COUNT(*) AS depth
+             FROM bus_messages
+             WHERE to_agent = ?
+               AND id > COALESCE(
+                 (SELECT last_acked_cursor FROM bus_agent_cursors WHERE agent_id = ?),
+                 0
+               )`,
+          )
+          .get(frame.to, frame.to) as { depth: number };
+
+        if (depthRow.depth >= this.inboxLimit) {
+          inboxFull = true;
+          inboxDepth = depthRow.depth;
+          return; // nothing written — transaction commits as a no-op
+        }
+
+        const insertResult = this.db
+          .prepare(
+            `INSERT INTO bus_messages
+               (from_agent, to_agent, topic, type, payload, idempotency_key, correlation_id, created_at)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            fromAgent,
+            frame.to,
+            frame.type,
+            payloadBuf,
+            frame.idempotency_key ?? null,
+            frame.correlation_id ?? null,
+            now,
+          );
+        cursor = Number(insertResult.lastInsertRowid);
+      })();
+
+      if (inboxFull) {
+        // inbox_full does NOT close the connection — the sender can retry after backoff.
+        // Contrast: unauthorized / malformed_frame / token_revoked all close the connection.
+        // Closing here would force a re-hello + token re-auth on every burst, which is
+        // exactly the wrong behavior for a transient back-pressure signal.
+        sendFrame(ws, {
+          op: 'error',
+          code: 'inbox_full',
+          message: 'recipient inbox at limit',
+          agent_id: frame.to, // RECIPIENT (not sender) per RFC 0002 §Observability
+          current_depth: inboxDepth,
+          limit: this.inboxLimit,
+        });
+        this.metrics.recordInboxFull();
+        log('warn', 'inbox_full', {
+          sender: fromAgent,
+          recipient: frame.to,
+          current_depth: inboxDepth,
+          limit: this.inboxLimit,
+        });
+        return;
+      }
+
       this.metrics.recordMessage();
       log('info', 'send', { from: fromAgent, to: frame.to, topic: null, cursor });
 
