@@ -7,6 +7,9 @@ import { hashToken } from './tokens.js';
 
 const SUPPORTED_PROTOCOL_VERSIONS = [1] as const;
 
+const MAX_REPLAY_COUNT = 1000;
+const MAX_REPLAY_SPAN_MS = 5 * 60 * 1000;
+
 // ── Frame schemas ─────────────────────────────────────────────────────────────
 
 const HelloSchema = z.object({
@@ -468,18 +471,16 @@ export class BrokerServer {
         .iterate(fromCursor, currentCursor, agentId, agentId) as IterableIterator<MsgRow>;
 
       let count = 0;
-      let firstCreatedAt = 0;
+      let firstCreatedAt: number | null = null;
       let capped = false;
 
       for (const row of iter) {
-        // Time cap: if this row falls outside the 5-min window of the first row, stop before
-        // sending it. Check before sending so the capping row is not included in the replay.
-        if (count > 0 && row.created_at - firstCreatedAt > REPLAY_CAP_MS) {
+        // Time cap: check BEFORE sending — if this row's timestamp would exceed the 5-min
+        // window, stop here so the overflow row is not delivered.
+        if (firstCreatedAt !== null && row.created_at - firstCreatedAt > MAX_REPLAY_SPAN_MS) {
           capped = true;
-          break; // iterator.return() is called by for...of on break — cursor closed cleanly
+          break; // iterator.return() called by for...of on break — cursor closed cleanly
         }
-
-        if (count === 0) firstCreatedAt = row.created_at;
 
         sendFrame(ws, {
           op: 'message',
@@ -493,10 +494,11 @@ export class BrokerServer {
           created_at: row.created_at,
         });
 
-        count++;
+        if (firstCreatedAt === null) firstCreatedAt = row.created_at;
+        count += 1;
 
-        // Count cap: stop after delivering exactly REPLAY_CAP_MESSAGES frames.
-        if (count >= REPLAY_CAP_MESSAGES) {
+        // Count cap: fires AFTER sending row N so exactly MAX_REPLAY_COUNT frames are delivered.
+        if (count >= MAX_REPLAY_COUNT) {
           capped = true;
           break;
         }
