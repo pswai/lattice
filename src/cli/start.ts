@@ -29,7 +29,9 @@ export async function runStart(args: string[]): Promise<void> {
   const port = values.port !== undefined ? Number.parseInt(values.port, 10) : 8787;
   const host = values.host ?? '127.0.0.1';
 
-  if (Number.isNaN(port) || port < 1 || port > 65535) {
+  // Port 0 is valid: tells the OS to assign a random ephemeral port.
+  // Useful for tests and when running multiple brokers concurrently.
+  if (Number.isNaN(port) || port < 0 || port > 65535) {
     process.stderr.write(`error: invalid port '${values.port}'\n`);
     process.exit(1);
   }
