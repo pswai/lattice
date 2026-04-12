@@ -224,7 +224,7 @@ describe('ack op cursor propagation', () => {
     tmp = createTmpDb();
     runMigrations(tmp.db);
     ({ plaintext: token } = mintToken(tmp.db, { agent_id: 'acker', scope: 'agent' }));
-    broker = new BrokerServer(tmp.db); // no retention = 'forever', no timer
+    broker = new BrokerServer(tmp.db, tmp.path); // no retention = 'forever', no timer
     await broker.start(0);
     port = broker.address()!.port;
   });

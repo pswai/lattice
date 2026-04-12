@@ -55,7 +55,7 @@ beforeAll(async () => {
   ({ plaintext: adminToken } = mintToken(tmp.db, { agent_id: 'agent-a', scope: 'admin' }));
   ({ plaintext: agentToken } = mintToken(tmp.db, { agent_id: 'agent-b', scope: 'agent' }));
 
-  broker = new BrokerServer(tmp.db);
+  broker = new BrokerServer(tmp.db, tmp.path);
   await broker.start(0); // OS-assigned ephemeral port
   port = broker.address()!.port;
 });

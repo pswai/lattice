@@ -169,7 +169,7 @@ beforeAll(async () => {
   ({ plaintext: tokenA } = mintToken(tmp.db, { agent_id: 'agent-a', scope: 'admin' }));
   ({ plaintext: tokenB } = mintToken(tmp.db, { agent_id: 'agent-b', scope: 'agent' }));
 
-  broker = new BrokerServer(tmp.db);
+  broker = new BrokerServer(tmp.db, tmp.path);
   await broker.start(0);
   port = broker.address()!.port;
 });

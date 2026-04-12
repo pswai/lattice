@@ -1,4 +1,5 @@
 import type { DB } from './db.js';
+import { log } from './logger.js';
 
 export type RetentionDays = number | 'forever';
 
@@ -95,19 +96,15 @@ export function runRetentionCleanup(
 
       if (!fullyAcked) {
         // Audit log: emit before insert so the record is never silently lost.
-        // Step 9 will replace this with a structured logger.
-        process.stderr.write(
-          JSON.stringify({
-            event: 'dead_letter',
-            reason: 'retention_expired',
-            message_id: msg.id,
-            from_agent: msg.from_agent,
-            to_agent: msg.to_agent,
-            topic: msg.topic,
-            type: msg.type,
-            created_at: msg.created_at,
-          }) + '\n',
-        );
+        log('warn', 'dead_letter', {
+          reason: 'retention_expired',
+          message_id: msg.id,
+          from_agent: msg.from_agent,
+          to_agent: msg.to_agent,
+          topic: msg.topic,
+          type: msg.type,
+          created_at: msg.created_at,
+        });
         insertDeadLetter.run(now, msg.id);
         deadLettered++;
       } else {

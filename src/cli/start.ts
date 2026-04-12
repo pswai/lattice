@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { openDatabase } from '../bus/db.js';
 import { runMigrations } from '../bus/migrations.js';
@@ -46,10 +47,11 @@ export async function runStart(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const db = openDatabase(values.workspace);
+  const dbPath = resolve(values.workspace);
+  const db = openDatabase(dbPath);
   runMigrations(db);
 
-  const broker = new BrokerServer(db, { retentionDays });
+  const broker = new BrokerServer(db, dbPath, { retentionDays });
   await broker.start(port, host);
 
   const addr = broker.address()!;

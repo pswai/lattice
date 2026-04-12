@@ -1,10 +1,12 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { z } from 'zod';
 import type { DB } from './db.js';
 import { hashToken } from './tokens.js';
 import { runRetentionCleanup, type RetentionDays } from './retention.js';
+import { log } from './logger.js';
+import { Metrics, getDbSizeBytes } from './metrics.js';
 
 const SUPPORTED_PROTOCOL_VERSIONS = [1] as const;
 
@@ -115,20 +117,28 @@ export type BrokerConfig = {
 
 export class BrokerServer {
   private readonly db: DB;
+  private readonly dbPath: string;
   private readonly httpServer: Server;
   private readonly wss: WebSocketServer;
   private readonly retentionDays: RetentionDays;
   private readonly cleanupIntervalMs: number;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private metricsTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly metrics: Metrics;
+
+  // Readiness flag: false until start() resolves, false again when close() is called.
+  private ready = false;
 
   // In-memory connection registries — populated on hello, cleaned up on close
   private readonly connectionsById = new Map<string, WebSocket>();
   private readonly connectionsByAgent = new Map<string, Set<string>>();
 
-  constructor(db: DB, config: BrokerConfig = {}) {
+  constructor(db: DB, dbPath: string, config: BrokerConfig = {}) {
     this.db = db;
+    this.dbPath = dbPath;
     this.retentionDays = config.retentionDays ?? 'forever';
     this.cleanupIntervalMs = config.cleanupIntervalMs ?? 86_400_000;
+    this.metrics = new Metrics(dbPath);
     this.httpServer = createServer();
     // TLS is operator-terminated via reverse proxy; the broker serves plain HTTP/WS.
     this.wss = new WebSocketServer({
@@ -137,7 +147,68 @@ export class BrokerServer {
     });
 
     this.wss.on('connection', (ws) => this.handleConnection(ws));
+
+    // HTTP handler for observability endpoints (ws uses 'upgrade' not 'request',
+    // so these coexist on the same port without conflict).
+    this.httpServer.on('request', (req, res) => this.handleRequest(req, res));
   }
+
+  // ── HTTP observability endpoints ───────────────────────────────────────────
+
+  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    const url = req.url ?? '/';
+    const method = req.method ?? 'GET';
+
+    if (url === '/healthz') {
+      if (method !== 'GET') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+        res.end('method not allowed');
+        return;
+      }
+      try {
+        this.db.prepare('SELECT 1 AS ok').get();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok' }));
+      } catch (err) {
+        log('error', 'healthz_failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', reason: 'db_unreachable' }));
+      }
+    } else if (url === '/readyz') {
+      if (method !== 'GET') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+        res.end('method not allowed');
+        return;
+      }
+      if (this.ready) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ready' }));
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not_ready' }));
+      }
+    } else if (url === '/bus_stats') {
+      if (method !== 'GET') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+        res.end('method not allowed');
+        return;
+      }
+      const stats = {
+        connections_active: this.connectionsById.size,
+        agents_active: this.connectionsByAgent.size,
+        ...this.metrics.snapshot(this.db),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(stats));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not_found' }));
+    }
+  }
+
+  // ── WebSocket connection handling ──────────────────────────────────────────
 
   private handleConnection(ws: WebSocket): void {
     let connectionId: string | null = null;
@@ -203,6 +274,7 @@ export class BrokerServer {
         this.db
           .prepare('DELETE FROM bus_subscriptions WHERE connection_id = ?')
           .run(connectionId);
+        log('info', 'close', { agent_id: agentId, connection_id: connectionId });
       }
     });
   }
@@ -279,6 +351,8 @@ export class BrokerServer {
       protocol_version: 1,
     });
 
+    log('info', 'welcome', { agent_id: hello.agent_id, connection_id: connectionId });
+
     // Replay MUST run before adding this connection to the in-memory registries.
     // Node.js is single-threaded and better-sqlite3 is synchronous, so no
     // concurrent fanout can interleave with the replay loop. A live send arriving
@@ -287,7 +361,7 @@ export class BrokerServer {
     // (if id ≤ currentCursor) or will be delivered live after registry insertion
     // (if id > currentCursor). Both cases preserve FIFO with no duplication.
     if (willReplay) {
-      this.handleReplay(ws, hello.agent_id, hello.last_acked_cursor ?? 0, currentCursor);
+      this.handleReplay(ws, hello.agent_id, hello.last_acked_cursor ?? 0, currentCursor, connectionId);
     }
 
     // Add to in-memory registries after replay — live fanout starts from here
@@ -374,6 +448,8 @@ export class BrokerServer {
         );
 
       const cursor = Number(insertResult.lastInsertRowid);
+      this.metrics.recordMessage();
+      log('info', 'send', { from: fromAgent, to: frame.to, topic: null, cursor });
 
       // Fan out to all active connections for the recipient
       // Offline recipient: no rows in connectionsById; message waits for step 7 replay
@@ -399,9 +475,7 @@ export class BrokerServer {
           });
         } catch {
           // Socket closed mid-fanout; log and continue to remaining recipients
-          process.stderr.write(
-            `warn: fanout to connection ${connection_id} failed (socket closed mid-send)\n`,
-          );
+          log('warn', 'fanout_failed', { connection_id, reason: 'socket closed mid-send' });
         }
       }
     } else {
@@ -423,6 +497,8 @@ export class BrokerServer {
         );
 
       const cursor = Number(insertResult.lastInsertRowid);
+      this.metrics.recordMessage();
+      log('info', 'send', { from: fromAgent, to: null, topic: frame.topic, cursor });
 
       // Resolve all agents subscribed to this topic, then fan out to their active connections.
       // No self-suppression: if the sender is subscribed, they receive too.
@@ -449,9 +525,7 @@ export class BrokerServer {
               created_at: now,
             });
           } catch {
-            process.stderr.write(
-              `warn: topic fanout to connection ${connId} failed (socket closed mid-send)\n`,
-            );
+            log('warn', 'fanout_failed', { connection_id: connId, reason: 'socket closed mid-send' });
           }
         }
       }
@@ -479,6 +553,7 @@ export class BrokerServer {
     agentId: string,
     fromCursor: number,
     currentCursor: number,
+    connectionId: string,
   ): void {
     const REPLAY_CAP_MESSAGES = 1000;
     const REPLAY_CAP_MS = 5 * 60 * 1000;
@@ -533,11 +608,19 @@ export class BrokerServer {
 
       if (capped) {
         sendFrame(ws, { op: 'gap', from: fromCursor, to: currentCursor, reason: 'replay_cap' });
+        this.metrics.recordGap();
+        log('info', 'replay_gap', {
+          agent_id: agentId,
+          connection_id: connectionId,
+          from: fromCursor,
+          to: currentCursor,
+        });
       }
     } catch (err) {
-      process.stderr.write(
-        `error: replay failed for ${agentId}: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      log('error', 'replay_failed', {
+        agent_id: agentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       sendFrame(ws, { op: 'error', code: 'internal_error', message: 'replay failed' });
       ws.close();
     }
@@ -553,9 +636,11 @@ export class BrokerServer {
 
     // Monotonic guard: acks must advance the cursor
     if (ackCursor <= current) {
-      process.stderr.write(
-        `warn: ack cursor ${ackCursor} ≤ last_acked ${current} for ${connectionId}; ignored\n`,
-      );
+      log('warn', 'ack_stale', {
+        connection_id: connectionId,
+        ack_cursor: ackCursor,
+        last_acked: current,
+      });
       return;
     }
 
@@ -565,9 +650,11 @@ export class BrokerServer {
       .prepare('SELECT COALESCE(MAX(id), 0) AS head FROM bus_messages')
       .get() as HeadRow;
     if (ackCursor > headRow.head) {
-      process.stderr.write(
-        `warn: ack cursor ${ackCursor} > head ${headRow.head} for ${connectionId}; ignored\n`,
-      );
+      log('warn', 'ack_ahead_of_head', {
+        connection_id: connectionId,
+        ack_cursor: ackCursor,
+        head: headRow.head,
+      });
       return;
     }
 
@@ -591,6 +678,8 @@ export class BrokerServer {
                updated_at        = excluded.updated_at`,
       )
       .run(subRow.agent_id, ackCursor, now);
+
+    log('info', 'ack', { agent_id: subRow.agent_id, cursor: ackCursor });
   }
 
   start(port = 8787, host = '127.0.0.1'): Promise<void> {
@@ -598,6 +687,8 @@ export class BrokerServer {
       this.httpServer.once('error', reject);
       this.httpServer.listen(port, host, () => {
         this.httpServer.off('error', reject);
+
+        this.ready = true;
 
         // Wire retention cleanup. 'forever' → no timer at all (simpler than schedule-but-no-op;
         // MVP has no live config reload so the safety argument doesn't apply).
@@ -610,16 +701,29 @@ export class BrokerServer {
           this.cleanupTimer.unref(); // never prevent process exit
         }
 
+        // Metrics tick: advances EWMA every 5 s.
+        this.metricsTimer = setInterval(() => this.metrics.tick(), 5_000);
+        this.metricsTimer.unref();
+
+        const addr = this.httpServer.address() as { address: string; port: number };
+        log('info', 'broker_start', { host: addr.address, port: addr.port });
+
         resolve();
       });
     });
   }
 
   close(): Promise<void> {
+    this.ready = false;
     if (this.cleanupTimer !== null) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+    if (this.metricsTimer !== null) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+    }
+    log('info', 'broker_stop', {});
     return new Promise((resolve, reject) => {
       // Terminate all active connections so httpServer.close() can drain
       for (const client of this.wss.clients) {

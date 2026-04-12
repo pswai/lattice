@@ -84,7 +84,7 @@ beforeAll(async () => {
   tmp = createTmpDb();
   runMigrations(tmp.db);
 
-  broker = new BrokerServer(tmp.db);
+  broker = new BrokerServer(tmp.db, tmp.path);
   await broker.start(0);
   port = broker.address()!.port;
 });

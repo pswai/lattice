@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DB } from './db.js';
+import { log } from './logger.js';
 
 export const DEFAULT_MIGRATIONS_DIR = fileURLToPath(
   new URL('./migrations/', import.meta.url),
@@ -106,6 +107,7 @@ export function runMigrations(
     } catch (err) {
       throw new MigrationApplyError(file.version, err);
     }
+    log('info', 'migration_applied', { version: file.version });
     applied.push(file.version);
   }
 

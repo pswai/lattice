@@ -1,4 +1,6 @@
 export { openDatabase, type DB } from './db.js';
+export { log, type LogLevel } from './logger.js';
+export { Metrics, getDbSizeBytes } from './metrics.js';
 export {
   DEFAULT_MIGRATIONS_DIR,
   MigrationApplyError,
