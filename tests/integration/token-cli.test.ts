@@ -258,7 +258,7 @@ describe('token revoke', () => {
     expect(stderr).toContain('token not found');
   });
 
-  test('revoking an already-revoked token → error + exit 1', () => {
+  test('revoking an already-revoked token → idempotent exit 0, stdout "already revoked"', () => {
     // Create and revoke
     const stdout = captureStdout(() => {
       runTokenCreate(['agent-double-revoke', '--workspace', tmp.path]);
@@ -270,11 +270,11 @@ describe('token revoke', () => {
       runTokenRevoke([plaintext, '--workspace', tmp.path]);
     });
 
-    // Revoke again → error
-    const stderr = captureExit1(() => {
+    // Revoke again → idempotent no-op, exit 0, message on stdout
+    const secondStdout = captureStdout(() => {
       runTokenRevoke([plaintext, '--workspace', tmp.path]);
     });
-    expect(stderr).toContain('already revoked');
+    expect(secondStdout).toContain('already revoked');
   });
 
   test('missing token argument → error + exit 1', () => {
