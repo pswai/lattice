@@ -16,3 +16,4 @@ export {
 } from './tokens.js';
 export { BrokerServer, parseInboxLimit, type BrokerConfig } from './broker.js';
 export { runRetentionCleanup, parseRetentionDays, type RetentionDays } from './retention.js';
+export { dispatchWebhook, type WebhookConfig } from './webhooks.js';

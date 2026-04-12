@@ -26,13 +26,14 @@ describe('lattice init', () => {
 
     const db = openDatabase(dbPath);
 
-    // schema_migrations has two rows (migrations 0001 and 0002)
+    // schema_migrations has three rows (migrations 0001, 0002, 0003)
     const migrations = db
       .prepare('SELECT version FROM schema_migrations ORDER BY version')
       .all() as { version: number }[];
-    expect(migrations).toHaveLength(2);
+    expect(migrations).toHaveLength(3);
     expect(migrations[0]!.version).toBe(1);
     expect(migrations[1]!.version).toBe(2);
+    expect(migrations[2]!.version).toBe(3);
 
     // bus_tokens has exactly one row
     const tokens = db

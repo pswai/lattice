@@ -19,9 +19,9 @@ describe('runMigrations', () => {
   test('applies all migrations on a fresh database', () => {
     const result = runMigrations(tmp.db);
 
-    expect(result.applied).toEqual([1, 2]);
+    expect(result.applied).toEqual([1, 2, 3]);
     expect(result.skipped).toEqual([]);
-    expect(result.head).toBe(2);
+    expect(result.head).toBe(3);
 
     const tables = tmp.db
       .prepare(
@@ -35,6 +35,7 @@ describe('runMigrations', () => {
       'bus_subscriptions',
       'bus_tokens',
       'bus_topics',
+      'bus_webhooks',
       'schema_migrations',
     ]);
 
@@ -43,7 +44,7 @@ describe('runMigrations', () => {
         "SELECT name, sql FROM sqlite_master WHERE type='table' AND name LIKE 'bus_%'",
       )
       .all() as { name: string; sql: string }[];
-    expect(busTables.length).toBe(6);
+    expect(busTables.length).toBe(7);
     for (const row of busTables) {
       expect(row.sql.toUpperCase()).toContain('STRICT');
     }
@@ -68,8 +69,8 @@ describe('runMigrations', () => {
     runMigrations(tmp.db);
     const result = runMigrations(tmp.db);
     expect(result.applied).toEqual([]);
-    expect(result.skipped).toEqual([1, 2]);
-    expect(result.head).toBe(2);
+    expect(result.skipped).toEqual([1, 2, 3]);
+    expect(result.head).toBe(3);
   });
 
   test('throws MigrationDowngradeError when DB version exceeds code version', () => {
