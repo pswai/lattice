@@ -13,16 +13,6 @@ interface WebhookRow {
   secret: string;
 }
 
-interface DeadLetterMsg {
-  id: number;
-  from_agent: string;
-  to_agent: string | null;
-  topic: string | null;
-  type: string;
-  payload: Buffer;
-  created_at: number;
-}
-
 export async function dispatchWebhook(
   db: DB,
   messageId: number,

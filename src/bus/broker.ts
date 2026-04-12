@@ -6,7 +6,7 @@ import type { DB } from './db.js';
 import { hashToken } from './tokens.js';
 import { runRetentionCleanup, type RetentionDays } from './retention.js';
 import { log } from './logger.js';
-import { Metrics, getDbSizeBytes } from './metrics.js';
+import { Metrics } from './metrics.js';
 
 const SUPPORTED_PROTOCOL_VERSIONS = [1] as const;
 
@@ -67,7 +67,6 @@ const AckSchema = z
 // ── DB row types ──────────────────────────────────────────────────────────────
 
 type TokenRow = { agent_id: string; revoked_at: number | null };
-type CursorRow = { max_id: number | null };
 type SubRow = { agent_id: string; last_acked_cursor: number };
 type HeadRow = { head: number };
 type ConnIdRow = { connection_id: string };
@@ -633,9 +632,6 @@ export class BrokerServer {
     currentCursor: number,
     connectionId: string,
   ): void {
-    const REPLAY_CAP_MESSAGES = 1000;
-    const REPLAY_CAP_MS = 5 * 60 * 1000;
-
     try {
       const iter = this.db
         .prepare(

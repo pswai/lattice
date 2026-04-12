@@ -12,6 +12,8 @@ Key implementation details or design decisions.
 
 ## Testing
 
-- [ ] Tests added/updated
-- [ ] All tests pass (`npm test`)
-- [ ] Build succeeds (`npm run build`)
+- [ ] `npm run lint` passes
+- [ ] `npm run typecheck` passes
+- [ ] `npm test` passes (148 tests)
+- [ ] `npm run build` succeeds
+- [ ] `npm run test:fault` passes (if touching broker, SDK, or shims)

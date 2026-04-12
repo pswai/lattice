@@ -1,22 +1,21 @@
 {
   "name": "lattice",
-  "version": "0.1.0",
-  "description": "MCP-native coordination layer for AI agent teams",
+  "version": "0.2.0",
+  "description": "Durable message bus for AI agent communication",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/cli.js",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/pswai/lattice.git"
   },
   "keywords": [
-    "mcp",
     "ai-agents",
-    "coordination",
-    "model-context-protocol",
+    "message-bus",
+    "mcp",
     "multi-agent",
-    "task-management",
-    "knowledge-base"
+    "websocket",
+    "sqlite"
   ],
   "engines": {
     "node": ">=20"
@@ -26,37 +25,28 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:dashboard": "cd dashboard && npm run build",
-    "build:all": "tsc && cd dashboard && npm run build",
-    "start": "node dist/index.js",
+    "start": "node dist/cli.js start",
     "dev": "tsc --watch",
-    "dev:dashboard": "cd dashboard && npm run dev",
+    "lint": "eslint src/ packages/*/src/ tests/ scripts/",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/sdk-ts/tsconfig.json && tsc --noEmit -p packages/shim-claude-code/tsconfig.json && tsc --noEmit -p packages/shim-mcp/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fault": "vitest run --config vitest.fault.config.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "better-sqlite3": "^11.7.0",
-    "hono": "^4.7.0",
-    "ink": "^5.2.1",
-    "ink-select-input": "^6.2.0",
-    "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
-    "pg": "^8.20.0",
-    "react": "^18.3.1",
     "ws": "^8.20.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
-    "@types/pg": "^8.20.0",
-    "@types/react": "^18.3.28",
     "@types/ws": "^8.18.1",
-    "ink-testing-library": "^4.0.0",
+    "eslint": "^10.2.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.58.1",
     "vitest": "^3.1.0"
   }
 }

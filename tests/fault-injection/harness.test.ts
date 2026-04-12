@@ -79,7 +79,7 @@ describe('fault-injection harness', () => {
         } catch (err) {
           // Add iteration context to the error message
           const msg = err instanceof Error ? err.message : String(err);
-          throw new Error(`Fault-injection FAILED at ${context}\n\n${msg}`);
+          throw new Error(`Fault-injection FAILED at ${context}\n\n${msg}`, { cause: err });
         } finally {
           if (broker) {
             activeBrokers.splice(activeBrokers.indexOf(broker), 1);

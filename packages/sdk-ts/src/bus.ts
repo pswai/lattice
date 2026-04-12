@@ -170,6 +170,7 @@ export class Bus {
 
     const conn = this.conn;
     const seen = this.seen;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const busRef = this;
 
     // Register handler immediately — before any await, before the caller's next tick

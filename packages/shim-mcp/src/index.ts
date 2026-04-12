@@ -77,7 +77,7 @@ mcpServer.registerTool(
     },
   },
   async ({ timeout_ms, correlation_id }) => {
-    let msg: MessageFrame | null = null;
+    let msg: MessageFrame | null;
     if (correlation_id) {
       // Check queue for a matching correlation_id
       const idx = messageQueue.findIndex((m) => m.correlation_id === correlation_id);

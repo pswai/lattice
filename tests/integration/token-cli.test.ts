@@ -102,7 +102,6 @@ afterEach(() => {
 
 describe('token create', () => {
   test('creates a token that authenticates successfully via hello', async () => {
-    let plaintext = '';
     const stdout = captureStdout(() => {
       runTokenCreate(['agent-new', '--workspace', tmp.path]);
     });
@@ -110,7 +109,7 @@ describe('token create', () => {
     // Parse the token from stdout output ("  lat_live_..." line)
     const match = stdout.match(/(lat_(?:live|admin)_\S+)/);
     expect(match).not.toBeNull();
-    plaintext = match![1]!;
+    const plaintext = match![1]!;
 
     // Use the minted token to connect
     const ws = await connect(port);

@@ -21,7 +21,6 @@ What you expected to happen.
 - Lattice version:
 - Node.js version:
 - OS:
-- Database: SQLite / PostgreSQL
 
 **Additional context**
 Any other context, logs, or screenshots.
