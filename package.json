@@ -28,7 +28,7 @@
     "start": "node dist/cli.js start",
     "dev": "tsc --watch",
     "lint": "eslint src/ packages/*/src/ tests/ scripts/",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/sdk-ts/tsconfig.json && tsc --noEmit -p packages/shim-claude-code/tsconfig.json && tsc --noEmit -p packages/shim-mcp/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p packages/sdk-ts/tsconfig.json && tsc --noEmit -p packages/shim-claude-code/tsconfig.json && tsc --noEmit -p packages/shim-mcp/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fault": "vitest run --config vitest.fault.config.ts"
