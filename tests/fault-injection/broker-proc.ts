@@ -50,23 +50,29 @@ export class BrokerProc {
   readonly tokens = new Map<string, string>();
   private readonly agentIds: string[];
 
-  private constructor(dir: string, dbPath: string, agentIds: string[]) {
+  private readonly inboxLimit: number | undefined;
+
+  private constructor(dir: string, dbPath: string, agentIds: string[], inboxLimit?: number) {
     this.dir = dir;
     this.dbPath = dbPath;
     this.agentIds = agentIds;
+    this.inboxLimit = inboxLimit;
   }
 
   /**
    * Create a fresh broker with a new temp DB. Tokens are minted for each agentId
    * before the subprocess starts so they're available immediately on connect.
    */
-  static async create(agentIds: string[]): Promise<BrokerProc> {
+  static async create(
+    agentIds: string[],
+    opts: { inboxLimit?: number } = {},
+  ): Promise<BrokerProc> {
     const dir = mkdtempSync(join(tmpdir(), 'lattice-fault-'));
     const dbPath = join(dir, 'bus.db');
 
     const db = openDatabase(dbPath);
     runMigrations(db);
-    const proc = new BrokerProc(dir, dbPath, agentIds);
+    const proc = new BrokerProc(dir, dbPath, agentIds, opts.inboxLimit);
     for (const agentId of agentIds) {
       const { plaintext } = mintToken(db, { agent_id: agentId, scope: 'agent' });
       proc.tokens.set(agentId, plaintext);
@@ -86,12 +92,12 @@ export class BrokerProc {
     return openDatabase(this.dbPath);
   }
 
-  async start(): Promise<void> {
-    const proc = spawn(
-      process.execPath,
-      [CLI_PATH, 'start', '--workspace', this.dbPath, '--port', '0'],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
+  async start(port = 0): Promise<void> {
+    const args = [CLI_PATH, 'start', '--workspace', this.dbPath, '--port', String(port)];
+    if (this.inboxLimit !== undefined) {
+      args.push('--inbox-limit', String(this.inboxLimit));
+    }
+    const proc = spawn(process.execPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     this.proc = proc;
 
     // Parse port from structured broker_start log line on stderr
@@ -188,6 +194,17 @@ export class BrokerProc {
     await this.kill();
     await sleep(150); // brief pause to let OS release file locks
     await this.start();
+  }
+
+  /**
+   * Kill the running broker and restart it on the SAME port.
+   * Used by SDK integration tests where the client URL must remain constant.
+   */
+  async restartSamePort(): Promise<void> {
+    const prevPort = this.port;
+    await this.kill();
+    await sleep(150);
+    await this.start(prevPort);
   }
 
   /** Kill (if running) and delete the temp dir. Call in afterAll/afterEach. */

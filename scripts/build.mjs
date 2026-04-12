@@ -11,4 +11,13 @@ if (result.status !== 0) {
 cpSync('src/bus/migrations', 'dist/bus/migrations', { recursive: true });
 chmodSync('dist/cli.js', 0o755);
 
-console.log('build: tsc + migration SQL copy + cli chmod complete');
+// Build the TypeScript SDK package
+const sdkResult = spawnSync('npx tsc -p packages/sdk-ts/tsconfig.json', {
+  stdio: 'inherit',
+  shell: true,
+});
+if (sdkResult.status !== 0) {
+  process.exit(sdkResult.status ?? 1);
+}
+
+console.log('build: tsc + migration SQL copy + cli chmod + sdk-ts complete');
