@@ -32,7 +32,8 @@
     "dev": "tsc --watch",
     "dev:dashboard": "cd dashboard && npm run dev",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:fault": "vitest run --config vitest.fault.config.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
