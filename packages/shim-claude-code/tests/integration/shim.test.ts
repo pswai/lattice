@@ -121,6 +121,9 @@ describe('Claude Code channel shim', () => {
   test('MCP initialize returns experimental claude/channel capability', () => {
     const caps = mcpClient.getServerCapabilities();
     expect(caps?.experimental).toHaveProperty('claude/channel');
+    // Server should also provide instructions for Claude's system prompt
+    const info = mcpClient.getServerVersion();
+    expect(info?.name).toBe('lattice');
   });
 
   test('lists lattice tools', async () => {
@@ -172,11 +175,15 @@ describe('Claude Code channel shim', () => {
     });
 
     const notification = await received;
-    expect(notification).toMatchObject({
-      source: 'lattice',
-      from: 'sender-agent',
-      type: 'direct',
-    });
-    expect(notification.payload).toMatchObject({ ping: true });
+    // Official channel format: { content: string, meta: Record<string, string> }
+    // source is auto-set from the server name, not in params
+    expect(notification).toHaveProperty('content');
+    expect(notification).toHaveProperty('meta');
+    const meta = notification.meta as Record<string, string>;
+    expect(meta.from).toBe('sender-agent');
+    expect(meta.type).toBe('direct');
+    // content is the payload serialized as a string
+    const content = JSON.parse(notification.content as string);
+    expect(content).toMatchObject({ ping: true });
   }, 10000);
 });

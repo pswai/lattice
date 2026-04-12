@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import * as z from 'zod/v4';
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { Bus } from '../../sdk-ts/dist/index.js';
 import type { MessageFrame } from '../../sdk-ts/dist/index.js';
 
@@ -9,7 +12,6 @@ const LATTICE_URL = process.env.LATTICE_URL;
 const LATTICE_AGENT_ID = process.env.LATTICE_AGENT_ID;
 const LATTICE_TOKEN = process.env.LATTICE_TOKEN;
 const LATTICE_TOPICS = process.env.LATTICE_TOPICS;
-const LATTICE_CHANNEL_SOURCE = process.env.LATTICE_CHANNEL_SOURCE ?? 'lattice';
 
 if (!LATTICE_URL || !LATTICE_AGENT_ID || !LATTICE_TOKEN) {
   process.stderr.write(
@@ -29,45 +31,89 @@ const bus = new Bus({
   },
 });
 
-const mcpServer = new McpServer(
-  { name: 'lattice-shim-claude-code', version: '0.2.0' },
+// Use raw Server (not McpServer) to match the official channel protocol exactly.
+// The channel docs use Server + setRequestHandler for tools, and mcp.notification()
+// for channel events — that's what Claude Code's notification handler expects.
+const mcp = new Server(
+  { name: 'lattice', version: '0.2.0' },
   {
     capabilities: {
-      tools: {},
       experimental: { 'claude/channel': {} },
+      tools: {},
     },
+    // Added to Claude's system prompt so it knows how to handle Lattice events.
+    instructions:
+      'Messages from other Lattice agents arrive as <channel source="lattice" from="..." type="..." ...>. ' +
+      'Use the lattice_send_message tool to reply. Pass the "from" attribute as the "to" argument. ' +
+      'Topic broadcasts include a "topic" attribute; direct messages do not.',
   },
 );
 
-mcpServer.registerTool(
-  'lattice_send_message',
-  {
-    description: 'Send a message to another agent or topic via the Lattice bus',
-    inputSchema: {
-      to: z.string().optional().describe('Recipient agent ID (for direct messages)'),
-      topic: z.string().optional().describe('Topic name (for broadcast messages)'),
-      type: z.enum(['direct', 'broadcast', 'event']).describe('Message type'),
-      payload: z.any().describe('Message payload (any JSON value)'),
-      idempotency_key: z.string().optional().describe('Idempotency key for receiver-side dedup'),
-      correlation_id: z.string().optional().describe('Correlation ID for request/reply'),
+// --- Tools: let Claude send messages and subscribe to topics ----------------
+
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: 'lattice_send_message',
+      description: 'Send a message to another agent or topic via the Lattice bus',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          to: { type: 'string', description: 'Recipient agent ID (for direct messages)' },
+          topic: { type: 'string', description: 'Topic name (for broadcast messages)' },
+          type: {
+            type: 'string',
+            enum: ['direct', 'broadcast', 'event'],
+            description: 'Message type',
+          },
+          payload: { description: 'Message payload (any JSON value)' },
+          idempotency_key: { type: 'string', description: 'Idempotency key for receiver-side dedup' },
+          correlation_id: { type: 'string', description: 'Correlation ID for request/reply' },
+        },
+        required: ['type', 'payload'],
+      },
     },
-  },
-  async ({ to, topic, type, payload, idempotency_key, correlation_id }) => {
+    {
+      name: 'lattice_subscribe',
+      description: 'Subscribe to one or more Lattice topics',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          topics: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Topic names to subscribe to',
+          },
+        },
+        required: ['topics'],
+      },
+    },
+  ],
+}));
+
+mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const { name, arguments: args } = req.params;
+
+  if (name === 'lattice_send_message') {
+    const { to, topic, type, payload, idempotency_key, correlation_id } = args as Record<
+      string,
+      unknown
+    >;
     try {
       bus.send({
-        to: to ?? undefined,
-        topic: topic ?? undefined,
-        type: type as 'direct' | 'broadcast' | 'event',
+        to: (to as string) ?? undefined,
+        topic: (topic as string) ?? undefined,
+        type: (type as 'direct' | 'broadcast' | 'event') ?? 'direct',
         payload,
-        idempotency_key: idempotency_key ?? undefined,
-        correlation_id: correlation_id ?? undefined,
+        idempotency_key: (idempotency_key as string) ?? undefined,
+        correlation_id: (correlation_id as string) ?? undefined,
       });
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true }) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
     } catch (err) {
       return {
         content: [
           {
-            type: 'text' as const,
+            type: 'text',
             text: JSON.stringify({
               ok: false,
               error: err instanceof Error ? err.message : String(err),
@@ -77,28 +123,18 @@ mcpServer.registerTool(
         isError: true,
       };
     }
-  },
-);
+  }
 
-mcpServer.registerTool(
-  'lattice_subscribe',
-  {
-    description: 'Subscribe to one or more topics on the Lattice bus',
-    inputSchema: {
-      topics: z.array(z.string()).min(1).describe('Topic names to subscribe to'),
-    },
-  },
-  async ({ topics }) => {
+  if (name === 'lattice_subscribe') {
+    const { topics } = args as { topics: string[] };
     try {
       bus.subscribe(topics);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, topics }) }],
-      };
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, topics }) }] };
     } catch (err) {
       return {
         content: [
           {
-            type: 'text' as const,
+            type: 'text',
             text: JSON.stringify({
               ok: false,
               error: err instanceof Error ? err.message : String(err),
@@ -108,33 +144,42 @@ mcpServer.registerTool(
         isError: true,
       };
     }
-  },
-);
+  }
 
-let transport: StdioServerTransport;
+  throw new Error(`unknown tool: ${name}`);
+});
 
-function buildChannelNotification(msg: MessageFrame) {
-  return {
-    jsonrpc: '2.0' as const,
-    method: 'notifications/claude/channel',
-    params: {
-      source: LATTICE_CHANNEL_SOURCE,
-      from: msg.from,
-      type: msg.type,
-      topic: msg.topic,
-      payload: msg.payload,
-      cursor: msg.cursor,
-      idempotency_key: msg.idempotency_key,
-      correlation_id: msg.correlation_id,
-      created_at: msg.created_at,
-    },
+// --- Channel notification: push Lattice messages into Claude's context ------
+
+function buildChannelMeta(msg: MessageFrame): Record<string, string> {
+  const meta: Record<string, string> = {
+    from: msg.from,
+    type: msg.type,
+    cursor: String(msg.cursor),
+    created_at: String(msg.created_at),
   };
+  if (msg.topic) meta.topic = msg.topic;
+  if (msg.idempotency_key) meta.idempotency_key = msg.idempotency_key;
+  if (msg.correlation_id) meta.correlation_id = msg.correlation_id;
+  return meta;
 }
 
 async function startMessageLoop() {
   for await (const msg of bus.messages()) {
     try {
-      await transport.send(buildChannelNotification(msg));
+      // Official Claude Code channel notification format:
+      // - content: string body of the <channel> tag
+      // - meta: Record<string, string> attributes on the <channel> tag
+      // - source is set automatically from the server name ("lattice")
+      await mcp.notification({
+        method: 'notifications/claude/channel',
+        params: {
+          content: typeof msg.payload === 'string'
+            ? msg.payload
+            : JSON.stringify(msg.payload),
+          meta: buildChannelMeta(msg),
+        },
+      });
     } catch (err) {
       process.stderr.write(
         JSON.stringify({
@@ -165,8 +210,7 @@ async function main() {
     if (topics.length > 0) bus.subscribe(topics);
   }
 
-  transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
+  await mcp.connect(new StdioServerTransport());
 
   startMessageLoop().catch((err) => {
     process.stderr.write(
