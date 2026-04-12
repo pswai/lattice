@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { openDatabase } from '../bus/db.js';
 import { runMigrations } from '../bus/migrations.js';
 import { BrokerServer } from '../bus/broker.js';
+import { parseRetentionDays } from '../bus/retention.js';
 
 export async function runStart(args: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -10,6 +11,7 @@ export async function runStart(args: string[]): Promise<void> {
       workspace: { type: 'string', short: 'w' },
       port: { type: 'string', short: 'p' },
       host: { type: 'string' },
+      'retention-days': { type: 'string' },
     },
     strict: true,
   });
@@ -17,7 +19,7 @@ export async function runStart(args: string[]): Promise<void> {
   if (!values.workspace) {
     process.stderr.write(
       'error: --workspace <path> is required\n' +
-        '  Usage: lattice start --workspace <path> [--port <port>] [--host <host>]\n',
+        '  Usage: lattice start --workspace <path> [--port <port>] [--host <host>] [--retention-days <N|forever>]\n',
     );
     process.exit(1);
   }
@@ -30,10 +32,24 @@ export async function runStart(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Resolution order: CLI flag > LATTICE_RETENTION_DAYS env > default 30 days
+  const retentionRaw =
+    values['retention-days'] ?? process.env['LATTICE_RETENTION_DAYS'] ?? '30';
+  let retentionDays: number | 'forever';
+  try {
+    retentionDays = parseRetentionDays(retentionRaw);
+  } catch (err) {
+    process.stderr.write(
+      `error: ${err instanceof Error ? err.message : String(err)}\n` +
+        '  Usage: lattice start ... [--retention-days <positive-integer|forever>]\n',
+    );
+    process.exit(1);
+  }
+
   const db = openDatabase(values.workspace);
   runMigrations(db);
 
-  const broker = new BrokerServer(db);
+  const broker = new BrokerServer(db, { retentionDays });
   await broker.start(port, host);
 
   const addr = broker.address()!;

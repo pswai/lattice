@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { z } from 'zod';
 import type { DB } from './db.js';
 import { hashToken } from './tokens.js';
+import { runRetentionCleanup, type RetentionDays } from './retention.js';
 
 const SUPPORTED_PROTOCOL_VERSIONS = [1] as const;
 
@@ -65,7 +66,7 @@ const AckSchema = z
 
 type TokenRow = { agent_id: string; revoked_at: number | null };
 type CursorRow = { max_id: number | null };
-type SubRow = { last_acked_cursor: number };
+type SubRow = { agent_id: string; last_acked_cursor: number };
 type HeadRow = { head: number };
 type ConnIdRow = { connection_id: string };
 type TopicAgentRow = { agent_id: string };
@@ -105,17 +106,29 @@ function errorAndClose(ws: WebSocket, code: string, message: string): void {
 
 // ── BrokerServer ──────────────────────────────────────────────────────────────
 
+export type BrokerConfig = {
+  /** Days to retain messages. 'forever' disables the cleanup job entirely. Default: 'forever'. */
+  retentionDays?: RetentionDays;
+  /** Override the cleanup interval in ms. Default: 86_400_000 (24 h). Primarily for tests. */
+  cleanupIntervalMs?: number;
+};
+
 export class BrokerServer {
   private readonly db: DB;
   private readonly httpServer: Server;
   private readonly wss: WebSocketServer;
+  private readonly retentionDays: RetentionDays;
+  private readonly cleanupIntervalMs: number;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   // In-memory connection registries — populated on hello, cleaned up on close
   private readonly connectionsById = new Map<string, WebSocket>();
   private readonly connectionsByAgent = new Map<string, Set<string>>();
 
-  constructor(db: DB) {
+  constructor(db: DB, config: BrokerConfig = {}) {
     this.db = db;
+    this.retentionDays = config.retentionDays ?? 'forever';
+    this.cleanupIntervalMs = config.cleanupIntervalMs ?? 86_400_000;
     this.httpServer = createServer();
     // TLS is operator-terminated via reverse proxy; the broker serves plain HTTP/WS.
     this.wss = new WebSocketServer({
@@ -172,6 +185,20 @@ export class BrokerServer {
           agentConns.delete(connectionId);
           if (agentConns.size === 0) this.connectionsByAgent.delete(agentId!);
         }
+        // Safety-net: propagate this connection's last acked cursor to bus_agent_cursors
+        // before deleting the subscription row.  This ensures the retention cleanup
+        // can see the cursor even when the agent is offline.  The ack-time upsert
+        // already handles the common path; this covers the lagging-connection case.
+        this.db
+          .prepare(
+            `INSERT INTO bus_agent_cursors (agent_id, last_acked_cursor, updated_at)
+             SELECT agent_id, last_acked_cursor, ?
+             FROM bus_subscriptions WHERE connection_id = ?
+             ON CONFLICT(agent_id) DO UPDATE
+               SET last_acked_cursor = MAX(bus_agent_cursors.last_acked_cursor, excluded.last_acked_cursor),
+                   updated_at        = excluded.updated_at`,
+          )
+          .run(Date.now(), connectionId);
         // Remove subscription row; safe even if row was never inserted
         this.db
           .prepare('DELETE FROM bus_subscriptions WHERE connection_id = ?')
@@ -518,7 +545,7 @@ export class BrokerServer {
 
   private handleAck(connectionId: string, ackCursor: number): void {
     const subRow = this.db
-      .prepare('SELECT last_acked_cursor FROM bus_subscriptions WHERE connection_id = ?')
+      .prepare('SELECT agent_id, last_acked_cursor FROM bus_subscriptions WHERE connection_id = ?')
       .get(connectionId) as SubRow | undefined;
     if (!subRow) return;
 
@@ -544,11 +571,26 @@ export class BrokerServer {
       return;
     }
 
+    const now = Date.now();
+
     this.db
       .prepare(
         'UPDATE bus_subscriptions SET last_acked_cursor = ?, last_seen_at = ? WHERE connection_id = ?',
       )
-      .run(ackCursor, Date.now(), connectionId);
+      .run(ackCursor, now, connectionId);
+
+    // Persist the cursor to bus_agent_cursors so the retention cleanup can determine
+    // fully-acked state even after this connection closes (bus_subscriptions rows are
+    // deleted on close).  MAX guard makes the upsert monotonic across connections.
+    this.db
+      .prepare(
+        `INSERT INTO bus_agent_cursors (agent_id, last_acked_cursor, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(agent_id) DO UPDATE
+           SET last_acked_cursor = MAX(bus_agent_cursors.last_acked_cursor, excluded.last_acked_cursor),
+               updated_at        = excluded.updated_at`,
+      )
+      .run(subRow.agent_id, ackCursor, now);
   }
 
   start(port = 8787, host = '127.0.0.1'): Promise<void> {
@@ -556,12 +598,28 @@ export class BrokerServer {
       this.httpServer.once('error', reject);
       this.httpServer.listen(port, host, () => {
         this.httpServer.off('error', reject);
+
+        // Wire retention cleanup. 'forever' → no timer at all (simpler than schedule-but-no-op;
+        // MVP has no live config reload so the safety argument doesn't apply).
+        if (this.retentionDays !== 'forever') {
+          runRetentionCleanup(this.db, this.retentionDays); // immediate first run on start
+          this.cleanupTimer = setInterval(
+            () => runRetentionCleanup(this.db, this.retentionDays as number),
+            this.cleanupIntervalMs,
+          );
+          this.cleanupTimer.unref(); // never prevent process exit
+        }
+
         resolve();
       });
     });
   }
 
   close(): Promise<void> {
+    if (this.cleanupTimer !== null) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
     return new Promise((resolve, reject) => {
       // Terminate all active connections so httpServer.close() can drain
       for (const client of this.wss.clients) {

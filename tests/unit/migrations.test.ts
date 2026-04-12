@@ -16,12 +16,12 @@ describe('runMigrations', () => {
     tmp.cleanup();
   });
 
-  test('applies migration 0001 on a fresh database', () => {
+  test('applies all migrations on a fresh database', () => {
     const result = runMigrations(tmp.db);
 
-    expect(result.applied).toEqual([1]);
+    expect(result.applied).toEqual([1, 2]);
     expect(result.skipped).toEqual([]);
-    expect(result.head).toBe(1);
+    expect(result.head).toBe(2);
 
     const tables = tmp.db
       .prepare(
@@ -29,6 +29,7 @@ describe('runMigrations', () => {
       )
       .all() as { name: string }[];
     expect(tables.map((t) => t.name)).toEqual([
+      'bus_agent_cursors',
       'bus_dead_letters',
       'bus_messages',
       'bus_subscriptions',
@@ -42,7 +43,7 @@ describe('runMigrations', () => {
         "SELECT name, sql FROM sqlite_master WHERE type='table' AND name LIKE 'bus_%'",
       )
       .all() as { name: string; sql: string }[];
-    expect(busTables.length).toBe(5);
+    expect(busTables.length).toBe(6);
     for (const row of busTables) {
       expect(row.sql.toUpperCase()).toContain('STRICT');
     }
@@ -59,6 +60,7 @@ describe('runMigrations', () => {
       'idx_bus_sub_agent',
       'idx_bus_tokens_agent',
       'idx_bus_topics_topic',
+      'idx_dead_letters_recorded',
     ]);
   });
 
@@ -66,8 +68,8 @@ describe('runMigrations', () => {
     runMigrations(tmp.db);
     const result = runMigrations(tmp.db);
     expect(result.applied).toEqual([]);
-    expect(result.skipped).toEqual([1]);
-    expect(result.head).toBe(1);
+    expect(result.skipped).toEqual([1, 2]);
+    expect(result.head).toBe(2);
   });
 
   test('throws MigrationDowngradeError when DB version exceeds code version', () => {
