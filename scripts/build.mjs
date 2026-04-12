@@ -30,4 +30,14 @@ if (shimResult.status !== 0) {
 }
 chmodSync('packages/shim-claude-code/dist/index.js', 0o755);
 
-console.log('build: tsc + migration SQL copy + cli chmod + sdk-ts + shim-claude-code complete');
+// Build the generic MCP long-poll shim (depends on sdk-ts dist)
+const shimMcpResult = spawnSync('npx tsc -p packages/shim-mcp/tsconfig.json', {
+  stdio: 'inherit',
+  shell: true,
+});
+if (shimMcpResult.status !== 0) {
+  process.exit(shimMcpResult.status ?? 1);
+}
+chmodSync('packages/shim-mcp/dist/index.js', 0o755);
+
+console.log('build: tsc + migration SQL copy + cli chmod + sdk-ts + shims complete');
