@@ -1,0 +1,13 @@
+{
+  "name": "@lattice/shim-mcp",
+  "version": "0.2.0",
+  "description": "Generic MCP long-poll shim for Lattice message bus",
+  "type": "module",
+  "bin": {
+    "lattice-shim-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  }
+}

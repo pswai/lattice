@@ -1,0 +1,13 @@
+{
+  "name": "@lattice/shim-claude-code",
+  "version": "0.2.0",
+  "description": "Claude Code channel shim for Lattice message bus",
+  "type": "module",
+  "bin": {
+    "lattice-shim-claude-code": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  }
+}

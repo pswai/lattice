@@ -1,341 +1,171 @@
 # Lattice
 
-[![Tests](https://img.shields.io/badge/tests-825_passing-brightgreen)](tests/)
-[![MCP Tools](https://img.shields.io/badge/MCP_tools-35-blue)](docs/llm-reference.md)
-[![SQLite | Postgres](https://img.shields.io/badge/backends-SQLite_%7C_Postgres-orange)](#architecture)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-148_passing-brightgreen)](packages/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](tsconfig.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**The operations platform for AI agent workflows.** A self-hosted MCP server for automation, persistent coordination, and observability -- across sessions, tools, and frameworks. Zero agent code changes.
+**The primary communication channel for AI agents.** A durable, push-first message bus that any agent in any framework can trust to deliver.
 
-> *Lattice does what your agent can't do alone.*
+> Send a message. Know it will arrive. Know the receiver will learn about it as fast as its host allows.
 
+```bash
+lattice init team.db
+lattice start --workspace team.db
 ```
-npm install && npm run build && ADMIN_KEY=secret node dist/index.js
-```
-
-Create a team, get a key, drop it in `.mcp.json`, and your agents coordinate immediately. [Quick start below.](#quick-start)
-
----
 
 ## Why Lattice?
 
-Most AI tools define how agents run. Lattice defines how they coordinate.
+Agents need to talk to each other reliably. Today they share files, poll dashboards, ping each other through Slack webhooks, and guess. Lattice replaces all of that with one primitive: **`send`**.
 
-| Problem | How Lattice Solves It |
-|---------|----------------------|
-| **Agents forget across sessions** | Shared knowledge base with full-text search and tagging |
-| **No way to divide work** | Task coordination with claim-before-work, DAG dependencies, priorities |
-| **Agents can't talk to each other** | Event bus + direct messaging for broadcasts and handoffs |
-| **Repeated manual orchestration** | Playbooks: reusable task templates, one command to run |
-| **No visibility into what agents did** | Audit log, analytics, real-time dashboard |
-
-**Key differentiators:**
-- **MCP-native** -- any MCP client (Claude Code, Cursor, custom agents), zero code changes
-- **Framework-agnostic** -- not tied to LangChain, CrewAI, or any agent framework
-- **Self-hosted** -- SQLite by default, Postgres when you need scale, no external dependencies
-- **35 tools, one server** -- knowledge, tasks, messaging, cron, webhooks in a single process
-
----
+- **Durable message log.** Messages survive crashes, restarts, and disconnects.
+- **At-least-once delivery.** Explicit ack. No hand-waving.
+- **Best push your host supports.** Claude Code gets real push. SDK agents get real push. Generic MCP clients get fast long-poll. Webhooks get HTTP POST.
+- **One wire protocol.** WebSocket. Everything else is an adapter.
+- **One SQLite file = one workspace.** Move it, back it up, archive it by copying a file.
 
 ## Quick Start
 
 ```bash
-# Docker (recommended)
+# Build from source
 git clone https://github.com/pswai/lattice.git && cd lattice
-ADMIN_KEY=your-secret docker compose up -d --build
+npm ci && npm run build
+npm test                      # 148 tests
 
-# Or from source
-npm install && npm run build
-ADMIN_KEY=your-secret node dist/index.js
+# Create a workspace
+./dist/cli.js init team.db
+# → prints admin token (save it)
+
+# Start the broker
+./dist/cli.js start --workspace team.db --port 8787
+
+# Mint agent tokens
+./dist/cli.js token create agent-a --workspace team.db
+./dist/cli.js token create agent-b --workspace team.db
 ```
 
-Then create a team, get an API key, and add it to your `.mcp.json`:
+Verify the broker is running:
 
-```json
-{
-  "mcpServers": {
-    "lattice": {
-      "type": "http",
-      "url": "http://localhost:3000/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY",
-        "X-Agent-ID": "my-agent"
-      }
-    }
-  }
-}
+```bash
+curl http://127.0.0.1:8787/healthz    # → {"status":"ok"}
+curl http://127.0.0.1:8787/readyz     # → {"status":"ready"}
+curl http://127.0.0.1:8787/bus_stats  # → live stats
 ```
-
-Your agents can immediately start coordinating:
-
-```
-save_context(key: "project-goals", value: "Building a REST API for...", tags: ["planning"])
-create_task(description: "Implement user endpoints", priority: "P1")
-broadcast(event_type: "LEARNING", message: "Found that we need JWT auth")
-```
-
-For the full walkthrough (team creation, API keys, first tool calls), see the **[Getting Started guide](docs/getting-started.md)**.
-
----
-
-## Use Cases
-
-- **Individual** -- Persistent context across sessions, automated pipelines with playbooks
-- **Small Teams** -- Shared agent brain, GitHub-to-agent automation via webhooks
-- **Enterprise** -- Compliance audit trails, multi-team release coordination with DAG dependencies
-
-[See all 13 use cases with detailed examples ->](docs/use-cases.md)
-
----
 
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────┐
-│          AI Agent Clients (MCP)               │
-│  Claude Code  ·  Cursor  ·  Custom Agents     │
-└──────────────────┬────────────────────────────┘
-                   │
-┌──────────────────┼────────────────────────────┐
-│           Lattice Server (Hono)               │
-│                  │                             │
-│  /mcp ────── 35 MCP Tools                     │
-│  /api/v1 ─── REST API                         │
-│  /admin ──── Team & Key Management            │
-│  / ────────── React Dashboard                 │
-│                  │                             │
-│  ┌───────────────┼───────────────────────┐    │
-│  │         Model Layer                   │    │
-│  │  context · tasks · events · agents    │    │
-│  │  messages · artifacts · playbooks     │    │
-│  │  profiles · schedules · webhooks      │    │
-│  └───────────────┼───────────────────────┘    │
-│                  │                             │
-│  ┌───────────────┼───────────────────────┐    │
-│  │     SQLite (WAL) or PostgreSQL        │    │
-│  └───────────────────────────────────────┘    │
-│                                                │
-│  Background: Reaper · Cleanup · Scheduler ·   │
-│              Webhooks · Audit · SSE            │
-└────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   AI Agent Hosts                        │
+│  Claude Code  ·  Codex CLI  ·  Cursor  ·  Custom SDK   │
+└────────┬──────────┬───────────┬──────────┬──────────────┘
+         │          │           │          │
+    ┌────┴───┐ ┌────┴────┐ ┌───┴───┐ ┌────┴────┐
+    │Channel │ │Long-poll│ │Native │ │Webhook  │
+    │  shim  │ │  shim   │ │  SDK  │ │ (HTTP)  │
+    └────┬───┘ └────┬────┘ └───┬───┘ └────┬────┘
+         │          │          │           │
+         └──────────┴────┬─────┴───────────┘
+                         │ WebSocket
+                ┌────────┴────────┐
+                │  Lattice Broker │
+                │                 │
+                │  Wire protocol  │
+                │  Auth + tokens  │
+                │  Topic routing  │
+                │  Replay + ack   │
+                │  Back-pressure  │
+                └────────┬────────┘
+                         │
+                ┌────────┴────────┐
+                │  SQLite (WAL)   │
+                │  One file =     │
+                │  one workspace  │
+                └─────────────────┘
 ```
 
-**Stack:** TypeScript, Hono, MCP SDK, SQLite/Postgres, Zod. 825 tests.
+## Receive Contracts
 
----
+Lattice adapts delivery to whatever your agent host supports:
 
-## MCP Tools
+| Contract | Host | Transport | Idle receive | Mid-task interrupt |
+|----------|------|-----------|-------------|--------------------|
+| **Channel shim** | Claude Code | Real push via `notifications/claude/channel` | Yes | Yes (next turn) |
+| **Long-poll shim** | Codex CLI, Cursor, etc. | `lattice_wait` MCP tool | On tool call | On tool call |
+| **Native SDK** | Custom agents | Direct WebSocket push | Yes | Yes |
+| **Webhook** | HTTP endpoints | POST with HMAC signature | N/A | N/A |
 
-<details>
-<summary><strong>All 35 tools</strong> (click to expand)</summary>
+## Wire Protocol
 
-### Knowledge
+Four client ops, four server ops. JSON over WebSocket.
 
-| Tool | Description |
-|------|-------------|
-| `save_context` | Persist to shared knowledge base (FTS5 trigram search, secret-scanned) |
-| `get_context` | Full-text search + tag filtering over saved knowledge |
-| `save_artifact` | Store typed files (HTML, JSON, code, markdown) up to 1 MB |
-| `get_artifact` | Retrieve artifact by key |
-| `list_artifacts` | List artifact metadata |
+**Client → Broker:**
+| Op | Purpose |
+|----|---------|
+| `hello` | Authenticate and start session |
+| `send` | Send a message (direct or broadcast) |
+| `subscribe` | Subscribe to topics |
+| `ack` | Acknowledge receipt up to cursor |
 
-### Coordination
+**Broker → Client:**
+| Op | Purpose |
+|----|---------|
+| `welcome` | Session established |
+| `message` | Delivered message |
+| `gap` | Replay window exceeded |
+| `error` | Error with code |
 
-| Tool | Description |
-|------|-------------|
-| `create_task` | Create work items with DAG dependencies, priority (P0-P3), assignment |
-| `update_task` | Transition status with optimistic locking |
-| `list_tasks` | Filter by status, claimed_by, assigned_to |
-| `get_task` | Full task details |
-| `get_task_graph` | DAG visualization (nodes + edges) |
+See [RFC 0002](docs/rfcs/0002-lattice-as-a-message-bus.md) for the full protocol specification.
 
-### Communication
+## Packages
 
-| Tool | Description |
-|------|-------------|
-| `broadcast` | Push events (LEARNING, BROADCAST, ERROR, ESCALATION, TASK_UPDATE) |
-| `get_updates` | Cursor-based event polling |
-| `wait_for_event` | Long-poll until matching event (up to 60s) |
-| `send_message` | Direct agent-to-agent messaging |
-| `get_messages` | Fetch your messages |
+| Package | Path | Description |
+|---------|------|-------------|
+| **Broker** | `src/bus/` | WebSocket broker, SQLite persistence, auth, retention |
+| **SDK** | `packages/sdk-ts/` | TypeScript client — connect, send, receive, request/reply |
+| **Claude Code shim** | `packages/shim-claude-code/` | MCP server with channel push for Claude Code |
+| **Generic MCP shim** | `packages/shim-mcp/` | MCP server with `lattice_wait` long-poll for any MCP host |
 
-### Discovery
+## CLI Reference
 
-| Tool | Description |
-|------|-------------|
-| `register_agent` | Register with capabilities for discovery |
-| `list_agents` | Find agents by capability or status |
-| `heartbeat` | Maintain online presence |
-
-### Automation
-
-| Tool | Description |
-|------|-------------|
-| `define_playbook` | Reusable task templates with dependency wiring |
-| `list_playbooks` | List playbooks |
-| `run_playbook` | Instantiate playbook with `{{vars.KEY}}` substitution |
-| `define_schedule` | Cron-based playbook execution |
-| `list_schedules` | List schedules |
-| `delete_schedule` | Remove schedule |
-| `list_workflow_runs` | Track playbook executions |
-| `get_workflow_run` | Execution details with task statuses |
-
-### Roles
-
-| Tool | Description |
-|------|-------------|
-| `define_profile` | Named role (system prompt + capabilities + tags) |
-| `list_profiles` | List profiles |
-| `get_profile` | Get profile with full system prompt |
-| `delete_profile` | Remove profile |
-
-### Integration
-
-| Tool | Description |
-|------|-------------|
-| `define_inbound_endpoint` | Webhook receiver (GitHub, PagerDuty, etc.) |
-| `list_inbound_endpoints` | List endpoints |
-| `delete_inbound_endpoint` | Remove endpoint |
-
-### Observability
-
-| Tool | Description |
-|------|-------------|
-| `get_analytics` | Aggregated team stats over time windows |
-| `export_workspace_data` | Full team snapshot (secrets redacted) |
-
-</details>
-
----
-
-## Dashboard
-
-Built-in React dashboard at `http://localhost:3000`:
-
-- **Overview** -- agents, tasks, events, analytics
-- **Task Graph** -- interactive DAG visualization
-- **Artifacts** -- browse stored files
-- **Playbooks** -- view and trigger
-- **Audit Log** -- searchable trail
-- **API Keys** -- manage per-team keys
-
-Build: `npm run build:dashboard`
-
----
-
-## REST API
-
-REST API at `/api/v1/*` -- every MCP tool has a REST equivalent. Admin API at `/admin/*` for team and key management.
-
-See [API Reference](docs/api-reference.md) for all endpoints with curl examples.
-
----
+```
+lattice init <workspace-path>                                Create a new workspace
+lattice start --workspace <path> [--port N] [--host H]      Start the broker
+lattice token create <agent_id> --workspace <path>           Mint a new token
+lattice token revoke <token> --workspace <path>              Revoke a token
+```
 
 ## Configuration
 
-Environment variables:
+### Broker flags
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | HTTP server port |
-| `DB_PATH` | `./data/lattice.db` | SQLite database path |
-| `DATABASE_URL` | -- | PostgreSQL connection string (overrides SQLite) |
-| `ADMIN_KEY` | -- | Admin API auth key |
-| `LOG_LEVEL` | `info` | `silent` / `error` / `warn` / `info` / `debug` |
-| `RATE_LIMIT_PER_MIN` | `300` | Per-key rate limit (0 = disabled) |
-| `AUDIT_ENABLED` | `true` | Append-only audit log |
-| `METRICS_ENABLED` | `true` | Prometheus `/metrics` endpoint |
-| `LATTICE_TOOLS` | `all` | Tool tiers to expose: `all`, or comma-separated `automation,persist,coordinate,observe` |
+| Flag | Env | Default | Description |
+|------|-----|---------|-------------|
+| `--workspace <path>` | — | — | SQLite DB path (required) |
+| `--port <n>` | `LATTICE_PORT` | `8787` | Listen port (0 for auto) |
+| `--host <addr>` | — | `127.0.0.1` | Listen address |
+| `--retention-days <n\|forever>` | `LATTICE_RETENTION_DAYS` | `30` | Message retention |
+| `--inbox-limit <n>` | `LATTICE_INBOX_LIMIT` | `10000` | Per-agent inbox depth cap |
 
-See [Configuration](docs/configuration.md) for all options.
+### Shim environment variables
 
-### Progressive Tool Tiers
-
-Control which tools are exposed to reduce decision fatigue. Start with `automation` (zero overlap with built-in agent tools), add tiers as you need them:
-
-| Tier | Tools | What it adds | Overlaps with built-ins? |
-|------|-------|-------------|--------------------------|
-| `automation` | 11 tools | Playbooks, cron schedules, webhooks, workflow runs | No |
-| `persist` | 10 tools | Tasks (DAG), shared context (FTS5), artifacts | Superficial (session vs persistent) |
-| `coordinate` | 8 tools | Event bus, agent messaging, agent registry | Superficial (session vs persistent) |
-| `observe` | 6 tools | Analytics, profiles, data export | No |
-
-```bash
-# Start with just automation -- zero overlap, immediate value
-LATTICE_TOOLS=automation ADMIN_KEY=secret node dist/index.js
-
-# Graduate to automation + persistence when you need cross-session state
-LATTICE_TOOLS=automation,persist ADMIN_KEY=secret node dist/index.js
-
-# All tools (default)
-LATTICE_TOOLS=all ADMIN_KEY=secret node dist/index.js
-```
-
----
-
-## Production Deployment
-
-### Docker
-
-```bash
-docker compose up -d --build
-```
-
-### PostgreSQL
-
-Set `DATABASE_URL` to use Postgres instead of SQLite:
-
-```bash
-DATABASE_URL=postgres://user:pass@host:5432/lattice node dist/index.js
-```
-
-### Security
-
-- API key auth with read/write/admin scopes
-- Rate limiting per key
-- Secret scanning blocks credentials from shared state
-- SSRF guard on outbound webhooks
-- Audit logging with configurable retention
-- Prometheus metrics
-
-See [SECURITY.md](SECURITY.md) and [Self-Hosted Guide](docs/self-hosted-guide.md).
-
----
-
-## Lattice vs Others
-
-| | Lattice | Claude Code Built-in | CrewAI / LangGraph | Mem0 / Zep |
-|---|---|---|---|---|
-| **What it is** | Coordination infrastructure | Session-local tools | Agent frameworks | Memory platforms |
-| **Persistence** | Across sessions | Session only | Framework-managed | Cloud/self-hosted |
-| **Knowledge search** | FTS5 + tags | Flat MEMORY.md | None | Vector/graph search |
-| **Task coordination** | DAG deps, claim-before-work | Session-local list | Role-based | None |
-| **Automation** | Playbooks, cron, webhooks | None | Workflow-defined | None |
-| **Works with** | Any MCP client | Claude Code only | Own SDK only | SDK integration |
-| **Self-hosted** | Single binary, SQLite | N/A | Varies | Varies |
-
-**Use built-in tools** for single-session work without persistence needs.
-
-**Add Lattice** when you need knowledge across sessions, multi-agent task claiming, automated pipelines, webhooks, or cross-tool coordination (Claude Code + Cursor + custom agents).
-
----
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LATTICE_URL` | Yes | — | WebSocket URL, e.g. `ws://127.0.0.1:8787` |
+| `LATTICE_AGENT_ID` | Yes | — | This agent's identity |
+| `LATTICE_TOKEN` | Yes | — | Bearer token from `lattice token create` |
+| `LATTICE_TOPICS` | No | — | Comma-separated topics to auto-subscribe |
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) -- zero to running in 5 minutes
-- [Configuration](docs/configuration.md) -- all environment variables
-- [API Reference](docs/api-reference.md) -- every REST endpoint
-- [Use Cases](docs/use-cases.md) -- 13 scenarios across individuals, teams, and enterprises
-- [LLM Reference](docs/llm-reference.md) -- MCP tool docs optimized for AI agents
-- [LLM Examples](docs/llm-examples.md) -- multi-agent coordination patterns
-- [Self-Hosted Guide](docs/self-hosted-guide.md) -- production deployment
-- [Agent Protocol](docs/agent-protocol.md) -- how agents should use Lattice
-- [Agent Preamble](docs/agent-preamble.md) -- template for teaching agents the protocol
+- [Manifesto](MANIFESTO.md) — what Lattice is and isn't
+- [RFC 0002](docs/rfcs/0002-lattice-as-a-message-bus.md) — protocol specification
+- [RFC 0003](docs/rfcs/0003-rewrite-execution-plan.md) — rewrite execution plan
+- [Testing Guide](docs/testing-guide.md) — end-to-end testing across hosts
+- [Lessons from v0.1](docs/lessons-from-v0.1.md) — engineering lessons from the prior version
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
