@@ -250,6 +250,14 @@ if (permissionConfig.enabled) {
           tool_name,
           description,
           input_preview,
+          reply_with: {
+            tool: 'lattice_reply',
+            payload: {
+              kind: PERMISSION_KIND.VERDICT,
+              request_id,
+              verdict: 'allow | deny',
+            },
+          },
         },
       });
       log('info', 'permission_request_forwarded', {
