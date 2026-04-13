@@ -17,6 +17,8 @@ data/*.db-shm.bak
 data/*.db-wal.bak
 data/*.db.bak
 *.db
+*.db-shm
+*.db-wal
 
 # Env files
 .env
