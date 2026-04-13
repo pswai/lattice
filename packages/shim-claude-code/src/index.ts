@@ -6,7 +6,9 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Bus } from '../../sdk-ts/dist/index.js';
-import type { MessageFrame } from '../../sdk-ts/dist/index.js';
+import { buildChannelMeta } from './channel-meta.js';
+import { loadGatingConfig, shouldEmit, type GatingConfig } from './sender-policy.js';
+import { log } from '../../../dist/bus/logger.js';
 
 const LATTICE_URL = process.env.LATTICE_URL;
 const LATTICE_AGENT_ID = process.env.LATTICE_AGENT_ID;
@@ -20,14 +22,20 @@ if (!LATTICE_URL || !LATTICE_AGENT_ID || !LATTICE_TOKEN) {
   process.exit(1);
 }
 
+let gatingConfig: GatingConfig;
+try {
+  gatingConfig = loadGatingConfig(process.env);
+} catch (err) {
+  process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+}
+
 const bus = new Bus({
   url: LATTICE_URL,
   agentId: LATTICE_AGENT_ID,
   token: LATTICE_TOKEN,
   onError: (code, message) => {
-    process.stderr.write(
-      JSON.stringify({ t: Date.now(), level: 'warn', event: 'bus_error', code, message }) + '\n',
-    );
+    log('warn', 'bus_error', { code, message });
   },
 });
 
@@ -151,26 +159,22 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 // --- Channel notification: push Lattice messages into Claude's context ------
 
-function buildChannelMeta(msg: MessageFrame): Record<string, string> {
-  const meta: Record<string, string> = {
-    from: msg.from,
-    type: msg.type,
-    cursor: String(msg.cursor),
-    created_at: String(msg.created_at),
-  };
-  if (msg.topic) meta.topic = msg.topic;
-  if (msg.idempotency_key) meta.idempotency_key = msg.idempotency_key;
-  if (msg.correlation_id) meta.correlation_id = msg.correlation_id;
-  return meta;
-}
-
 async function startMessageLoop() {
   for await (const msg of bus.messages()) {
+    const decision = shouldEmit(gatingConfig, msg.from);
+    if (!decision.allow) {
+      // Ack advances on the next iterator pull (SDK ack-on-next). A blocked
+      // message that is the last before shutdown may not get acked; the broker
+      // will replay it on reconnect and we will block it again — correct, just
+      // redundant log.
+      log('warn', 'channel_sender_blocked', {
+        from: msg.from,
+        reason: decision.reason,
+        cursor: msg.cursor,
+      });
+      continue;
+    }
     try {
-      // Official Claude Code channel notification format:
-      // - content: string body of the <channel> tag
-      // - meta: Record<string, string> attributes on the <channel> tag
-      // - source is set automatically from the server name ("lattice")
       await mcp.notification({
         method: 'notifications/claude/channel',
         params: {
@@ -181,14 +185,9 @@ async function startMessageLoop() {
         },
       });
     } catch (err) {
-      process.stderr.write(
-        JSON.stringify({
-          t: Date.now(),
-          level: 'error',
-          event: 'channel_notification_failed',
-          error: err instanceof Error ? err.message : String(err),
-        }) + '\n',
-      );
+      log('error', 'channel_notification_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 }
@@ -213,14 +212,9 @@ async function main() {
   await mcp.connect(new StdioServerTransport());
 
   startMessageLoop().catch((err) => {
-    process.stderr.write(
-      JSON.stringify({
-        t: Date.now(),
-        level: 'error',
-        event: 'message_loop_failed',
-        error: err instanceof Error ? err.message : String(err),
-      }) + '\n',
-    );
+    log('error', 'message_loop_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   process.on('SIGINT', shutdown);
