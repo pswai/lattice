@@ -1,6 +1,6 @@
 # RFC 0004: Claude Code Channel Hardening
 
-- **Status:** Draft
+- **Status:** Accepted — implemented and Tier 3 verified (2026-04-14)
 - **Author:** pswai
 - **Created:** 2026-04-13
 - **Extends:** [RFC 0002 — Lattice as a Message Bus](./0002-lattice-as-a-message-bus.md)
