@@ -1,6 +1,6 @@
 # RFC 0003: v0.2.0 Rewrite Execution Plan
 
-- **Status:** Draft
+- **Status:** Completed — v0.2.0 shipped 2026-04-13
 - **Author:** pswai
 - **Created:** 2026-04-11
 - **Companion:** [RFC 0002 — Lattice as a Message Bus](./0002-lattice-as-a-message-bus.md)
