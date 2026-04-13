@@ -132,6 +132,42 @@ export async function connectSenderBus(broker: Broker, agentId: string, token: s
   return bus;
 }
 
+// Connect an agent's bus and start an inbox-collector iterator. The IIFE
+// terminates cleanly on close: the `closed` flag swallows the AbortError
+// thrown by the iterator when bus.close() is called from the test teardown.
+export type AgentWithInbox = {
+  bus: Bus;
+  inbox: import('../../../sdk-ts/dist/index.js').MessageFrame[];
+  close: () => Promise<void>;
+};
+
+export async function connectAgentWithInbox(
+  broker: Broker,
+  agentId: string,
+  token: string,
+): Promise<AgentWithInbox> {
+  const bus = await connectSenderBus(broker, agentId, token);
+  const inbox: AgentWithInbox['inbox'] = [];
+  let closed = false;
+  (async () => {
+    try {
+      for await (const msg of bus.messages()) inbox.push(msg);
+    } catch (err) {
+      if (!closed) throw err;
+    }
+  })().catch((err) => {
+    if (!closed) throw err;
+  });
+  return {
+    bus,
+    inbox,
+    close: async () => {
+      closed = true;
+      try { await bus.close(); } catch { /* */ }
+    },
+  };
+}
+
 // Attach a collector to the shim's MCP client that appends every
 // `notifications/claude/channel` params object to the returned array.
 export function collectChannelNotifications(shim: ShimHandle): Array<{
