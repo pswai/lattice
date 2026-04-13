@@ -19,7 +19,7 @@ import {
   type VerdictPayload,
 } from './permission-relay.js';
 import { buildReply, createInboundCache } from './reply.js';
-import { loadGatingConfig, shouldEmit, type GatingConfig } from './sender-policy.js';
+import { loadGatingConfig, parseList, shouldEmit, type GatingConfig } from './sender-policy.js';
 import { log } from '../../../dist/bus/logger.js';
 import { randomUUID } from 'node:crypto';
 
@@ -375,10 +375,8 @@ async function shutdown() {
 async function main() {
   await bus.connect();
 
-  if (LATTICE_TOPICS) {
-    const topics = LATTICE_TOPICS.split(',').map((t) => t.trim()).filter(Boolean);
-    if (topics.length > 0) bus.subscribe(topics);
-  }
+  const topics = parseList(LATTICE_TOPICS);
+  if (topics.length > 0) bus.subscribe(topics);
 
   await mcp.connect(new StdioServerTransport());
 

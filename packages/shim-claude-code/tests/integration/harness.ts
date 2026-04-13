@@ -9,21 +9,12 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Bus } from '../../../sdk-ts/dist/index.js';
+import { openDatabase } from '../../../../dist/bus/db.js';
+import { runMigrations } from '../../../../dist/bus/migrations.js';
+import { mintToken as mintTokenSync } from '../../../../dist/bus/tokens.js';
 
 export const CLI_PATH = resolve('dist/cli.js');
 export const SHIM_PATH = resolve('packages/shim-claude-code/dist/index.js');
-
-async function runCmd(cmd: string, args: string[]): Promise<string> {
-  const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  let stdout = '';
-  proc.stdout!.on('data', (d: Buffer) => {
-    stdout += d.toString();
-  });
-  await new Promise<void>((res, rej) => {
-    proc.on('close', (code) => (code === 0 ? res() : rej(new Error(`${cmd} ${args.join(' ')} exit ${code}`))));
-  });
-  return stdout;
-}
 
 export type Broker = {
   port: number;
@@ -38,14 +29,24 @@ export async function startBroker(): Promise<Broker> {
   const dir = mkdtempSync(join(tmpdir(), 'lattice-shim-test-'));
   const dbPath = join(dir, 'bus.db');
 
-  const initOut = await runCmd('node', [CLI_PATH, 'init', dbPath]);
-  if (!initOut.match(/\s+(lat_admin_\S+)/)) throw new Error('no admin token from init');
-
+  // Initialize the workspace in-process instead of shelling out to
+  // `cli init` + one `cli token create` per agent. We open/close the DB per
+  // mint to avoid a long-lived handle coexisting with the broker subprocess
+  // (WAL tolerates it, but intermittent contention under vitest
+  // concurrency produced §2.10 flakes during development).
+  {
+    const db = openDatabase(dbPath);
+    runMigrations(db);
+    db.close();
+  }
   const mintToken = async (agentId: string): Promise<string> => {
-    const out = await runCmd('node', [CLI_PATH, 'token', 'create', agentId, '--workspace', dbPath]);
-    const tok = out.match(/\s+(lat_live_\S+)/)?.[1];
-    if (!tok) throw new Error(`no token for ${agentId}`);
-    return tok;
+    const db = openDatabase(dbPath);
+    try {
+      const { plaintext } = mintTokenSync(db, { agent_id: agentId, scope: 'agent' });
+      return plaintext;
+    } finally {
+      db.close();
+    }
   };
 
   const proc = spawn('node', [CLI_PATH, 'start', '--workspace', dbPath, '--port', '0'], {
