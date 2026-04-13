@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { Bus } from '../../sdk-ts/dist/index.js';
 import { buildChannelMeta } from './channel-meta.js';
+import { buildReply, createInboundCache } from './reply.js';
 import { loadGatingConfig, shouldEmit, type GatingConfig } from './sender-policy.js';
 import { log } from '../../../dist/bus/logger.js';
 
@@ -30,6 +31,37 @@ try {
   process.exit(1);
 }
 
+const inboundCache = createInboundCache();
+
+// Wrap tool handler bodies so the try/catch + JSON envelope is defined once.
+// Thunk returns the raw payload; errors become `{ok:false, error}` with isError.
+type ToolPayload = Record<string, unknown>;
+async function toolResult(
+  fn: () => ToolPayload | Promise<ToolPayload>,
+): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+  try {
+    const payload = await fn();
+    const isError = payload.ok === false;
+    return {
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+      ...(isError ? { isError: true } : {}),
+    };
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
 const bus = new Bus({
   url: LATTICE_URL,
   agentId: LATTICE_AGENT_ID,
@@ -51,8 +83,9 @@ const mcp = new Server(
     },
     // Added to Claude's system prompt so it knows how to handle Lattice events.
     instructions:
-      'Messages from other Lattice agents arrive as <channel source="lattice" from="..." type="..." ...>. ' +
-      'Use the lattice_send_message tool to reply. Pass the "from" attribute as the "to" argument. ' +
+      'Messages from other Lattice agents arrive as <channel source="lattice" from="..." type="..." cursor="..." ...>. ' +
+      'To reply, prefer lattice_reply with to_message_id set to the cursor; it targets the original sender and preserves correlation_id. ' +
+      'Use lattice_send_message for fresh sends (no prior inbound) or broadcasts. ' +
       'Topic broadcasts include a "topic" attribute; direct messages do not.',
   },
 );
@@ -82,6 +115,22 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'lattice_reply',
+      description:
+        'Reply to an inbound Lattice message. Pass the cursor shown in the <channel> tag as to_message_id; the shim resolves the recipient and correlation_id automatically.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          to_message_id: {
+            type: 'integer',
+            description: 'The cursor of the inbound message being replied to',
+          },
+          payload: { description: 'Reply payload (any JSON value)' },
+        },
+        required: ['to_message_id', 'payload'],
+      },
+    },
+    {
       name: 'lattice_subscribe',
       description: 'Subscribe to one or more Lattice topics',
       inputSchema: {
@@ -103,11 +152,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
 
   if (name === 'lattice_send_message') {
-    const { to, topic, type, payload, idempotency_key, correlation_id } = args as Record<
-      string,
-      unknown
-    >;
-    try {
+    return toolResult(() => {
+      const { to, topic, type, payload, idempotency_key, correlation_id } = args as Record<
+        string,
+        unknown
+      >;
       bus.send({
         to: (to as string) ?? undefined,
         topic: (topic as string) ?? undefined,
@@ -116,42 +165,38 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         idempotency_key: (idempotency_key as string) ?? undefined,
         correlation_id: (correlation_id as string) ?? undefined,
       });
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
+      return { ok: true };
+    });
+  }
+
+  if (name === 'lattice_reply') {
+    return toolResult(() => {
+      const { to_message_id, payload } = args as Record<string, unknown>;
+      if (typeof to_message_id !== 'number' || !Number.isInteger(to_message_id)) {
+        return { ok: false, error: 'to_message_id must be an integer' };
+      }
+      const built = buildReply(inboundCache, to_message_id, payload);
+      if (!built.ok) {
+        return {
+          ok: false,
+          error: built.error,
+          to_message_id: built.to_message_id,
+          hint: 'Inbound not in cache (evicted or never seen). Fall back to lattice_send_message with an explicit correlation_id.',
+        };
+      }
+      bus.send(built.args);
+      // RFC §2: "zero UUID transcription" — don't echo correlation_id back to
+      // the model so it can't be tempted to copy it into a follow-up send.
+      return { ok: true };
+    });
   }
 
   if (name === 'lattice_subscribe') {
-    const { topics } = args as { topics: string[] };
-    try {
+    return toolResult(() => {
+      const { topics } = args as { topics: string[] };
       bus.subscribe(topics);
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, topics }) }] };
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
+      return { ok: true, topics };
+    });
   }
 
   throw new Error(`unknown tool: ${name}`);
@@ -183,6 +228,12 @@ async function startMessageLoop() {
             : JSON.stringify(msg.payload),
           meta: buildChannelMeta(msg),
         },
+      });
+      // Record AFTER successful emit: if the notification threw, Claude never
+      // saw the message, so offering a reply-by-cursor would be a lie.
+      inboundCache.set(msg.cursor, {
+        from: msg.from,
+        correlation_id: msg.correlation_id,
       });
     } catch (err) {
       log('error', 'channel_notification_failed', {

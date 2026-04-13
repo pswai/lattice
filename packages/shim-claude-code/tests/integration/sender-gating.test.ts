@@ -8,6 +8,7 @@ import {
   SHIM_PATH,
   startBroker,
   startShim,
+  waitFor,
   type Broker,
 } from './harness.js';
 import type { Bus } from '../../../sdk-ts/dist/index.js';
@@ -171,11 +172,3 @@ describe('sender identity gating (RFC 0004 §1)', () => {
   });
 });
 
-async function waitFor(pred: () => boolean, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`waitFor timed out after ${timeoutMs}ms`);
-}

@@ -1,9 +1,10 @@
 /**
- * Least-recently-used cache keyed by type K.
+ * Least-recently-used cache keyed by K with value V.
  * Uses Map insertion-order for O(1) eviction of the oldest entry.
+ * Defaults V to `true` so set-style dedup callers can still do `cache.add(k)`.
  */
-export class LruCache<K> {
-  private readonly map = new Map<K, true>();
+export class LruCache<K, V = true> {
+  private readonly map = new Map<K, V>();
 
   constructor(private readonly maxSize: number) {}
 
@@ -11,20 +12,26 @@ export class LruCache<K> {
     return this.map.has(key);
   }
 
+  get(key: K): V | undefined {
+    return this.map.get(key);
+  }
+
   /**
-   * Add key to the cache. If it already exists, refresh its position (make it newest).
-   * Evicts the oldest entry if at capacity.
+   * Set key → value. Refreshes position on re-set; evicts oldest at capacity.
    */
-  add(key: K): void {
+  set(key: K, value: V): void {
     if (this.map.has(key)) {
-      // Refresh: delete then re-insert moves it to the end (newest position)
       this.map.delete(key);
     } else if (this.map.size >= this.maxSize) {
-      // Evict oldest (first in insertion order)
       const oldest = this.map.keys().next().value as K;
       this.map.delete(oldest);
     }
-    this.map.set(key, true);
+    this.map.set(key, value);
+  }
+
+  /** Convenience for set-style usage: `cache.add(key)` stores `true`. */
+  add(this: LruCache<K, true>, key: K): void {
+    this.set(key, true);
   }
 
   get size(): number {

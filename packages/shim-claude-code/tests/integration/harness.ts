@@ -157,6 +157,27 @@ export function findLogLine(stderr: string[], event: string): Record<string, unk
   return undefined;
 }
 
+export async function waitFor(pred: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+}
+
+// Call an MCP tool on the shim and parse the first text content as JSON.
+// Returns the parsed object plus the isError flag for negative-path assertions.
+export async function callToolJson<T = Record<string, unknown>>(
+  shim: ShimHandle,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ parsed: T; isError: boolean }> {
+  const result = await shim.client.callTool({ name, arguments: args });
+  const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
+  return { parsed: JSON.parse(text) as T, isError: result.isError === true };
+}
+
 export function findAllLogLines(stderr: string[], event: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const line of stderr) {
