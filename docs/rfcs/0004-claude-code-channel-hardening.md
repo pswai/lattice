@@ -52,7 +52,7 @@ This tool is also the reply hook for §3: approvers use `lattice_reply` to respo
 
 The manifesto names three hard sub-problems the bus must solve: idle receive, **mid-task interrupt**, and expected reply. In the Claude Code protocol, regular `<channel>` messages land only at turn boundaries — the one protocol surface that fires mid-tool-call is `claude/channel/permission`. That makes permission relay not a distributed-approvals engine but **Claude Code's implementation of mid-task interrupt**: a remote agent can interject "stop, that Bash is wrong" in the one window where Claude Code will listen. Cutting it would leave the flagship contract failing one of the three commitments it exists to honor.
 
-The mechanism is deliberately minimal to stay inside that framing. Permission requests and verdicts travel as ordinary bus messages — `type: "channel.permission_request"` and `type: "channel.permission_verdict"`, tied by `correlation_id` — so there is zero wire protocol change. Each worker shim is configured with one approver agent and sends requests directly to it; no topic fan-out, no subscription model. Multi-approver quorum logic is deferred until a real deployment asks for it.
+The mechanism is deliberately minimal to stay inside that framing. Permission requests and verdicts travel as ordinary bus messages with `type: "direct"` (the bus-level type from RFC 0002) and a shim-level `payload.kind` discriminator — `"channel.permission_request"` or `"channel.permission_verdict"` — tied by `correlation_id`. There is zero wire protocol change. Each worker shim is configured with one approver agent and sends requests directly to it; no topic fan-out, no subscription model. Multi-approver quorum logic is deferred until a real deployment asks for it.
 
 Verdict resolution is asymmetric. A wrong `deny` just defers to the terminal dialog; a wrong `allow` is an incident. So: first `deny` from the approver wins immediately, first `allow` takes effect as soon as it arrives, and no quorum window sits between request and resolution. This is cheap and honest until there is evidence to make it more elaborate.
 
@@ -61,7 +61,7 @@ Verdicts are not replayed on reconnect. They are fire-and-forget for a specific 
 ### Flow
 
 1. Claude Code emits `notifications/claude/channel/permission_request` to the shim with `{ request_id, tool_name, description, input_preview }`.
-2. Shim sends a direct bus message to the configured approver: `type: "channel.permission_request"`, fresh `correlation_id`, payload carrying the four fields above.
+2. Shim sends a direct bus message to the configured approver: bus `type: "direct"`, fresh `correlation_id`, payload `{ kind: "channel.permission_request", request_id, tool_name, description, input_preview, reply_with }`. The `reply_with` field carries the shape the approver must use — `{ tool: "lattice_reply", payload: { kind: "channel.permission_verdict", request_id, verdict: "allow | deny" } }` — so an approver agent can respond without consulting this RFC.
 3. The approver receives it through whatever host it runs in and calls `lattice_reply` with `{ verdict: "allow" | "deny", request_id }`.
 4. Worker shim resolves: sender ≠ configured approver drops with `verdict_unauthorized`; `deny` emits `{behavior: "deny"}` to Claude Code with `verdict_accepted`; `allow` emits `{behavior: "allow"}` with `verdict_accepted`; verdicts arriving after resolution or after timeout drop with `late_verdict`.
 5. If no verdict arrives within the timeout, the shim emits nothing and Claude Code's terminal dialog resolves.
