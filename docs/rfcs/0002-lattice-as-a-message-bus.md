@@ -1,6 +1,6 @@
 # RFC 0002: Lattice as a Message Bus
 
-- **Status:** Draft
+- **Status:** Accepted — implemented as v0.2.0 (2026-04-13)
 - **Author:** pswai
 - **Created:** 2026-04-11
 - **Supersedes:** [RFC 0001 — Push-First Message Broker](./0001-push-first-broker.md)

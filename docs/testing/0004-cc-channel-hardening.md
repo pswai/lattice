@@ -154,13 +154,13 @@ Manual pre-release checklist. One human, two iTerm2 windows, maybe 20 minutes. N
 
 Run each; paste the relevant shim log excerpts into the release PR.
 
-- [ ] **Meta render.** `agent-supervisor` sends to `agent-a`. Session-a shows a `<channel>` tag with `from`, `type`, `correlation_id` attributes matching the send.
-- [ ] **Sender gating.** Flip session-a to `SENDER_POLICY=allowlist` with an empty allowlist, restart. Next send from `agent-supervisor` is acked in broker log but does not render. Shim log shows `channel_sender_blocked`.
-- [ ] **`lattice_reply` correlation.** Session-a agent replies to the prior message with `lattice_reply`. Supervisor sees the reply with the same `correlation_id`.
-- [ ] **Permission allow.** Session-a enables relay with `APPROVER=agent-supervisor`. Ask agent-a to run `echo hello`. Supervisor (manually or via a tiny SDK auto-approver) replies `allow`. Bash runs.
-- [ ] **Permission deny.** Same, supervisor replies `deny`. Bash is blocked.
-- [ ] **Permission unauthorized.** While relay is on with `APPROVER=agent-supervisor`, send a verdict from a *different* agent token. Shim log shows `verdict_unauthorized`; request is unaffected.
-- [ ] **Permission timeout.** No approver responds. After `TIMEOUT_MS`, terminal dialog appears; operator approves manually.
+- [x] **Meta render.** `agent-supervisor` sends to `agent-a`. Session-a shows a `<channel>` tag with `from`, `type`, `correlation_id` attributes matching the send.
+- [x] **Sender gating.** Flip session-a to `SENDER_POLICY=allowlist` with an empty allowlist, restart. Next send from `agent-supervisor` is acked in broker log but does not render. Shim log shows `channel_sender_blocked`.
+- [x] **`lattice_reply` correlation.** Session-a agent replies to the prior message with `lattice_reply`. Supervisor sees the reply with the same `correlation_id`.
+- [x] **Permission allow.** Session-a enables relay with `APPROVER=agent-supervisor`. Ask agent-a to run `echo hello`. Supervisor (manually or via a tiny SDK auto-approver) replies `allow`. Bash runs.
+- [x] **Permission deny.** Same, supervisor replies `deny`. Bash is blocked.
+- [x] **Permission unauthorized.** While relay is on with `APPROVER=agent-supervisor`, send a verdict from a *different* agent token. Shim log shows `verdict_unauthorized`; request is unaffected.
+- [x] **Permission timeout.** No approver responds. After `TIMEOUT_MS`, terminal dialog appears; operator approves manually.
 
 If any checkbox fails, the release does not tag. Evidence is the paste in the PR — no formal bundle directory.
 
@@ -173,6 +173,10 @@ If any checkbox fails, the release does not tag. Evidence is the paste in the PR
 - **Test the broker.** RFC 0002 coverage owns that. If a bug surfaces at the shim boundary that is actually a broker bug, file it separately.
 - **Cover Generic MCP, SDK, or Webhook contracts.** Separate guides, separate RFCs, separate hardening passes.
 
-## Open question
+## Open questions
 
-Whether to ever automate Tier 3. Needs a macOS runner, non-interactive CC mode, and a prompt that reliably triggers the tool under test. Not a blocker for RFC 0004 shipping.
+**Approver cold-start replay.** If a permission request is forwarded to the approver while their shim/session is offline, and the approver connects afterward, does the request get replayed into their context? Observed during Tier 3: supervisor started after `permission_request_forwarded`, never saw the pending request. Needs Tier 2 coverage — decide the intended behavior (replay vs. drop) and test it.
+
+**Remote recovery after timeout.** Once the shim evicts a request's correlation entry, only CC's terminal dialog can unblock the requesting agent — any later bus verdict is dropped as `late_verdict`. Whether to support a remote re-request path (new `request_id`, or extending the authority window on demand) is deferred; decide before a production deployment where the operator isn't at the keyboard.
+
+**Automating Tier 3.** Whether to ever automate Tier 3. Needs a macOS runner, non-interactive CC mode, and a prompt that reliably triggers the tool under test. Not a blocker for RFC 0004 shipping.
