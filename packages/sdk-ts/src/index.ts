@@ -3,6 +3,7 @@ export type { BusOptions, SendOptions, RequestOptions, MessageFrame, GapFrame } 
 export { LruCache } from './lru.js';
 export { AsyncQueue } from './queue.js';
 export { reconnectDelayMs } from './backoff.js';
+export { log, type LogLevel } from './logger.js';
 export {
   BusRequestTimeoutError,
   BusReplayGapError,
