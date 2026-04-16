@@ -19,7 +19,8 @@ import {
   type VerdictPayload,
 } from './permission-relay.js';
 import { buildReply, createInboundCache } from './reply.js';
-import { loadGatingConfig, parseList, shouldEmit, type GatingConfig } from './sender-policy.js';import { randomUUID } from 'node:crypto';
+import { loadGatingConfig, parseList, shouldEmit, type GatingConfig } from './sender-policy.js';
+import { randomUUID } from 'node:crypto';
 
 const LATTICE_URL = process.env.LATTICE_URL;
 const LATTICE_AGENT_ID = process.env.LATTICE_AGENT_ID;
