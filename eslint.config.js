@@ -25,4 +25,15 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
+  {
+    files: ['packages/*/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['../../../dist/*', '../../../../dist/*'],
+          message: 'Package source must not import from the root dist/. Export what you need from packages/sdk-ts (or another package) and import that instead.',
+        }],
+      }],
+    },
+  },
 );

@@ -5,7 +5,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { Bus } from '../../sdk-ts/dist/index.js';
+import { Bus, log } from '../../sdk-ts/dist/index.js';
 import { buildChannelMeta } from './channel-meta.js';
 import {
   createPermissionMap,
@@ -20,7 +20,6 @@ import {
 } from './permission-relay.js';
 import { buildReply, createInboundCache } from './reply.js';
 import { loadGatingConfig, parseList, shouldEmit, type GatingConfig } from './sender-policy.js';
-import { log } from '../../../dist/bus/logger.js';
 import { randomUUID } from 'node:crypto';
 
 const LATTICE_URL = process.env.LATTICE_URL;
